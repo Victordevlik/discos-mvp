@@ -22,6 +22,14 @@
     <!-- Lista simple de venues con botón +1 noche -->
     <div id="venues-list"></div>
   </div>
+  <div class="card">
+    <h3>Agregar crédito</h3>
+    <div class="row">
+      <input id="venue-new-id" type="text" placeholder="venueId">
+      <input id="venue-new-amount" type="number" min="1" value="1" placeholder="cantidad">
+      <button id="btn-add-credit">Agregar crédito</button>
+    </div>
+  </div>
   <script>
     // Fetch con manejo de JSON
     async function api(path, { method = 'GET', headers = {}, body } = {}) {
@@ -48,6 +56,9 @@
       const r = await api('/api/admin/venues?admin_secret=' + encodeURIComponent(secret))
       const container = document.getElementById('venues-list')
       container.innerHTML = ''
+      if (!r.venues || !r.venues.length) {
+        container.textContent = 'No hay locales. Usa “Agregar crédito” para crear uno.'
+      }
       for (const v of r.venues || []) {
         const row = document.createElement('div')
         row.className = 'row'
@@ -72,6 +83,23 @@
       }
     }
     document.getElementById('btn-load').onclick = () => loadVenues().catch(e => showError(String(e.message)))
+    document.getElementById('btn-add-credit').onclick = async () => {
+      showError('')
+      const secret = document.getElementById('admin-secret').value.trim()
+      const venueId = document.getElementById('venue-new-id').value.trim()
+      const amountStr = document.getElementById('venue-new-amount').value
+      const amount = Math.max(1, Number(amountStr || 1))
+      if (!secret) { showError('Ingresa clave admin'); return }
+      if (!venueId) { showError('Ingresa un venueId'); return }
+      try {
+        await api('/api/admin/venues/credit', {
+          method: 'POST',
+          headers: { 'X-Admin-Secret': secret },
+          body: JSON.stringify({ venueId, amount })
+        })
+        await loadVenues()
+      } catch (e) { showError(String(e.message)) }
+    }
   </script>
 </body>
 </html>
