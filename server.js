@@ -40,8 +40,20 @@ let db = null
 let dbReady = false
 try {
   const { Pool } = require('pg')
-  const conn = String(process.env.DATABASE_URL || '')
-  if (conn) db = new Pool({ connectionString: conn, ssl: { rejectUnauthorized: false } })
+  const candidates = [
+    String(process.env.DATABASE_URL || ''),
+    String(process.env.POSTGRES_URL || ''),
+    String(process.env.POSTGRESQL_URL || ''),
+    String(process.env.PGURL || ''),
+    String(process.env.PG_URL || ''),
+    String(process.env.URL_DE_BASE_DE_DATOS || ''),
+    String(process.env.POSTGRES_URL_DE_BASE_DE_DATOS || '')
+  ].filter(v => !!v)
+  const conn = candidates[0] || ''
+  if (conn) {
+    db = new Pool({ connectionString: conn, ssl: { rejectUnauthorized: false } })
+    ;(async () => { try { await initDB() } catch {} })()
+  }
 } catch {}
 async function initDB() {
   if (!db || dbReady) return !!db
