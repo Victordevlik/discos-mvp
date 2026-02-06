@@ -1057,8 +1057,8 @@ const server = http.createServer(async (req, res) => {
       })
       return
     }
-    if (pathname === '/api/health' && req.method === 'GET') {
-      json(res, 200, { ok: true })
+    if (pathname === '/api/health' && (req.method === 'GET' || req.method === 'HEAD')) {
+      if (req.method === 'HEAD') { res.writeHead(200); res.end() } else { json(res, 200, { ok: true }) }
       return
     }
     if (pathname === '/api/network' && req.method === 'GET') {
