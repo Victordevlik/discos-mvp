@@ -118,11 +118,7 @@ async function loadSessionInfo() {
       baseCandidate = (pb.publicBaseUrl || '').trim()
       const inp = q('public-base'); if (inp && baseCandidate) inp.value = baseCandidate
     } catch {}
-    let base = location.origin
-    try {
-      const net = await api('/api/network')
-      base = baseCandidate ? baseCandidate : ((net.urls && net.urls[0]) ? net.urls[0] : location.origin)
-    } catch { base = baseCandidate || location.origin }
+    let base = baseCandidate || location.origin
     // QR y link de sesión incluyen venueId + sessionId
     const url = `${base}/?venueId=${encodeURIComponent(S.venueId || 'default')}&sessionId=${encodeURIComponent(S.sessionId)}&aj=1`
     const pd = q('pin-display'); if (pd) pd.textContent = pin
