@@ -234,3 +234,9 @@ button.icon svg { width:18px; height:18px }
   .grid { grid-template-columns: repeat(auto-fill,minmax(130px,1fr)) }
   .chip { font-size: 12px }
 }
+/* Modal */
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 9999; padding: 16px }
+.modal.show { display: flex }
+.modal-inner { width: 100%; max-width: 520px; background: rgba(23,24,38,0.92); backdrop-filter: blur(8px); border: 1px solid #2b2c44; border-radius: 16px; padding: 18px }
+body[data-theme="light"] .modal-inner { background: #fff; border-color: #dbe1f3 }
+.modal-inner #modal-text { margin-bottom: 10px }

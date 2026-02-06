@@ -138,9 +138,12 @@ async function api(path, opts = {}) {
 }
 
 function showError(msg) {
-  const el = q('error')
-  el.textContent = msg || ''
-  el.classList.toggle('show', !!msg)
+  if (!msg) return
+  const m = q('modal')
+  const t = q('modal-text')
+  if (!m || !t) return
+  t.textContent = msg
+  m.classList.add('show')
 }
 function confirmAction(paraphrase) {
   return typeof window !== 'undefined' ? window.confirm(paraphrase) : true
@@ -928,6 +931,7 @@ function bind() {
   const btnTheme = q('btn-theme-toggle'); if (btnTheme) btnTheme.onclick = toggleTheme
   const btnThemeTop = q('btn-theme-toggle-top'); if (btnThemeTop) btnThemeTop.onclick = toggleTheme
   const btnThemeWelcome = q('btn-theme-toggle-welcome'); if (btnThemeWelcome) btnThemeWelcome.onclick = toggleTheme
+  const modalClose = q('modal-close'); if (modalClose) modalClose.onclick = () => { const m = q('modal'); if (m) m.classList.remove('show') }
   const tabPanel = q('tab-staff-panel'); if (tabPanel) tabPanel.onclick = () => showStaffTab('panel')
   const tabSession = q('tab-staff-session'); if (tabSession) tabSession.onclick = () => showStaffTab('session')
   const tabOrders = q('tab-staff-orders'); if (tabOrders) tabOrders.onclick = () => showStaffTab('orders')

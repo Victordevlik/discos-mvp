@@ -16,6 +16,14 @@
       <button id="btn-load">Cargar venues</button>
     </div>
     <div id="error" class="error"></div>
+    <div id="modal" class="modal">
+      <div class="modal-inner">
+        <div id="modal-text"></div>
+        <div class="row">
+          <button id="modal-close">Cerrar</button>
+        </div>
+      </div>
+    </div>
   </div>
   <div class="card">
     <h3>Locales</h3>
@@ -45,8 +53,12 @@
       return j
     }
     function showError(msg) {
-      const el = document.getElementById('error')
-      if (el) { el.textContent = msg || '' }
+      if (!msg) return
+      const m = document.getElementById('modal')
+      const t = document.getElementById('modal-text')
+      if (!m || !t) return
+      t.textContent = msg
+      m.classList.add('show')
     }
     async function loadVenues() {
       showError('')
@@ -83,6 +95,7 @@
       }
     }
     document.getElementById('btn-load').onclick = () => loadVenues().catch(e => showError(String(e.message)))
+    document.getElementById('modal-close').onclick = () => { const m = document.getElementById('modal'); if (m) m.classList.remove('show') }
     document.getElementById('btn-add-credit').onclick = async () => {
       showError('')
       const secret = document.getElementById('admin-secret').value.trim()
