@@ -42,6 +42,7 @@ try {
   const { Pool } = require('pg')
   const candidates = [
     String(process.env.DATABASE_URL || ''),
+      String(process.env.RAILWAY_DATABASE_URL || ''),
     String(process.env.POSTGRES_URL || ''),
     String(process.env.POSTGRESQL_URL || ''),
     String(process.env.PGURL || ''),
@@ -51,7 +52,7 @@ try {
   ].filter(v => !!v)
   const conn = candidates[0] || ''
   if (conn) {
-    db = new Pool({ connectionString: conn, ssl: { rejectUnauthorized: false } })
+      db = new Pool({ connectionString: conn, ssl: { require: true, rejectUnauthorized: false } })
     ;(async () => { try { await initDB() } catch {} })()
   }
 } catch {}
@@ -65,6 +66,10 @@ async function initDB() {
   await db.query('CREATE TABLE IF NOT EXISTS catalog_items (session_id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, PRIMARY KEY (session_id, name))')
   dbReady = true
   return true
+}
+async function isDBConnected() {
+  if (!db) return false
+  try { await db.query('SELECT 1'); return true } catch { return false }
 }
 async function readVenues() {
   if (db) {
@@ -643,6 +648,13 @@ const server = http.createServer(async (req, res) => {
       venues[venueId] = { name: String(prev.name || venueId), credits: Math.max(0, nextCredits), active: prev.active !== false }
       await writeVenues(venues)
       json(res, 200, { ok: true, venueId, credits: venues[venueId].credits })
+      return
+    }
+    if (pathname === '/api/admin/db-status' && req.method === 'GET') {
+      if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const connected = await isDBConnected()
+      json(res, 200, { connected })
       return
     }
     if (pathname === '/api/user/update' && req.method === 'POST') {
