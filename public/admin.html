@@ -56,8 +56,12 @@
       if (!msg) return
       const m = document.getElementById('modal')
       const t = document.getElementById('modal-text')
+      const tt = document.getElementById('modal-title')
       if (!m || !t) return
-      t.textContent = msg
+      m.classList.remove('type-error','type-info','type-success')
+      m.classList.add('type-error')
+      if (tt) tt.textContent = 'Error'
+      t.textContent = msg || ''
       m.classList.add('show')
     }
     async function loadVenues() {
@@ -96,6 +100,7 @@
     }
     document.getElementById('btn-load').onclick = () => loadVenues().catch(e => showError(String(e.message)))
     document.getElementById('modal-close').onclick = () => { const m = document.getElementById('modal'); if (m) m.classList.remove('show') }
+    document.getElementById('modal').onclick = (e) => { if (e.target && e.target.id === 'modal') { const m = document.getElementById('modal'); if (m) m.classList.remove('show') } }
     document.getElementById('btn-add-credit').onclick = async () => {
       showError('')
       const secret = document.getElementById('admin-secret').value.trim()

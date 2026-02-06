@@ -44,6 +44,11 @@ function goBack() {
   if (tb) tb.classList.toggle('show', !!(S.nav.history.length && !roots.includes(S.nav.current)))
   setActiveNavByScreen(prev)
 }
+function goHome() {
+  if (S.role === 'user') { show('screen-user-home'); return }
+  if (S.role === 'staff') { show('screen-staff'); return }
+  show('screen-welcome')
+}
 function setActiveNav(tab) {
   for (const el of document.querySelectorAll('.nav-item')) el.classList.remove('active')
   const map = { carta: 'nav-carta', disponibles: 'nav-disponibles', mesas: 'nav-mesas', orders: 'nav-orders', perfil: 'nav-perfil' }
@@ -137,14 +142,20 @@ async function api(path, opts = {}) {
   return data
 }
 
-function showError(msg) {
-  if (!msg) return
+function showModal(title, msg, type = 'info') {
   const m = q('modal')
   const t = q('modal-text')
-  if (!m || !t) return
-  t.textContent = msg
+  const tt = q('modal-title')
+  if (!m || !t || !tt) return
+  m.classList.remove('type-error', 'type-success', 'type-info')
+  m.classList.add('type-' + type)
+  tt.textContent = title || ''
+  t.textContent = msg || ''
   m.classList.add('show')
 }
+function showError(msg) { showModal('Error', msg || '', 'error') }
+function showInfo(msg) { showModal('Info', msg || '', 'info') }
+function showSuccess(msg) { showModal('Listo', msg || '', 'success') }
 function confirmAction(paraphrase) {
   return typeof window !== 'undefined' ? window.confirm(paraphrase) : true
 }
@@ -932,6 +943,9 @@ function bind() {
   const btnThemeTop = q('btn-theme-toggle-top'); if (btnThemeTop) btnThemeTop.onclick = toggleTheme
   const btnThemeWelcome = q('btn-theme-toggle-welcome'); if (btnThemeWelcome) btnThemeWelcome.onclick = toggleTheme
   const modalClose = q('modal-close'); if (modalClose) modalClose.onclick = () => { const m = q('modal'); if (m) m.classList.remove('show') }
+  const modalEl = q('modal'); if (modalEl) modalEl.onclick = (e) => { if (e.target && e.target.id === 'modal') modalEl.classList.remove('show') }
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { const m = q('modal'); if (m) m.classList.remove('show') } })
+  const homeBtn = q('btn-home'); if (homeBtn) homeBtn.onclick = goHome
   const tabPanel = q('tab-staff-panel'); if (tabPanel) tabPanel.onclick = () => showStaffTab('panel')
   const tabSession = q('tab-staff-session'); if (tabSession) tabSession.onclick = () => showStaffTab('session')
   const tabOrders = q('tab-staff-orders'); if (tabOrders) tabOrders.onclick = () => showStaffTab('orders')

@@ -240,3 +240,10 @@ button.icon svg { width:18px; height:18px }
 .modal-inner { width: 100%; max-width: 520px; background: rgba(23,24,38,0.92); backdrop-filter: blur(8px); border: 1px solid #2b2c44; border-radius: 16px; padding: 18px }
 body[data-theme="light"] .modal-inner { background: #fff; border-color: #dbe1f3 }
 .modal-inner #modal-text { margin-bottom: 10px }
+.modal #modal-title { font-weight: 700; margin-bottom: 6px; color: var(--primary2) }
+.modal.type-error .modal-inner { border-color: #7a2b2b }
+.modal.type-error #modal-title { color: var(--danger) }
+.modal.type-success .modal-inner { border-color: #2a6049 }
+.modal.type-success #modal-title { color: var(--success) }
+.modal.type-info .modal-inner { border-color: #2b2c44 }
+.modal.type-info #modal-title { color: var(--primary2) }
