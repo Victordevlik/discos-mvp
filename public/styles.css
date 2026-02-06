@@ -204,3 +204,33 @@ button.icon svg { width:18px; height:18px }
 /* Staff content area */
 #staff-content .section { display: none }
 #staff-content .section.active { display: block }
+@media (max-width: 768px) {
+  .screen { padding: 20px; max-width: 100% }
+  .card { padding: 14px; margin: 10px 0; border-radius: 14px }
+  .row { flex-direction: column; gap: 10px }
+  input, select, button { width: 100% }
+  .grid { grid-template-columns: repeat(auto-fill,minmax(150px,1fr)) }
+  .hero h1 { font-size: 26px }
+  h2 { font-size: 22px }
+  #screen-disponibles .party-title,
+  #screen-user-invite .party-title,
+  #screen-invite-received .party-title,
+  #screen-meeting .party-title,
+  #screen-disponibles-select .party-title,
+  #screen-mesas .party-title,
+  #screen-mesa-view .party-title { font-size: 24px }
+}
+@media (max-width: 480px) {
+  .screen { padding: 16px; padding-bottom: 88px }
+  .card { padding: 12px; border-radius: 12px }
+  .row { gap: 8px }
+  input, select { min-width: 0; width: 100% }
+  .cta button { width: 100% }
+  .navbar { gap: 6px; padding: 8px 10px }
+  .nav-item { padding: 8px 6px }
+  .hero h1 { font-size: 22px }
+  #available-list .item { grid-template-columns: 36px 1fr; gap: 10px }
+  #mesa-people .item { grid-template-columns: 36px 1fr }
+  .grid { grid-template-columns: repeat(auto-fill,minmax(130px,1fr)) }
+  .chip { font-size: 12px }
+}
