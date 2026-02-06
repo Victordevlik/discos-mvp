@@ -1041,7 +1041,7 @@ function bind() {
   q('mesa-only-available').onchange = () => loadMesaPeople(S.currentTableId)
   q('btn-select-table').onclick = openSelectTable
   q('btn-select-table-save').onclick = saveSelectTable
-  q('btn-view-orders').onclick = () => { loadUserOrders(); show('screen-orders-user') }
+  const btnViewOrders = q('btn-view-orders'); if (btnViewOrders) btnViewOrders.onclick = () => { loadUserOrders(); show('screen-orders-user') }
   q('btn-invite-block').onclick = blockFromInvite
   q('btn-invite-report').onclick = reportFromInvite
   q('btn-meeting-confirm').onclick = confirmMeeting
@@ -1512,6 +1512,7 @@ async function openConsumption() {
   const target = q('consumption-target'), sendBtn = q('btn-consumption-send')
   if (target) target.style.display = ''
   if (sendBtn) sendBtn.style.display = ''
+  const title = q('consumption-title'); if (title) title.textContent = 'Invitar consumo'
   const targetLabel = q('consumption-target-label')
   if (targetLabel) targetLabel.style.display = ''
   const noteRow = q('consumption-note-row')
@@ -1529,6 +1530,7 @@ async function openMenu() {
   const target = q('consumption-target'), sendBtn = q('btn-consumption-send')
   if (target) target.style.display = 'none'
   if (sendBtn) sendBtn.style.display = 'none'
+  const title = q('consumption-title'); if (title) title.textContent = 'Carta'
   const targetLabel = q('consumption-target-label')
   if (targetLabel) targetLabel.style.display = 'none'
   const noteRow = q('consumption-note-row')
