@@ -153,7 +153,10 @@ function showModal(title, msg, type = 'info') {
   t.textContent = msg || ''
   m.classList.add('show')
 }
-function showError(msg) { showModal('Error', msg || '', 'error') }
+function showError(msg) {
+  if (!msg) { const m = q('modal'); if (m) m.classList.remove('show'); return }
+  showModal('Error', msg || '', 'error')
+}
 function showInfo(msg) { showModal('Info', msg || '', 'info') }
 function showSuccess(msg) { showModal('Listo', msg || '', 'success') }
 function showModalAction(title, msg, btnText, handler, type = 'info') {

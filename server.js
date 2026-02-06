@@ -56,11 +56,13 @@ async function initDB() {
 }
 async function readVenues() {
   if (db) {
-    await initDB()
-    const r = await db.query('SELECT venue_id, name, credits, active FROM venues')
-    const obj = {}
-    for (const row of r.rows) obj[row.venue_id] = { name: row.name, credits: Number(row.credits || 0), active: !!row.active }
-    return obj
+    try {
+      await initDB()
+      const r = await db.query('SELECT venue_id, name, credits, active FROM venues')
+      const obj = {}
+      for (const row of r.rows) obj[row.venue_id] = { name: row.name, credits: Number(row.credits || 0), active: !!row.active }
+      return obj
+    } catch {}
   }
   try {
     if (!fs.existsSync(venuesPath)) return {}
@@ -71,15 +73,17 @@ async function readVenues() {
 }
 async function writeVenues(obj) {
   if (db) {
-    await initDB()
-    const entries = Object.entries(obj)
-    for (const [id, v] of entries) {
-      await db.query(
-        'INSERT INTO venues (venue_id, name, credits, active) VALUES ($1,$2,$3,$4) ON CONFLICT (venue_id) DO UPDATE SET name=EXCLUDED.name, credits=EXCLUDED.credits, active=EXCLUDED.active',
-        [String(id), String(v.name || id), Number(v.credits || 0), v.active !== false]
-      )
-    }
-    return
+    try {
+      await initDB()
+      const entries = Object.entries(obj)
+      for (const [id, v] of entries) {
+        await db.query(
+          'INSERT INTO venues (venue_id, name, credits, active) VALUES ($1,$2,$3,$4) ON CONFLICT (venue_id) DO UPDATE SET name=EXCLUDED.name, credits=EXCLUDED.credits, active=EXCLUDED.active',
+          [String(id), String(v.name || id), Number(v.credits || 0), v.active !== false]
+        )
+      }
+      return
+    } catch {}
   }
   try { fs.writeFileSync(venuesPath, JSON.stringify(obj)) } catch {}
 }
