@@ -215,7 +215,10 @@ async function saveProfile() {
   const tableId = (q('profile-table') ? q('profile-table').value.trim() : '')
   const file = q('selfie').files[0]
   let selfie = ''
-  if (file) selfie = await toDataURL(file)
+  if (file) {
+    selfie = await processSelfie(file).catch(() => '')
+    if (!selfie) { showError('Selfie inválida o muy grande'); setTimeout(() => showError(''), 1400); return }
+  }
   if (!alias) { showError('Ingresa tu alias'); setTimeout(() => showError(''), 1200); return }
   if (!tableId) { showError('Ingresa tu mesa'); setTimeout(() => showError(''), 1200); return }
   if (!file) { showError('Debes subir tu selfie'); setTimeout(() => showError(''), 1400); return }
@@ -231,12 +234,53 @@ async function saveProfile() {
   show('screen-user-home')
 }
 
-function toDataURL(file) {
-  return new Promise(r => {
+function dataUrlBytes(d) {
+  const m = String(d || '').match(/^data:.*;base64,(.+)$/)
+  return m ? Math.floor(m[1].length * 3 / 4) : 0
+}
+function loadImageFromFile(file) {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader()
-    reader.onload = () => r(reader.result)
+    reader.onload = () => {
+      const img = new Image()
+      img.onload = () => resolve(img)
+      img.onerror = reject
+      img.src = reader.result
+    }
+    reader.onerror = reject
     reader.readAsDataURL(file)
   })
+}
+async function processSelfie(file) {
+  const img = await loadImageFromFile(file)
+  const max = 640
+  const ratio = Math.min(1, max / Math.max(img.width || max, img.height || max))
+  const w = Math.max(1, Math.floor((img.width || max) * ratio))
+  const h = Math.max(1, Math.floor((img.height || max) * ratio))
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const ctx = canvas.getContext('2d')
+  ctx.drawImage(img, 0, 0, w, h)
+  let q = 0.8
+  let out = canvas.toDataURL('image/jpeg', q)
+  let tries = 0
+  while (dataUrlBytes(out) > 500 * 1024 && tries < 5) {
+    q = Math.max(0.4, q - 0.1)
+    out = canvas.toDataURL('image/jpeg', q)
+    tries++
+  }
+  if (dataUrlBytes(out) > 500 * 1024) {
+    q = 0.8
+    out = canvas.toDataURL('image/webp', q)
+    tries = 0
+    while (dataUrlBytes(out) > 500 * 1024 && tries < 5) {
+      q = Math.max(0.4, q - 0.1)
+      out = canvas.toDataURL('image/webp', q)
+      tries++
+    }
+  }
+  return dataUrlBytes(out) <= 500 * 1024 ? out : ''
 }
 
 async function setAvailable() {
