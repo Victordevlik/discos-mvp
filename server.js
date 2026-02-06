@@ -509,12 +509,12 @@ const server = http.createServer(async (req, res) => {
       for (const s of state.sessions.values()) {
         if (s.active && (now() - s.startedAt) < 12 * 60 * 60 * 1000) {
           if (!venueId || s.venueId === venueId) {
-            json(res, 200, { sessionId: s.id, pin: s.pin, venueId: s.venueId })
+            json(res, 200, { active: true, sessionId: s.id, pin: s.pin, venueId: s.venueId })
             return
           }
         }
       }
-      json(res, 404, { error: 'no_active' })
+      json(res, 200, { active: false, error: 'no_active' })
       return
     }
     if (pathname === '/api/session/end' && req.method === 'POST') {
