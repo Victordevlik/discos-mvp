@@ -570,8 +570,8 @@ const server = http.createServer(async (req, res) => {
       const userId = query.userId
       let u = state.users.get(userId)
       if (!u && db) { try { u = await dbGetUser(userId) } catch {} }
-      if (!u) { json(res, 404, { error: 'no_user' }); return }
-      json(res, 200, { user: { id: u.id, sessionId: u.sessionId, role: u.role, alias: u.alias, selfie: u.selfieApproved ? u.selfie : '', selfieApproved: u.selfieApproved, available: u.available, prefs: u.prefs, zone: u.zone, tableId: u.tableId, visibility: u.visibility } })
+      if (!u) { json(res, 200, { found: false }); return }
+      json(res, 200, { found: true, user: { id: u.id, sessionId: u.sessionId, role: u.role, alias: u.alias, selfie: u.selfieApproved ? u.selfie : '', selfieApproved: u.selfieApproved, available: u.available, prefs: u.prefs, zone: u.zone, tableId: u.tableId, visibility: u.visibility } })
       return
     }
     if (pathname === '/api/user/profile' && req.method === 'POST') {
