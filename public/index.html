@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="manifest" href="/manifest.json">
+<link rel="stylesheet" href="/styles.css">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&display=swap" rel="stylesheet">
+<title>Discos</title>
+</head>
+<body>
+<div id="app">
+  <div id="error" class="error"></div>
+  <div id="topbar" class="topbar">
+    <button id="btn-back" class="secondary">Volver</button>
+    <button id="btn-theme-toggle-top" class="secondary">Tema</button>
+  </div>
+  <div id="screen-welcome" class="screen">
+    <div class="hero">
+      <h1>Discos</h1>
+      <p>Conecta, baila y comparte consumos — seguro y sin fricción.</p>
+    </div>
+    <div class="card">
+      <div class="cta">
+      </div>
+      <div class="row">
+        <a id="link-staff" href="?staff=1">Soy staff</a>
+      </div>
+      <video id="qr-video" playsinline style="display:none;width:100%;max-width:360px;border:1px solid #333;border-radius:8px"></video>
+    </div>
+  </div>
+
+  <div id="screen-staff-welcome" class="screen">
+    <h2>Ingreso Staff</h2>
+    <div class="card">
+      <div class="cta">
+        <button class="secondary" id="btn-start-session-welcome">Iniciar sesión de la noche</button>
+      </div>
+      <div class="row">
+        <input id="join-pin" type="password" inputmode="numeric" placeholder="PIN">
+      </div>
+    </div>
+  </div>
+  <div id="screen-profile" class="screen">
+    <h2>Crear perfil</h2>
+    <div class="card">
+      <label>Alias (obligatorio)</label>
+      <input id="alias" placeholder="Tu alias" required>
+      <label>Mesa (obligatorio)</label>
+      <input id="profile-table" placeholder="Ej. Mesa 8" required>
+      <label>Selfie (obligatorio)</label>
+      <input id="selfie" type="file" accept="image/*" capture="user" required>
+      <div class="row">
+        <button id="btn-save-profile">Guardar</button>
+      </div>
+      <div id="selfie-note"></div>
+    </div>
+  </div>
+
+  <div id="screen-user-home" class="screen">
+    <h2>Inicio</h2>
+    <div class="card" id="user-header">
+      <div class="row">
+        <img id="user-selfie" alt="Foto" style="width:64px;height:64px;border-radius:50%;border:1px solid #333" />
+        <div>
+          <div id="user-alias" class="alias">Alias</div>
+          <div class="zone">Mesa: <span id="user-table">-</span></div>
+        </div>
+      </div>
+    </div>
+    <div id="restore-chip" class="chip" style="display:none"></div>
+    <div class="section-title">Disponibilidad</div>
+    <div class="row">
+      <label class="switch"><input id="switch-available" type="checkbox"><span>Disponible para bailar</span></label>
+    </div>
+    <div class="section-title">Perfil</div>
+    <div class="row">
+      <button id="btn-edit-profile" class="icon"><svg viewBox="0 0 24 24" fill="none"><path d="M15 4l5 5-9 9H6v-5z" stroke="#a6b0ff" stroke-width="1.5"/></svg><span>Editar perfil</span></button>
+      <button id="btn-pause-social" class="icon"><svg viewBox="0 0 24 24" fill="none"><path d="M9 4h2v16H9zM13 4h2v16h-2z" stroke="#a6b0ff" stroke-width="1.5"/></svg><span>Pausa social</span></button>
+      <button id="btn-select-table" class="icon"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="8" width="18" height="10" rx="2" stroke="#a6b0ff" stroke-width="1.5"/><path d="M12 12l3 3M12 12l-3 3" stroke="#a6b0ff" stroke-width="1.5"/></svg><span>Seleccionar mesa</span></button>
+      <button id="btn-view-orders" class="icon"><svg viewBox="0 0 24 24" fill="none"><rect x="6" y="3" width="12" height="18" rx="2" stroke="#a6b0ff" stroke-width="1.5"/><path d="M9 7h6M9 11h6M9 15h6" stroke="#a6b0ff" stroke-width="1.5"/></svg><span>Mis órdenes</span></button>
+    </div>
+    <div></div>
+  </div>
+
+  <div id="screen-disponibles-select" class="screen">
+    <h2 class="party-title">Bailar</h2>
+    <div class="party-hero">
+      <div class="party-bg"></div>
+      <div class="hero-text">
+        <div class="hero-main">Encuentra personas disponibles</div>
+        <div class="hero-sub">Envía invitaciones y arma la fiesta</div>
+      </div>
+      <div class="equalizer">
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="row">
+        <button id="btn-avail-by-table" class="icon"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="8" width="18" height="10" rx="2" stroke="#a6b0ff" stroke-width="1.5"/><path d="M12 12l3 3M12 12l-3 3" stroke="#a6b0ff" stroke-width="1.5"/></svg><span>Ver por mesa (otras mesas)</span></button>
+        <button id="btn-avail-all" class="icon"><svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="6" stroke="#a6b0ff" stroke-width="1.5"/><path d="M21 21l-4.5-4.5" stroke="#a6b0ff" stroke-width="1.5"/></svg><span>Ver todos</span></button>
+      </div>
+    </div>
+  </div>
+  <div id="screen-disponibles" class="screen">
+    <h2 class="party-title">Bailar</h2>
+    <div class="party-hero">
+      <div class="party-bg"></div>
+      <div class="hero-text">
+        <div class="hero-main">¡Baila y conecta!</div>
+        <div class="hero-sub">Personas listas para bailar ahora</div>
+      </div>
+      <div class="equalizer">
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+    </div>
+    <div class="card"><div>Receptor (ID): <span id="avail-receiver-id">-</span></div></div>
+    <div id="available-list"></div>
+  </div>
+  <div id="screen-user-invite" class="screen">
+    <h2 class="party-title">Bailar</h2>
+    <div class="party-hero">
+      <div class="party-bg"></div>
+      <div class="hero-text">
+        <div class="hero-main">Invita y rompe el hielo</div>
+        <div class="hero-sub">Elige tu mensaje para comenzar</div>
+      </div>
+      <div class="equalizer">
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+    </div>
+    <div class="card">
+      <div id="invite-person"></div>
+      <div class="row">
+        <button data-msg="bailamos" class="btn-invite-msg">¿Bailamos?</button>
+        <button data-msg="invitoCancion" class="btn-invite-msg">¿Te invito una canción?</button>
+      </div>
+      <button id="btn-invite-send">Enviar</button>
+    </div>
+  </div>
+
+  <div id="screen-invite-received" class="screen">
+    <h2 class="party-title">¡Te invitaron a bailar!</h2>
+    <div class="party-hero">
+      <div class="party-bg"></div>
+      <div class="hero-text">
+        <div class="hero-main">Acepta y disfruta</div>
+        <div class="hero-sub" id="invite-received-info"></div>
+      </div>
+      <div class="equalizer">
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+    </div>
+    <div class="card">
+      <img id="invite-from-selfie" alt="Foto" style="width:96px;height:96px;border-radius:50%;border:1px solid #333" />
+      <div class="row">
+        <button id="btn-invite-accept">Aceptar</button>
+        <button id="btn-invite-pass">Pasar</button>
+        <button id="btn-invite-block">Bloquear</button>
+        <button id="btn-invite-report">Reportar</button>
+      </div>
+      <div class="row">
+        <label>Respuesta (opcional)</label>
+        <input id="invite-response" maxlength="120" placeholder="Escribe una respuesta breve">
+      </div>
+    </div>
+  </div>
+
+  <div id="screen-meeting" class="screen">
+    <h2 class="party-title">Encuentro</h2>
+    <div class="party-hero">
+      <div class="party-bg"></div>
+      <div class="hero-text">
+        <div class="hero-main">¡Es hora de bailar!</div>
+        <div class="hero-sub" id="meeting-info"></div>
+      </div>
+      <div class="equalizer">
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+    </div>
+    <div class="card">
+      <div>Elige cómo nos encontramos</div>
+      <div class="row">
+        <button id="btn-meet-come">Ven por mí</button>
+        <button id="btn-meet-go">Ya voy por ti</button>
+        <button id="btn-meet-pista">Nos vemos en la pista</button>
+      </div>
+      <div id="meeting-plan-display"></div>
+      <div id="meeting-note" class="section-title"></div>
+    </div>
+    <div class="row">
+      <button id="btn-meeting-confirm">Confirmar</button>
+      <button id="btn-meeting-cancel">Cancelar</button>
+    </div>
+  </div>
+
+  <div id="screen-consumption" class="screen">
+    <h2>Invitar consumo</h2>
+    <div class="card">
+      <div id="catalog-list" class="grid"></div>
+      <div class="row">
+        <label>Producto seleccionado</label>
+        <input id="product" placeholder="Producto" readonly>
+      </div>
+      <div class="section-title">Tip: selecciona un producto en la carta; se carga automáticamente en “Producto”. Luego elige cantidad.</div>
+      <div class="row">
+        <label>Cantidad</label>
+        <input id="quantity" type="number" min="1" value="1">
+      </div>
+      <div class="row">
+        <button id="btn-add-to-cart">Agregar al carrito</button>
+      </div>
+      <div id="cart-section">
+        <h3>Carrito</h3>
+        <div id="cart-list"></div>
+      </div>
+      <label id="consumption-target-label" style="display:none">Receptor (ID)</label>
+      <input id="consumption-target" placeholder="ID de persona" style="display:none">
+      <div id="consumption-note-row" class="row" style="display:none">
+        <label>Mensaje (opcional)</label>
+        <input id="consumption-note" placeholder="Ej. Te invito una bebida">
+      </div>
+      <button id="btn-consumption-send">Enviar invitación</button>
+      <div class="row">
+        <button id="btn-order-self" class="primary">Pedir para mí</button>
+        <button id="btn-order-table" class="secondary">Pedir para mi mesa</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="screen-mesas" class="screen">
+    <h2 class="party-title">Mesas activas</h2>
+    <div class="party-hero">
+      <div class="party-bg"></div>
+      <div class="hero-text">
+        <div class="hero-main">Explora y baila</div>
+        <div class="hero-sub">Personas y disponibles por mesa</div>
+      </div>
+      <div class="equalizer">
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+    </div>
+    <div id="mesas-list"></div>
+  </div>
+
+  <div id="screen-mesa-view" class="screen">
+    <h2 id="mesa-title" class="party-title">Mesa</h2>
+    <div class="party-hero">
+      <div class="party-bg"></div>
+      <div class="hero-text">
+        <div class="hero-main">Baila en esta mesa</div>
+        <div class="hero-sub">Personas disponibles y consumos</div>
+      </div>
+      <div class="equalizer">
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+    </div>
+    <div class="row">
+      <label class="switch"><input id="mesa-only-available" type="checkbox"><span>Solo disponibles</span></label>
+    </div>
+    <div id="mesa-people"></div>
+    <h3>Historial de consumos de esta mesa</h3>
+    <div id="mesa-orders"></div>
+  </div>
+
+  <div id="screen-edit-profile" class="screen">
+    <h2>Editar perfil</h2>
+    <div class="card">
+      <label>Alias</label>
+      <input id="edit-alias">
+      <label>Tags (coma)</label>
+      <input id="edit-tags" placeholder="salsero,chill">
+      <label>Mesa</label>
+      <input id="edit-table" placeholder="Número de mesa (ej. 8)">
+      <div class="row">
+        <button id="btn-edit-save">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="screen-call-waiter" class="screen">
+    <h2>Llamar mesero</h2>
+    <div class="card">
+      <label>Motivo</label>
+      <input id="waiter-reason" placeholder="Ej. Necesitamos la cuenta">
+      <button id="btn-waiter-send">Llamar</button>
+    </div>
+  </div>
+
+  <div id="screen-promos" class="screen">
+    <h2>Promos</h2>
+    <div id="promos-list"></div>
+  </div>
+
+  <div id="screen-orders-user" class="screen">
+    <h2>Mis órdenes</h2>
+    <div id="user-orders"></div>
+  </div>
+
+  <div id="screen-select-table" class="screen">
+    <h2>Seleccionar mesa</h2>
+    <div class="card">
+      <div id="select-table-list"></div>
+      <div class="row">
+        <input id="select-table-manual" placeholder="Número de mesa (ej. 8)">
+        <button id="btn-select-table-save">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="screen-security" class="screen">
+    <h2>Seguridad</h2>
+    <div class="card">
+      <label>ID a bloquear</label>
+      <input id="block-id">
+      <button id="btn-block">Bloquear</button>
+    </div>
+    <div class="card">
+      <label>Reportar ID</label>
+      <input id="report-id">
+      <label>Categoría</label>
+      <input id="report-cat">
+      <label>Nota</label>
+      <input id="report-note">
+      <button id="btn-report">Reportar</button>
+    </div>
+  </div>
+
+  <div id="screen-staff" class="screen">
+    <div class="row toolbar">
+      <h2>Panel de órdenes</h2>
+      <div class="actions">
+        <button id="btn-end-session">Cerrar sesión</button>
+      </div>
+    </div>
+    <div class="tabs" id="staff-tabs">
+      <button id="tab-staff-panel" class="tab-item active">Panel <span id="badge-tab-panel" class="badge"></span></button>
+      <button id="tab-staff-orders" class="tab-item">Órdenes <span id="badge-tab-orders" class="badge"></span></button>
+      <button id="tab-staff-mesas" class="tab-item">Mesas <span id="badge-tab-mesas" class="badge"></span></button>
+      <button id="tab-staff-users" class="tab-item">Usuarios <span id="badge-tab-usuarios" class="badge"></span></button>
+      <button id="tab-staff-waiter" class="tab-item">Llamados <span id="badge-tab-waiter" class="badge"></span></button>
+      <button id="tab-staff-reportes" class="tab-item">Reportes <span id="badge-tab-reportes" class="badge"></span></button>
+      <button id="tab-staff-promos" class="tab-item">Promos</button>
+      <button id="tab-staff-catalog" class="tab-item">Carta</button>
+    </div>
+    <div class="card">
+      <h3>Analytics</h3>
+      <div class="row metrics">
+        <div class="chip" id="an-users">Usuarios: 0</div>
+        <div class="chip" id="an-mesas">Mesas activas: 0</div>
+        <div class="chip" id="an-invites">Invitaciones: 0</div>
+        <div class="chip" id="an-accepted">Aceptadas: 0</div>
+        <div class="chip" id="an-ratio">Ratio: 0%</div>
+      </div>
+      <div class="row" id="an-orders"></div>
+      <div class="row" id="an-top"></div>
+    </div>
+    <div id="staff-content">
+      <div id="staff-panel-content" class="section">
+        <div class="card">
+          <h3>Panel</h3>
+          <div>PIN generado: <span id="pin-display"></span></div>
+          <div style="margin-top:8px">QR de sesión:</div>
+          <img id="qr-session" alt="QR sesión" style="width:160px;height:160px;border:1px solid #333;border-radius:8px" />
+          <div class="row">
+            <a id="share-url" href="#" target="_blank">Link para compartir</a>
+            <button id="btn-copy-link" class="secondary">Copiar link</button>
+          </div>
+          <div class="row">
+            <input id="public-base" placeholder="URL pública (ej. http://192.168.1.72:5173)">
+            <button id="btn-save-public-base" class="secondary">Guardar URL pública</button>
+          </div>
+        </div>
+      </div>
+      <div id="staff-orders-content" class="section">
+        <div class="card">
+          <h3>Órdenes</h3>
+          <div class="row">
+            <label>Estado</label>
+            <select id="staff-orders-filter">
+              <option value="">Todas</option>
+              <option value="pendiente_cobro">Pendiente de cobro</option>
+              <option value="cobrado">Cobrado</option>
+              <option value="en_preparacion">En preparación</option>
+              <option value="entregado">Entregado</option>
+              <option value="cancelado">Cancelado</option>
+              <option value="expirado">Expirado</option>
+            </select>
+          </div>
+          <div id="staff-orders-list"></div>
+        </div>
+      </div>
+      <div id="staff-mesas-content" class="section">
+        <div class="card">
+          <h3>Historial por mesa</h3>
+          <div class="row">
+            <input id="staff-table-id" placeholder="Número de mesa (ej. 8)">
+            <button id="btn-staff-table-view">Ver historial</button>
+            <button id="btn-staff-table-close">Cerrar cuenta mesa</button>
+          </div>
+          <div id="staff-table-orders"></div>
+        </div>
+      </div>
+      <div id="staff-users-content" class="section">
+        <div class="card">
+          <h3>Usuarios</h3>
+          <div id="staff-users"></div>
+        </div>
+      </div>
+      <div id="staff-waiter-content" class="section">
+        <div class="card">
+          <h3>Llamados mesero</h3>
+          <div id="waiter-calls"></div>
+        </div>
+      </div>
+      <div id="staff-reportes-content" class="section">
+        <div class="card">
+          <h3>Reportes</h3>
+          <div id="reports"></div>
+        </div>
+      </div>
+      <div id="staff-promos-content" class="section">
+        <div class="card">
+          <h3>Promos</h3>
+          <div id="staff-promos-list"></div>
+          <div class="row">
+            <input id="staff-promos-input" placeholder="Ej: 2x1 Mojitos 22-23h">
+            <button id="btn-staff-promos-add">Agregar</button>
+            <button id="btn-staff-promos-save">Guardar promos</button>
+          </div>
+        </div>
+      </div>
+      <div id="staff-catalog-content" class="section">
+        <div class="card">
+          <h3>Carta</h3>
+          <div id="staff-catalog-list"></div>
+          <div class="row">
+            <input id="staff-catalog-add-name" placeholder="Nombre del producto">
+            <input id="staff-catalog-add-price" type="number" min="0" placeholder="Precio">
+            <button id="btn-staff-catalog-add">Agregar producto</button>
+            <button id="btn-staff-catalog-save" class="secondary">Guardar carta</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="navbar" id="navbar">
+  <button id="nav-carta" class="nav-item active">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M5 4h14v4H5zM5 10h14v4H5zM5 16h14v4H5z" stroke="#a6b0ff" stroke-width="1.5"/></svg>
+    <span>Carta</span>
+  </button>
+  <button id="nav-disponibles" class="nav-item">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="6" stroke="#a6b0ff" stroke-width="1.5"/><path d="M21 21l-4.5-4.5" stroke="#a6b0ff" stroke-width="1.5"/></svg>
+    <span>Bailar</span>
+    <span id="badge-disponibles" class="badge"></span>
+  </button>
+  <button id="nav-mesas" class="nav-item">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="3" y="8" width="18" height="10" rx="2" stroke="#a6b0ff" stroke-width="1.5"/><path d="M7 8V5h10v3" stroke="#a6b0ff" stroke-width="1.5"/></svg>
+    <span>Mesas</span>
+  </button>
+  <button id="nav-orders" class="nav-item">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="6" y="3" width="12" height="18" rx="2" stroke="#a6b0ff" stroke-width="1.5"/><path d="M9 7h6M9 11h6M9 15h6" stroke="#a6b0ff" stroke-width="1.5"/></svg>
+    <span>Órdenes</span>
+  </button>
+  <button id="nav-perfil" class="nav-item">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" stroke="#a6b0ff" stroke-width="1.5"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6" stroke="#a6b0ff" stroke-width="1.5"/></svg>
+    <span>Perfil</span>
+  </button>
+</div>
+<button id="fab-call" class="fab"><svg viewBox="0 0 24 24" fill="none"><path d="M4 19h16M7 19l2-10h6l2 10" stroke="#fff" stroke-width="1.7"/></svg></button>
+<div id="fab-call-label" class="fab-label">Llamar mesero</div>
+<script src="/app.js"></script>
+</body>
+</html>

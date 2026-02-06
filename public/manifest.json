@@ -1,0 +1,9 @@
+{
+  "name": "Discos",
+  "short_name": "Discos",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f0f12",
+  "theme_color": "#4b6aff",
+  "icons": []
+}

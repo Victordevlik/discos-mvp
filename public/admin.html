@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Panel Admin</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="card">
+    <h2>Panel Admin</h2>
+    <!-- Clave ADMIN_SECRET requerida para todas las acciones -->
+    <div class="row">
+      <label>Clave admin</label>
+      <input id="admin-secret" type="password" placeholder="ADMIN_SECRET">
+      <button id="btn-load">Cargar venues</button>
+    </div>
+    <div id="error" class="error"></div>
+  </div>
+  <div class="card">
+    <h3>Locales</h3>
+    <!-- Lista simple de venues con botón +1 noche -->
+    <div id="venues-list"></div>
+  </div>
+  <script>
+    // Fetch con manejo de JSON
+    async function api(path, { method = 'GET', headers = {}, body } = {}) {
+      const res = await fetch(path, {
+        method,
+        headers: Object.assign({ 'Content-Type': 'application/json' }, headers),
+        body
+      })
+      const text = await res.text()
+      let j = null
+      try { j = JSON.parse(text) } catch { j = { raw: text } }
+      if (!res.ok) throw new Error(j && j.error ? j.error : ('HTTP ' + res.status))
+      return j
+    }
+    function showError(msg) {
+      const el = document.getElementById('error')
+      if (el) { el.textContent = msg || '' }
+    }
+    async function loadVenues() {
+      showError('')
+      const secret = document.getElementById('admin-secret').value.trim()
+      if (!secret) { showError('Ingresa clave admin'); return }
+      // La clave se envía por query o header; aquí usamos query para GET
+      const r = await api('/api/admin/venues?admin_secret=' + encodeURIComponent(secret))
+      const container = document.getElementById('venues-list')
+      container.innerHTML = ''
+      for (const v of r.venues || []) {
+        const row = document.createElement('div')
+        row.className = 'row'
+        const info = document.createElement('div')
+        info.textContent = `${v.name} (${v.venueId}) • créditos: ${v.credits} • activo: ${v.active ? 'sí' : 'no'}`
+        const btn = document.createElement('button')
+        btn.textContent = '+1 noche'
+        btn.onclick = async () => {
+          try {
+            // Para POST enviamos la clave por header
+            await api('/api/admin/venues/credit', {
+              method: 'POST',
+              headers: { 'X-Admin-Secret': secret },
+              body: JSON.stringify({ venueId: v.venueId, amount: 1 })
+            })
+            await loadVenues()
+          } catch (e) { showError(String(e.message)) }
+        }
+        row.appendChild(info)
+        row.appendChild(btn)
+        container.appendChild(row)
+      }
+    }
+    document.getElementById('btn-load').onclick = () => loadVenues().catch(e => showError(String(e.message)))
+  </script>
+</body>
+</html>

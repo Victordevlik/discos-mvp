@@ -1,0 +1,1132 @@
+const http = require('http')
+const url = require('url')
+const fs = require('fs')
+const path = require('path')
+const crypto = require('crypto')
+const os = require('os')
+
+const state = {
+  sessions: new Map(),
+  users: new Map(),
+  invites: new Map(),
+  meetings: new Map(),
+  orders: new Map(),
+  waiterCalls: new Map(),
+  blocks: new Set(),
+  reports: [],
+  sseUsers: new Map(),
+  sseStaff: new Map(),
+  // Meta para SSE: trackear actividad para cerrar conexiones inactivas
+  sseUserMeta: new Map(),   // key: res, value: { startedAt, lastWrite }
+  sseStaffMeta: new Map(),  // key: res, value: { startedAt, lastWrite }
+  rate: {
+    invitesByUserHour: new Map(),
+    lastInvitePair: new Map(),
+    restrictedUsers: new Map(),
+    consumptionByUserHour: new Map(),
+    reactionsByUserHour: new Map(),
+    tableChangesByUserHour: new Map(),
+  },
+}
+
+const dataDir = path.join(__dirname, 'data')
+if (!fs.existsSync(dataDir)) { try { fs.mkdirSync(dataDir) } catch {} }
+const GLOBAL_STAFF_PIN = String(process.env.STAFF_PIN || '0101')
+const ADMIN_SECRET = String(process.env.ADMIN_SECRET || '')
+
+// Créditos por venue: persistidos en /data/venues.json
+const venuesPath = path.join(dataDir, 'venues.json')
+function readVenues() {
+  try {
+    if (!fs.existsSync(venuesPath)) return {}
+    const raw = fs.readFileSync(venuesPath, 'utf-8')
+    const obj = JSON.parse(raw || '{}')
+    return typeof obj === 'object' && obj ? obj : {}
+  } catch { return {} }
+}
+function writeVenues(obj) {
+  try { fs.writeFileSync(venuesPath, JSON.stringify(obj)) } catch {}
+}
+
+// Autorización admin: requiere ADMIN_SECRET por header o query
+function isAdminAuthorized(req, query) {
+  const headerSecret = String(req.headers['x-admin-secret'] || '')
+  const querySecret = String(query.admin_secret || '')
+  if (!ADMIN_SECRET) return false
+  return headerSecret === ADMIN_SECRET || querySecret === ADMIN_SECRET
+}
+
+const defaultCatalog = [
+  { name: 'Cerveza', price: 10000 },
+  { name: 'Mojito', price: 20000 },
+  { name: 'Gin Tonic', price: 18000 },
+  { name: 'Agua', price: 5000 },
+  { name: 'Tequila Shot', price: 15000 },
+  { name: 'Vodka Shot', price: 12000 },
+]
+function sanitizeItem(it) {
+  return { name: String(it.name || '').slice(0, 60), price: Number(it.price || 0) }
+}
+function readGlobalCatalog() {
+  try {
+    const p = path.join(dataDir, 'catalog.json')
+    if (fs.existsSync(p)) {
+      const raw = fs.readFileSync(p, 'utf-8')
+      const arr = JSON.parse(raw || '[]')
+      if (Array.isArray(arr) && arr.length) return arr.map(sanitizeItem)
+    }
+  } catch {}
+  return defaultCatalog
+}
+function writeGlobalCatalog(items) {
+  try {
+    const clean = Array.isArray(items) ? items.map(sanitizeItem) : []
+    fs.writeFileSync(path.join(dataDir, 'catalog.json'), JSON.stringify(clean))
+  } catch {}
+}
+
+function json(res, code, obj) {
+  res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+  res.end(JSON.stringify(obj))
+}
+
+function parseBody(req) {
+  return new Promise(resolve => {
+    const chunks = []
+    req.on('data', c => chunks.push(c))
+    req.on('end', () => {
+      const raw = Buffer.concat(chunks).toString()
+      try { resolve(JSON.parse(raw || '{}')) } catch { resolve({}) }
+    })
+  })
+}
+
+function genId(prefix) {
+  return `${prefix}_${crypto.randomBytes(8).toString('hex')}`
+}
+
+function now() { return Date.now() }
+function csvEscape(v) {
+  const s = String(v == null ? '' : v)
+  return `"${s.replace(/"/g, '""')}"`
+}
+
+function ensureSession(sessionId) { return state.sessions.get(sessionId) }
+
+function sendToUser(userId, event, data) {
+  const clients = state.sseUsers.get(userId)
+  if (!clients) return
+  const payload = `event: ${event}\n` + `data: ${JSON.stringify(data)}\n\n`
+  for (const res of clients) {
+    try { res.write(payload) } catch {}
+    const meta = state.sseUserMeta.get(res) || { startedAt: now(), lastWrite: now() }
+    meta.lastWrite = now()
+    state.sseUserMeta.set(res, meta)
+  }
+}
+
+function sendToStaff(sessionId, event, data) {
+  const clients = state.sseStaff.get(sessionId)
+  if (!clients) return
+  const payload = `event: ${event}\n` + `data: ${JSON.stringify(data)}\n\n`
+  for (const res of clients) {
+    try { res.write(payload) } catch {}
+    const meta = state.sseStaffMeta.get(res) || { startedAt: now(), lastWrite: now() }
+    meta.lastWrite = now()
+    state.sseStaffMeta.set(res, meta)
+  }
+}
+
+function within(ms, ts) { return now() - ts < ms }
+
+function rateCanInvite(fromId, toId) {
+  const hourKey = fromId
+  const hourBucket = state.rate.invitesByUserHour.get(hourKey) || []
+  const fresh = hourBucket.filter(ts => within(60 * 60 * 1000, ts))
+  if (fresh.length >= 5) return false
+  const pairKey = `${fromId}:${toId}`
+  const last = state.rate.lastInvitePair.get(pairKey)
+  if (last && within(30 * 60 * 1000, last.ts) && last.blocked) return false
+  state.rate.invitesByUserHour.set(hourKey, [...fresh, now()])
+  return true
+}
+
+function applyRestrictedIfNeeded(userId) {
+  const count = state.rate.restrictedUsers.get(userId) || 0
+  if (count >= 2) return true
+  return false
+}
+
+function markBlockedEvent(targetId) {
+  const prev = state.rate.restrictedUsers.get(targetId) || 0
+  state.rate.restrictedUsers.set(targetId, prev + 1)
+}
+
+function isBlockedPair(a, b) {
+  return state.blocks.has(`${a}:${b}`) || state.blocks.has(`${b}:${a}`)
+}
+
+function persistOrders(sessionId) {
+  const list = []
+  for (const o of state.orders.values()) if (o.sessionId === sessionId) list.push(o)
+  try { fs.writeFileSync(path.join(dataDir, `orders_${sessionId}.json`), JSON.stringify(list)) } catch {}
+}
+function persistReports(sessionId) {
+  const list = state.reports.filter(r => r.sessionId === sessionId)
+  try { fs.writeFileSync(path.join(dataDir, `reports_${sessionId}.json`), JSON.stringify(list)) } catch {}
+}
+function wipeSessionData(sessionId) {
+  try { fs.unlinkSync(path.join(dataDir, `orders_${sessionId}.json`)) } catch {}
+  try { fs.unlinkSync(path.join(dataDir, `reports_${sessionId}.json`)) } catch {}
+}
+function archiveSession(sessionId) {
+  const s = ensureSession(sessionId)
+  if (!s) return
+  let usersCount = 0
+  const mesasSet = new Set()
+  let invitesSent = 0, invitesAccepted = 0
+  const ordersStats = { pendiente_cobro:0, cobrado:0, en_preparacion:0, entregado:0, cancelado:0, expirado:0 }
+  const topItems = {}
+  const orders = []
+  const reports = []
+  for (const u of state.users.values()) if (u.sessionId === sessionId && u.role === 'user') { usersCount++; if (u.tableId) mesasSet.add(u.tableId) }
+  for (const inv of state.invites.values()) if (inv.sessionId === sessionId) { invitesSent++; if (inv.status === 'aceptado') invitesAccepted++ }
+  for (const o of state.orders.values()) if (o.sessionId === sessionId) { ordersStats[o.status] = (ordersStats[o.status]||0)+1; orders.push(o); topItems[o.product] = (topItems[o.product]||0)+1 }
+  for (const r of state.reports) if (r.sessionId === sessionId) reports.push(r)
+  const data = {
+    sessionId,
+    venueId: s.venueId || 'default',
+    venue: s.venue,
+    startedAt: s.startedAt,
+    endedAt: now(),
+    analytics: { usersCount, mesasActivas: mesasSet.size, invitesSent, invitesAccepted, orders: ordersStats, topItems },
+    orders,
+    reports
+  }
+  try { fs.writeFileSync(path.join(dataDir, `archive_${sessionId}.json`), JSON.stringify(data)) } catch {}
+  try {
+    const ordersHeader = ['id','sessionId','emitterId','emitterAlias','receiverId','receiverAlias','product','quantity','price','total','status','createdAt','expiresAt','emitterTable','receiverTable','mesaEntrega'].join(',')
+    const ordersLines = [ordersHeader]
+    for (const o of orders) {
+      const emAlias = (state.users.get(o.emitterId)?.alias || o.emitterId)
+      const reAlias = (state.users.get(o.receiverId)?.alias || o.receiverId)
+      ordersLines.push([
+        csvEscape(o.id),
+        csvEscape(o.sessionId),
+        csvEscape(o.emitterId),
+        csvEscape(emAlias),
+        csvEscape(o.receiverId),
+        csvEscape(reAlias),
+        csvEscape(o.product),
+        csvEscape(o.quantity),
+        csvEscape(o.price),
+        csvEscape(o.total),
+        csvEscape(o.status),
+        csvEscape(o.createdAt),
+        csvEscape(o.expiresAt),
+        csvEscape(o.emitterTable || ''),
+        csvEscape(o.receiverTable || ''),
+        csvEscape(o.mesaEntrega || '')
+      ].join(','))
+    }
+    fs.writeFileSync(path.join(dataDir, `archive_${sessionId}_orders.csv`), ordersLines.join('\n'))
+  } catch {}
+  try {
+    const reportsHeader = ['sessionId','fromId','fromAlias','targetId','targetAlias','category','note','ts'].join(',')
+    const reportsLines = [reportsHeader]
+    for (const r of reports) {
+      const fromAlias = (state.users.get(r.fromId)?.alias || r.fromId)
+      const targetAlias = (state.users.get(r.targetId)?.alias || r.targetId)
+      reportsLines.push([
+        csvEscape(r.sessionId),
+        csvEscape(r.fromId),
+        csvEscape(fromAlias),
+        csvEscape(r.targetId),
+        csvEscape(targetAlias),
+        csvEscape(r.category),
+        csvEscape(r.note),
+        csvEscape(r.ts)
+      ].join(','))
+    }
+    fs.writeFileSync(path.join(dataDir, `archive_${sessionId}_reports.csv`), reportsLines.join('\n'))
+  } catch {}
+}
+function endAndArchive(sessionId) {
+  archiveSession(sessionId)
+  state.sessions.delete(sessionId)
+  // Cerrar SSE staff de la sesión
+  const staffConns = state.sseStaff.get(sessionId) || []
+  for (const res of staffConns) { try { res.end() } catch {} state.sseStaffMeta.delete(res) }
+  state.sseStaff.delete(sessionId)
+  // Cerrar SSE de usuarios pertenecientes a la sesión y limpiar memoria
+  for (const [uid, u] of state.users) if (u.sessionId === sessionId) state.users.delete(uid)
+  for (const [uid, list] of state.sseUsers) {
+    const user = state.users.get(uid) // ya removido arriba si era de la sesión
+    if (user && user.sessionId === sessionId) {
+      for (const res of list) { try { res.end() } catch {} state.sseUserMeta.delete(res) }
+      state.sseUsers.delete(uid)
+    }
+  }
+  for (const [k, v] of state.invites) if (v.sessionId === sessionId) state.invites.delete(k)
+  for (const [k, v] of state.meetings) if (v.sessionId === sessionId) state.meetings.delete(k)
+  for (const [k, v] of state.orders) if (v.sessionId === sessionId) state.orders.delete(k)
+}
+function expireOldSessions() {
+  for (const s of state.sessions.values()) {
+    if (s.active && (now() - s.startedAt) >= 12 * 60 * 60 * 1000) {
+      endAndArchive(s.id)
+    }
+  }
+}
+
+function serveStatic(req, res, pathname) {
+  const filePath = path.join(__dirname, 'public', pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, ''))
+  fs.readFile(filePath, (err, data) => {
+    if (err) { res.writeHead(404); res.end('Not found'); return }
+    const ext = path.extname(filePath)
+    const type = ext === '.html' ? 'text/html' : ext === '.js' ? 'application/javascript' : ext === '.css' ? 'text/css' : ext === '.json' ? 'application/json' : 'application/octet-stream'
+    res.writeHead(200, { 'Content-Type': type })
+    res.end(data)
+  })
+}
+
+const server = http.createServer(async (req, res) => {
+  const { pathname, query } = url.parse(req.url, true)
+  if (req.method === 'OPTIONS') {
+    res.writeHead(200, {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+    })
+    res.end()
+    return
+  }
+
+  if (pathname.startsWith('/api/')) {
+    expireOldSessions()
+    if (pathname === '/api/session/start' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const venueId = String(body.venueId || 'default')
+      // Si ya hay sesión activa para este venue, reutilizarla sin cobrar crédito
+      for (const s of state.sessions.values()) {
+        if (s.active && (now() - s.startedAt) < 12 * 60 * 60 * 1000 && s.venueId === venueId) {
+          json(res, 200, { sessionId: s.id, pin: s.pin, venueId })
+          return
+        }
+      }
+      // Verificar crédito del venue antes de crear nueva sesión
+      const venues = readVenues()
+      const entry = venues[venueId] || { name: venueId, credits: 0, active: true }
+      const current = Number(entry.credits || 0)
+      if (entry.active === false) { json(res, 403, { error: 'inactive' }); return }
+      if (current <= 0) { json(res, 403, { error: 'no_credit' }); return }
+      venues[venueId] = { name: String(entry.name || venueId), credits: current - 1, active: entry.active !== false }
+      writeVenues(venues)
+      const sessionId = genId('sess')
+      const pin = String(Math.floor(1000 + Math.random() * 9000))
+      state.sessions.set(sessionId, { id: sessionId, venueId, venue: body.venue || 'Venue', startedAt: now(), active: true, pin, publicBaseUrl: '', closedTables: new Set() })
+      json(res, 200, { sessionId, pin, venueId })
+      return
+    }
+    if (pathname === '/api/session/active' && req.method === 'GET') {
+      const venueId = String(query.venueId || '')
+      for (const s of state.sessions.values()) {
+        if (s.active && (now() - s.startedAt) < 12 * 60 * 60 * 1000) {
+          if (!venueId || s.venueId === venueId) {
+            json(res, 200, { sessionId: s.id, pin: s.pin, venueId: s.venueId })
+            return
+          }
+        }
+      }
+      json(res, 404, { error: 'no_active' })
+      return
+    }
+    if (pathname === '/api/session/end' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const s = ensureSession(body.sessionId)
+      if (!s) { json(res, 404, { error: 'no_session' }); return }
+      endAndArchive(body.sessionId)
+      json(res, 200, { ok: true })
+      return
+    }
+    if (pathname === '/api/session/public-base' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const s = ensureSession(body.sessionId)
+      if (!s) { json(res, 404, { error: 'no_session' }); return }
+      const urlStr = String(body.publicBaseUrl || '').trim()
+      s.publicBaseUrl = urlStr
+      json(res, 200, { ok: true })
+      return
+    }
+    if (pathname === '/api/session/public-base' && req.method === 'GET') {
+      const sessionId = query.sessionId
+      const s = ensureSession(sessionId)
+      if (!s) { json(res, 404, { error: 'no_session' }); return }
+      json(res, 200, { publicBaseUrl: s.publicBaseUrl || '' })
+      return
+    }
+    if (pathname === '/api/join' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const s = ensureSession(body.sessionId)
+      if (!s) { json(res, 404, { error: 'no_session' }); return }
+      const role = body.role === 'staff' ? 'staff' : 'user'
+      if (role === 'staff') {
+        const pinStr = String(body.pin || '')
+        const okSessionPin = pinStr === String(s.pin)
+        const okGlobalPin = (GLOBAL_STAFF_PIN && pinStr === GLOBAL_STAFF_PIN)
+        if (!pinStr || (!okSessionPin && !okGlobalPin)) { json(res, 403, { error: 'bad_pin' }); return }
+      }
+      const id = genId(role === 'staff' ? 'staff' : 'user')
+      const user = { id, sessionId: body.sessionId, role, alias: '', selfie: '', selfieApproved: false, available: false, prefs: { tags: [] }, zone: '', muted: false, receiveMode: 'all', allowedSenders: new Set(), tableId: '', visibility: 'visible', pausedUntil: 0, silenced: false }
+      state.users.set(id, user)
+      json(res, 200, { user })
+      return
+    }
+    if (pathname === '/api/user/get' && req.method === 'GET') {
+      const userId = query.userId
+      const u = state.users.get(userId)
+      if (!u) { json(res, 404, { error: 'no_user' }); return }
+      json(res, 200, { user: { id: u.id, sessionId: u.sessionId, role: u.role, alias: u.alias, selfie: u.selfieApproved ? u.selfie : '', selfieApproved: u.selfieApproved, available: u.available, prefs: u.prefs, zone: u.zone, tableId: u.tableId, visibility: u.visibility } })
+      return
+    }
+    if (pathname === '/api/user/profile' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const u = state.users.get(body.userId)
+      if (!u) { json(res, 404, { error: 'no_user' }); return }
+      u.alias = String(body.alias || '').slice(0, 32)
+      const selfieStr = String(body.selfie || '')
+      // Validaciones de imagen: tamaño ≤ 500KB, MIME permitido (jpeg/webp)
+      let okImage = false, err = ''
+      if (selfieStr.startsWith('data:')) {
+        const m = selfieStr.match(/^data:(.*?);base64,(.+)$/)
+        if (m) {
+          const mime = m[1]
+          const b64 = m[2]
+          const buf = Buffer.from(b64, 'base64')
+          const size = buf.length
+          const allowed = mime === 'image/jpeg' || mime === 'image/webp'
+          if (!allowed) { err = 'bad_mime' }
+          else if (size > 500 * 1024) { err = 'too_big' }
+          else okImage = true
+        } else { err = 'bad_format' }
+      } else if (selfieStr) {
+        err = 'bad_format'
+      }
+      if (!okImage) { json(res, 400, { error: 'bad_image', reason: err }); return }
+      u.selfie = selfieStr
+      u.selfieApproved = false
+      json(res, 200, { ok: true })
+      return
+    }
+    // Admin: listar venues
+    if (pathname === '/api/admin/venues' && req.method === 'GET') {
+      if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const venues = readVenues()
+      const list = []
+      for (const id of Object.keys(venues)) {
+        const v = venues[id] || {}
+        list.push({ venueId: id, name: String(v.name || id), credits: Number(v.credits || 0), active: v.active !== false })
+      }
+      json(res, 200, { venues: list })
+      return
+    }
+    // Admin: sumar créditos a un venue
+    if (pathname === '/api/admin/venues/credit' && req.method === 'POST') {
+      if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const body = await parseBody(req)
+      const venueId = String(body.venueId || '').trim()
+      const amount = Number(body.amount || 0)
+      if (!venueId || !Number.isFinite(amount)) { json(res, 400, { error: 'bad_input' }); return }
+      const venues = readVenues()
+      const prev = venues[venueId] || { name: venueId, credits: 0, active: true }
+      const nextCredits = Number(prev.credits || 0) + amount
+      venues[venueId] = { name: String(prev.name || venueId), credits: Math.max(0, nextCredits), active: prev.active !== false }
+      writeVenues(venues)
+      json(res, 200, { ok: true, venueId, credits: venues[venueId].credits })
+      return
+    }
+    if (pathname === '/api/user/update' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const u = state.users.get(body.userId)
+      if (!u) { json(res, 404, { error: 'no_user' }); return }
+      if (typeof body.alias === 'string') u.alias = body.alias.slice(0,32)
+      if (Array.isArray(body.tags)) u.prefs.tags = body.tags.slice(0,5)
+      if (typeof body.visibility === 'string') u.visibility = body.visibility
+      if (typeof body.tableId === 'string') u.tableId = body.tableId.slice(0,32)
+      if (typeof body.available === 'boolean') u.available = body.available
+      json(res, 200, { ok: true })
+      return
+    }
+    if (pathname === '/api/user/pause' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const u = state.users.get(body.userId)
+      if (!u) { json(res, 404, { error: 'no_user' }); return }
+      u.pausedUntil = now() + 30*60*1000
+      json(res, 200, { ok: true, pausedUntil: u.pausedUntil })
+      return
+    }
+    if (pathname === '/api/user/change-table' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const u = state.users.get(body.userId)
+      if (!u) { json(res, 404, { error: 'no_user' }); return }
+      const hourKey = u.id
+      const bucket = state.rate.tableChangesByUserHour.get(hourKey) || []
+      const fresh = bucket.filter(ts => within(60*60*1000, ts))
+      if (fresh.length >= 2) { json(res, 429, { error: 'table_changes_limit' }); return }
+      u.tableId = String(body.newTable || '').slice(0,32)
+      state.rate.tableChangesByUserHour.set(hourKey, [...fresh, now()])
+      json(res, 200, { ok: true })
+      return
+    }
+    if (pathname === '/api/moderation/approve-selfie' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const staff = state.users.get(body.staffId)
+      const target = state.users.get(body.userId)
+      if (!staff || staff.role !== 'staff') { json(res, 403, { error: 'no_staff' }); return }
+      if (!target) { json(res, 404, { error: 'no_user' }); return }
+      target.selfieApproved = true
+      json(res, 200, { ok: true })
+      return
+    }
+    if (pathname === '/api/user/available' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const u = state.users.get(body.userId)
+      if (!u) { json(res, 404, { error: 'no_user' }); return }
+      u.available = !!body.available
+      u.receiveMode = body.receiveMode || 'all'
+      u.prefs = body.prefs || {}
+      u.zone = body.zone || ''
+      json(res, 200, { ok: true })
+      return
+    }
+    if (pathname === '/api/users/available' && req.method === 'GET') {
+      const sessionId = query.sessionId
+      const only = query.onlyAvailable === 'true'
+      const tagsQ = (query.tags || '').split(',').filter(Boolean)
+      const zoneQ = query.zone || ''
+      const min = Number(query.ageMin || 0)
+      const max = Number(query.ageMax || 200)
+      const arr = []
+      for (const u of state.users.values()) {
+        if (u.sessionId !== sessionId || u.role !== 'user') continue
+        if (only && !u.available) continue
+        const ageOk = u.prefs && u.prefs.age ? (u.prefs.age >= min && u.prefs.age <= max) : true
+        const tagsOk = tagsQ.length ? (Array.isArray(u.prefs.tags) && tagsQ.every(t => u.prefs.tags.includes(t))) : true
+        const zoneOk = zoneQ ? (u.zone === zoneQ) : true
+        arr.push({ id: u.id, alias: u.alias, selfie: u.selfieApproved ? u.selfie : '', tags: u.prefs.tags || [], zone: u.zone, available: u.available, tableId: u.tableId })
+      }
+      json(res, 200, { users: arr })
+      return
+    }
+    if (pathname === '/api/mesas/active' && req.method === 'GET') {
+      const sessionId = query.sessionId
+      const map = new Map()
+      for (const u of state.users.values()) {
+        if (u.sessionId !== sessionId || u.role !== 'user') continue
+        const t = u.tableId || ''
+        if (!t) continue
+        const entry = map.get(t) || { tableId: t, people: 0, disponibles: 0, incognitos: 0, tags: [] }
+        entry.people += (u.visibility !== 'incognito') ? 1 : 0
+        entry.incognitos += (u.visibility === 'incognito') ? 1 : 0
+        entry.disponibles += (u.available ? 1 : 0)
+        if (Array.isArray(u.prefs.tags)) {
+          for (const tag of u.prefs.tags) if (!entry.tags.includes(tag)) entry.tags.push(tag)
+        }
+        map.set(t, entry)
+      }
+      json(res, 200, { mesas: Array.from(map.values()) })
+      return
+    }
+    if (pathname === '/api/invite/dance' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const from = state.users.get(body.fromId)
+      const to = state.users.get(body.toId)
+      if (!from || !to) { json(res, 404, { error: 'no_user' }); return }
+      if (from.muted || from.silenced) { json(res, 429, { error: 'silenced' }); return }
+      if (to.pausedUntil && now() < to.pausedUntil) { json(res, 403, { error: 'paused' }); return }
+      if (applyRestrictedIfNeeded(from.id)) { json(res, 429, { error: 'restricted' }); return }
+      if (isBlockedPair(from.id, to.id)) { json(res, 403, { error: 'blocked' }); return }
+      if (to.receiveMode === 'mesas') {
+        if (!from.zone || !to.zone || from.zone !== to.zone) { json(res, 403, { error: 'mode_mesas' }); return }
+      }
+      if (to.receiveMode === 'invitedOnly') {
+        const allowed = to.allowedSenders && to.allowedSenders.has(from.id)
+        if (!allowed) { json(res, 403, { error: 'mode_invited_only' }); return }
+      }
+      const msg = body.messageType === 'invitoCancion' ? 'invitoCancion' : 'bailamos'
+      if (!rateCanInvite(from.id, to.id)) { json(res, 429, { error: 'rate' }); return }
+      const invId = genId('inv')
+      const inv = { id: invId, sessionId: from.sessionId, fromId: from.id, toId: to.id, msg, status: 'pendiente', createdAt: now() }
+      state.invites.set(invId, inv)
+      const fromSelfie = from.selfieApproved ? from.selfie : ''
+      sendToUser(to.id, 'dance_invite', { invite: { id: invId, from: { id: from.id, alias: from.alias, selfie: fromSelfie, tableId: from.tableId || '', zone: from.zone || '' } , msg } })
+      for (const other of state.invites.values()) {
+        if (other.sessionId === inv.sessionId && other.fromId === to.id && other.toId === from.id) {
+          if (within(10*60*1000, other.createdAt)) {
+            sendToUser(from.id, 'match', { with: { id: to.id, alias: to.alias } })
+            sendToUser(to.id, 'match', { with: { id: from.id, alias: from.alias } })
+          }
+        }
+      }
+      json(res, 200, { inviteId: invId })
+      return
+    }
+    if (pathname === '/api/invite/respond' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const inv = state.invites.get(body.inviteId)
+      if (!inv) { json(res, 404, { error: 'no_invite' }); return }
+      const action = body.action === 'accept' ? 'accept' : 'pass'
+      const note = String(body.note || '').slice(0, 140)
+      if (action === 'pass') {
+        inv.status = 'pasado'
+        state.rate.lastInvitePair.set(`${inv.fromId}:${inv.toId}`, { ts: now(), blocked: true })
+        sendToUser(inv.fromId, 'invite_result', { inviteId: inv.id, status: 'pasado', note })
+        json(res, 200, { ok: true })
+        return
+      }
+      inv.status = 'aceptado'
+      const toUser = state.users.get(inv.toId)
+      if (toUser && toUser.allowedSenders) toUser.allowedSenders.add(inv.fromId)
+      const meetingId = genId('meet')
+      const points = ['Pista', 'Barra', 'Punto X']
+      const point = points[Math.floor(Math.random() * points.length)]
+      const minutes = Math.floor(Math.random() * 6) + 5
+      const expiresAt = now() + minutes * 60 * 1000
+      const meeting = { id: meetingId, sessionId: inv.sessionId, inviteId: inv.id, point, expiresAt, cancelled: false }
+      state.meetings.set(meetingId, meeting)
+      sendToUser(inv.fromId, 'invite_result', { inviteId: inv.id, status: 'aceptado', meeting, note })
+      sendToUser(inv.toId, 'invite_result', { inviteId: inv.id, status: 'aceptado', meeting, note })
+      json(res, 200, { meeting })
+      return
+    }
+    if (pathname === '/api/meeting/cancel' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const m = state.meetings.get(body.meetingId)
+      if (!m) { json(res, 404, { error: 'no_meeting' }); return }
+      m.cancelled = true
+      sendToStaff(m.sessionId, 'meeting_cancel', { meetingId: m.id })
+      json(res, 200, { ok: true })
+      return
+    }
+    if (pathname === '/api/meeting/confirm' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const m = state.meetings.get(body.meetingId)
+      if (!m) { json(res, 404, { error: 'no_meeting' }); return }
+      sendToStaff(m.sessionId, 'meeting_confirm', { meetingId: m.id, plan: body.plan || '' })
+      json(res, 200, { ok: true })
+      return
+    }
+    if (pathname === '/api/block' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const u = state.users.get(body.userId)
+      const t = state.users.get(body.targetId)
+      if (!u || !t) { json(res, 404, { error: 'no_user' }); return }
+      state.blocks.add(`${u.id}:${t.id}`)
+      markBlockedEvent(body.targetId)
+      persistReports(u.sessionId)
+      json(res, 200, { ok: true })
+      return
+    }
+    if (pathname === '/api/report' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const u = state.users.get(body.userId)
+      const t = state.users.get(body.targetId)
+      if (!u || !t) { json(res, 404, { error: 'no_user' }); return }
+      state.reports.push({ sessionId: u.sessionId, fromId: u.id, targetId: t.id, category: body.category || '', note: String(body.note || '').slice(0, 140), ts: now() })
+      sendToStaff(u.sessionId, 'report', { targetId: t.id })
+      persistReports(u.sessionId)
+      json(res, 200, { ok: true })
+      return
+    }
+    if (pathname === '/api/consumption/invite' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const from = state.users.get(body.fromId)
+      const to = state.users.get(body.toId)
+      if (!from || !to) { json(res, 404, { error: 'no_user' }); return }
+      if (isBlockedPair(from.id, to.id)) { json(res, 403, { error: 'blocked' }); return }
+      const hourKey = from.id
+      const bucket = state.rate.consumptionByUserHour.get(hourKey) || []
+      const fresh = bucket.filter(ts => within(60 * 60 * 1000, ts))
+      if (fresh.length >= 5) { json(res, 429, { error: 'rate_consumo' }); return }
+      state.rate.consumptionByUserHour.set(hourKey, [...fresh, now()])
+      const reqId = genId('cinv')
+      const note = String(body.note || '').slice(0, 140)
+      sendToUser(to.id, 'consumption_invite', { requestId: reqId, from: { id: from.id, alias: from.alias, tableId: from.tableId || '' }, product: body.product, note })
+      json(res, 200, { requestId: reqId })
+      return
+    }
+    if (pathname === '/api/consumption/invite/bulk' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const from = state.users.get(body.fromId)
+      const to = state.users.get(body.toId)
+      if (!from || !to) { json(res, 404, { error: 'no_user' }); return }
+      if (isBlockedPair(from.id, to.id)) { json(res, 403, { error: 'blocked' }); return }
+      const hourKey = from.id
+      const bucket = state.rate.consumptionByUserHour.get(hourKey) || []
+      const fresh = bucket.filter(ts => within(60 * 60 * 1000, ts))
+      if (fresh.length >= 5) { json(res, 429, { error: 'rate_consumo' }); return }
+      state.rate.consumptionByUserHour.set(hourKey, [...fresh, now()])
+      const items = Array.isArray(body.items) ? body.items.map(it => ({ product: String(it.product || ''), quantity: Math.max(1, Number(it.quantity || 1)) })) : []
+      const filtered = items.filter(it => it.product)
+      if (!filtered.length) { json(res, 400, { error: 'no_items' }); return }
+      const reqId = genId('cinv')
+      const note = String(body.note || '').slice(0, 140)
+      sendToUser(to.id, 'consumption_invite_bulk', { requestId: reqId, from: { id: from.id, alias: from.alias, tableId: from.tableId || '' }, items: filtered, note })
+      json(res, 200, { requestId: reqId })
+      return
+    }
+    if (pathname === '/api/consumption/respond' && req.method === 'POST') {
+      const body = await parseBody(req)
+      if (body.action !== 'accept') { json(res, 200, { ok: true }); return }
+      const from = state.users.get(body.fromId)
+      const to = state.users.get(body.toId)
+      if (!from || !to) { json(res, 404, { error: 'no_user' }); return }
+      const orderId = genId('ord')
+      const expiresAt = now() + 10 * 60 * 1000
+      const order = { id: orderId, sessionId: from.sessionId, emitterId: from.id, receiverId: to.id, product: body.product, quantity: 1, price: 0, total: 0, status: 'pendiente_cobro', createdAt: now(), expiresAt, emitterTable: from.tableId || '', receiverTable: to.tableId || '', mesaEntrega: to.tableId || '', isInvitation: true }
+      state.orders.set(orderId, order)
+      sendToStaff(order.sessionId, 'order_new', { order })
+      persistOrders(order.sessionId)
+      json(res, 200, { orderId })
+      return
+    }
+    if (pathname === '/api/consumption/respond/bulk' && req.method === 'POST') {
+      const body = await parseBody(req)
+      if (body.action !== 'accept') { json(res, 200, { ok: true }); return }
+      const from = state.users.get(body.fromId)
+      const to = state.users.get(body.toId)
+      if (!from || !to) { json(res, 404, { error: 'no_user' }); return }
+      const items = Array.isArray(body.items) ? body.items.map(it => ({ product: String(it.product || ''), quantity: Math.max(1, Number(it.quantity || 1)) })) : []
+      const filtered = items.filter(it => it.product)
+      const ids = []
+      for (const it of filtered) {
+        const orderId = genId('ord')
+        const expiresAt = now() + 10 * 60 * 1000
+        const order = { id: orderId, sessionId: from.sessionId, emitterId: from.id, receiverId: to.id, product: it.product, quantity: it.quantity, price: 0, total: 0, status: 'pendiente_cobro', createdAt: now(), expiresAt, emitterTable: from.tableId || '', receiverTable: to.tableId || '', mesaEntrega: to.tableId || '', isInvitation: true }
+        state.orders.set(orderId, order)
+        ids.push(orderId)
+        sendToStaff(order.sessionId, 'order_new', { order })
+      }
+      if (ids.length) persistOrders(from.sessionId)
+      json(res, 200, { orderIds: ids })
+      return
+    }
+    if (pathname === '/api/order/new' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const u = state.users.get(body.userId)
+      if (!u) { json(res, 404, { error: 'no_user' }); return }
+      const orderId = genId('ord')
+      const expiresAt = now() + 10 * 60 * 1000
+      const itemName = String(body.product || '')
+      const qty = Math.max(1, Number(body.quantity || 1))
+      const s = ensureSession(u.sessionId)
+      const base = readGlobalCatalog()
+      const itemsBase = (s && Array.isArray(s.catalog) && s.catalog.length) ? s.catalog : base
+      const found = itemsBase.find(i => i.name === itemName)
+      const price = found ? found.price : 0
+      const total = price * qty
+      const mesaEntrega = u.tableId || ''
+      const order = { id: orderId, sessionId: u.sessionId, emitterId: u.id, receiverId: u.id, product: itemName, quantity: qty, price, total, status: 'pendiente_cobro', createdAt: now(), expiresAt, emitterTable: u.tableId || '', receiverTable: u.tableId || '', mesaEntrega }
+      state.orders.set(orderId, order)
+      sendToStaff(order.sessionId, 'order_new', { order })
+      sendToUser(u.id, 'order_update', { order })
+      persistOrders(order.sessionId)
+      json(res, 200, { orderId })
+      return
+    }
+    if (pathname === '/api/order/bulk' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const u = state.users.get(body.userId)
+      if (!u) { json(res, 404, { error: 'no_user' }); return }
+      const s = ensureSession(u.sessionId)
+      const base = readGlobalCatalog()
+      const itemsBase = (s && Array.isArray(s.catalog) && s.catalog.length) ? s.catalog : base
+      const items = Array.isArray(body.items) ? body.items : []
+      const orderIds = []
+      for (const it of items) {
+        const name = String(it.product || '')
+        const qty = Math.max(1, Number(it.quantity || 1))
+        if (!name || qty <= 0) continue
+        const found = itemsBase.find(i => i.name === name)
+        const price = found ? Number(found.price || 0) : 0
+        const total = price * qty
+        const orderId = genId('ord')
+        const expiresAt = now() + 10 * 60 * 1000
+        const mesaEntrega = u.tableId || ''
+        const order = { id: orderId, sessionId: u.sessionId, emitterId: u.id, receiverId: u.id, product: name, quantity: qty, price, total, status: 'pendiente_cobro', createdAt: now(), expiresAt, emitterTable: u.tableId || '', receiverTable: u.tableId || '', mesaEntrega }
+        state.orders.set(orderId, order)
+        orderIds.push(orderId)
+        sendToStaff(order.sessionId, 'order_new', { order })
+        sendToUser(u.id, 'order_update', { order })
+      }
+      if (orderIds.length) persistOrders(u.sessionId)
+      json(res, 200, { orderIds })
+      return
+    }
+    if (pathname.startsWith('/api/staff/orders/') && req.method === 'POST') {
+      const orderId = pathname.split('/').pop()
+      const body = await parseBody(req)
+      const order = state.orders.get(orderId)
+      if (!order) { json(res, 404, { error: 'no_order' }); return }
+      const status = body.status
+      if (!['cobrado', 'entregado', 'cancelado', 'en_preparacion', 'expirado'].includes(status)) { json(res, 400, { error: 'bad_status' }); return }
+      order.status = status
+      sendToUser(order.emitterId, 'order_update', { order })
+      sendToUser(order.receiverId, 'order_update', { order })
+      sendToStaff(order.sessionId, 'order_update', { order })
+      persistOrders(order.sessionId)
+      json(res, 200, { ok: true })
+      return
+    }
+    if (pathname === '/api/staff/orders' && req.method === 'GET') {
+      const sessionId = query.sessionId
+      const stateFilter = query.state || ''
+      const list = []
+      for (const o of state.orders.values()) {
+        if (o.sessionId !== sessionId) continue
+        if (stateFilter && o.status !== stateFilter) continue
+        list.push(o)
+      }
+      json(res, 200, { orders: list })
+      return
+    }
+    if (pathname === '/api/table/orders' && req.method === 'GET') {
+      const sessionId = query.sessionId
+      const tableId = String(query.tableId || '')
+      const userId = query.userId
+      const u = state.users.get(userId)
+      if (!u || u.sessionId !== sessionId || u.role !== 'user') { json(res, 403, { error: 'no_user' }); return }
+      if (u.tableId !== tableId) { json(res, 403, { error: 'not_in_table' }); return }
+      const s = ensureSession(sessionId)
+      if (s && s.closedTables && s.closedTables.has(tableId)) { json(res, 200, { orders: [] }); return }
+      const list = []
+      for (const o of state.orders.values()) {
+        if (o.sessionId !== sessionId) continue
+        if (o.emitterTable === tableId || o.receiverTable === tableId || o.mesaEntrega === tableId) {
+          const emitter = state.users.get(o.emitterId)
+          const receiver = state.users.get(o.receiverId)
+          list.push({
+            id: o.id,
+            product: o.product,
+            quantity: o.quantity || 1,
+            price: o.price || 0,
+            total: o.total || 0,
+            status: o.status,
+            createdAt: o.createdAt,
+            expiresAt: o.expiresAt,
+            emitterId: o.emitterId,
+            receiverId: o.receiverId,
+            emitterAlias: emitter ? emitter.alias : '',
+            receiverAlias: receiver ? receiver.alias : '',
+            mesaEntrega: o.mesaEntrega || '',
+          })
+        }
+      }
+      json(res, 200, { orders: list })
+      return
+    }
+    if (pathname === '/api/staff/table/orders' && req.method === 'GET') {
+      const sessionId = query.sessionId
+      const tableId = String(query.tableId || '')
+      const list = []
+      const s = ensureSession(sessionId)
+      if (s && s.closedTables && s.closedTables.has(tableId)) { json(res, 200, { orders: [] }); return }
+      for (const o of state.orders.values()) {
+        if (o.sessionId !== sessionId) continue
+        if (o.emitterTable === tableId || o.receiverTable === tableId || o.mesaEntrega === tableId) {
+          const emitter = state.users.get(o.emitterId)
+          const receiver = state.users.get(o.receiverId)
+          list.push({
+            id: o.id,
+            product: o.product,
+            quantity: o.quantity || 1,
+            price: o.price || 0,
+            total: o.total || 0,
+            status: o.status,
+            createdAt: o.createdAt,
+            expiresAt: o.expiresAt,
+            emitterId: o.emitterId,
+            receiverId: o.receiverId,
+            emitterAlias: emitter ? emitter.alias : '',
+            receiverAlias: receiver ? receiver.alias : '',
+            mesaEntrega: o.mesaEntrega || '',
+          })
+        }
+      }
+      json(res, 200, { orders: list })
+      return
+    }
+    if (pathname === '/api/staff/table/close' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const s = ensureSession(body.sessionId)
+      if (!s) { json(res, 404, { error: 'no_session' }); return }
+      const t = String(body.tableId || '')
+      s.closedTables = s.closedTables || new Set()
+      if (body.closed) s.closedTables.add(t)
+      else s.closedTables.delete(t)
+      sendToStaff(s.id, 'table_closed', { tableId: t, closed: !!body.closed })
+      json(res, 200, { ok: true })
+      return
+    }
+    if (pathname === '/api/user/orders' && req.method === 'GET') {
+      const userId = query.userId
+      const list = []
+      for (const o of state.orders.values()) {
+        if (o.emitterId === userId || o.receiverId === userId) list.push(o)
+      }
+      json(res, 200, { orders: list })
+      return
+    }
+    if (pathname === '/api/waiter/call' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const u = state.users.get(body.userId)
+      if (!u) { json(res, 404, { error: 'no_user' }); return }
+      const callId = genId('call')
+      const call = { id: callId, sessionId: u.sessionId, userId: u.id, tableId: u.tableId || '', reason: String(body.reason || ''), status: 'pendiente', ts: now() }
+      state.waiterCalls.set(callId, call)
+      sendToStaff(call.sessionId, 'waiter_call', { call })
+      sendToUser(call.userId, 'waiter_update', { call })
+      json(res, 200, { callId })
+      return
+    }
+    if (pathname === '/api/staff/waiter' && req.method === 'GET') {
+      const sessionId = query.sessionId
+      const list = []
+      for (const c of state.waiterCalls.values()) {
+        if (c.sessionId !== sessionId) continue
+        const u = state.users.get(c.userId)
+        list.push({
+          id: c.id,
+          sessionId: c.sessionId,
+          userId: c.userId,
+          tableId: c.tableId || '',
+          reason: c.reason,
+          status: c.status,
+          ts: c.ts,
+          userAlias: u ? u.alias : '',
+          zone: u ? u.zone : '',
+        })
+      }
+      json(res, 200, { calls: list })
+      return
+    }
+    if (pathname.startsWith('/api/staff/waiter/') && req.method === 'POST') {
+      const callId = pathname.split('/').pop()
+      const body = await parseBody(req)
+      const c = state.waiterCalls.get(callId)
+      if (!c) { json(res, 404, { error: 'no_call' }); return }
+      c.status = body.status || 'atendido'
+      sendToStaff(c.sessionId, 'waiter_update', { call: c })
+      sendToUser(c.userId, 'waiter_update', { call: c })
+      json(res, 200, { ok: true })
+      return
+    }
+    if (pathname === '/api/reaction/send' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const from = state.users.get(body.fromId)
+      const to = state.users.get(body.toId)
+      if (!from || !to) { json(res, 404, { error: 'no_user' }); return }
+      if (isBlockedPair(from.id, to.id)) { json(res, 403, { error: 'blocked' }); return }
+      const hourKey = from.id
+      const bucket = state.rate.reactionsByUserHour.get(hourKey) || []
+      const fresh = bucket.filter(ts => within(60*60*1000, ts))
+      if (fresh.length >= 10) { json(res, 429, { error: 'rate_reaction' }); return }
+      state.rate.reactionsByUserHour.set(hourKey, [...fresh, now()])
+      const type = body.type === 'brindis' ? 'brindis' : 'saludo'
+      sendToUser(to.id, 'reaction', { from: { id: from.id, alias: from.alias }, type })
+      json(res, 200, { ok: true })
+      return
+    }
+    if (pathname === '/api/staff/promos' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const s = ensureSession(body.sessionId)
+      if (!s) { json(res, 404, { error: 'no_session' }); return }
+      s.promos = Array.isArray(body.promos) ? body.promos : []
+      json(res, 200, { ok: true })
+      return
+    }
+    if (pathname === '/api/promos' && req.method === 'GET') {
+      const sessionId = query.sessionId
+      const s = ensureSession(sessionId)
+      if (!s) { json(res, 404, { error: 'no_session' }); return }
+      json(res, 200, { promos: s.promos || [] })
+      return
+    }
+    if (pathname === '/api/staff/analytics' && req.method === 'GET') {
+      const sessionId = query.sessionId
+      let usersCount = 0
+      const mesasSet = new Set()
+      let invitesSent = 0, invitesAccepted = 0
+      const orders = { pendiente_cobro:0, cobrado:0, en_preparacion:0, entregado:0, cancelado:0, expirado:0 }
+      for (const u of state.users.values()) if (u.sessionId === sessionId && u.role === 'user') { usersCount++; if (u.tableId) mesasSet.add(u.tableId) }
+      for (const inv of state.invites.values()) if (inv.sessionId === sessionId) { invitesSent++; if (inv.status === 'aceptado') invitesAccepted++ }
+      for (const o of state.orders.values()) if (o.sessionId === sessionId) orders[o.status] = (orders[o.status]||0)+1
+      const topItems = {}
+      for (const o of state.orders.values()) if (o.sessionId === sessionId) topItems[o.product] = (topItems[o.product]||0)+1
+      json(res, 200, { usersCount, mesasActivas: mesasSet.size, invitesSent, invitesAccepted, orders, topItems })
+      return
+    }
+    if (pathname === '/api/staff/catalog' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const s = ensureSession(body.sessionId)
+      const items = Array.isArray(body.items) ? body.items : []
+      const clean = []
+      for (const it of items) {
+        const name = String(it.name || '').slice(0, 60)
+        const price = Number(it.price || 0)
+        if (!name) continue
+        clean.push({ name, price })
+      }
+      if (s) s.catalog = clean
+      writeGlobalCatalog(clean)
+      if (s) sendToStaff(s.id, 'catalog_update', { items: s.catalog })
+      json(res, 200, { ok: true })
+      return
+    }
+    if (pathname === '/api/catalog' && req.method === 'GET') {
+      const sessionId = query.sessionId
+      const s = sessionId ? ensureSession(sessionId) : null
+      const base = readGlobalCatalog()
+      const items = (s && Array.isArray(s.catalog) && s.catalog.length) ? s.catalog : base
+      json(res, 200, { items })
+      return
+    }
+    if (pathname === '/api/survey/submit' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const u = state.users.get(body.userId)
+      if (!u) { json(res, 404, { error: 'no_user' }); return }
+      state.surveys = state.surveys || []
+      state.surveys.push({ sessionId: u.sessionId, userId: u.id, score: Number(body.score||0), safe: !!body.safe, note: String(body.note||'').slice(0,140), ts: now() })
+      json(res, 200, { ok: true })
+      return
+    }
+    if (pathname === '/api/staff/users' && req.method === 'GET') {
+      const sessionId = query.sessionId
+      const list = []
+      for (const u of state.users.values()) if (u.sessionId === sessionId && u.role === 'user') list.push({ id: u.id, alias: u.alias, selfieApproved: u.selfieApproved, muted: u.muted })
+      json(res, 200, { users: list })
+      return
+    }
+    if (pathname === '/api/staff/moderate' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const staff = state.users.get(body.staffId)
+      const target = state.users.get(body.userId)
+      if (!staff || staff.role !== 'staff') { json(res, 403, { error: 'no_staff' }); return }
+      if (!target) { json(res, 404, { error: 'no_user' }); return }
+      target.muted = !!body.muted
+      json(res, 200, { ok: true })
+      return
+    }
+    if (pathname === '/api/staff/reports' && req.method === 'GET') {
+      const sessionId = query.sessionId
+      const list = state.reports.filter(r => r.sessionId === sessionId)
+      json(res, 200, { reports: list })
+      return
+    }
+    if (pathname === '/api/events/user' && req.method === 'GET') {
+      const userId = query.userId
+      const u = state.users.get(userId)
+      if (!u) { res.writeHead(404); res.end(); return }
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'Access-Control-Allow-Origin': '*' })
+      const arr = state.sseUsers.get(userId) || []
+      arr.push(res)
+      state.sseUsers.set(userId, arr)
+      state.sseUserMeta.set(res, { startedAt: now(), lastWrite: now() })
+      req.on('close', () => {
+        const list = state.sseUsers.get(userId) || []
+        state.sseUsers.set(userId, list.filter(r => r !== res))
+        state.sseUserMeta.delete(res)
+      })
+      return
+    }
+    if (pathname === '/api/events/staff' && req.method === 'GET') {
+      const sessionId = query.sessionId
+      const s = ensureSession(sessionId)
+      if (!s) { res.writeHead(404); res.end(); return }
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'Access-Control-Allow-Origin': '*' })
+      const arr = state.sseStaff.get(sessionId) || []
+      arr.push(res)
+      state.sseStaff.set(sessionId, arr)
+      state.sseStaffMeta.set(res, { startedAt: now(), lastWrite: now() })
+      req.on('close', () => {
+        const list = state.sseStaff.get(sessionId) || []
+        state.sseStaff.set(sessionId, list.filter(r => r !== res))
+        state.sseStaffMeta.delete(res)
+      })
+      return
+    }
+    if (pathname === '/api/health' && req.method === 'GET') {
+      json(res, 200, { ok: true })
+      return
+    }
+    if (pathname === '/api/network' && req.method === 'GET') {
+      const nets = os.networkInterfaces()
+      const ips = []
+      for (const name of Object.keys(nets)) {
+        for (const n of nets[name] || []) {
+          if (n.family === 'IPv4' && !n.internal) ips.push(n.address)
+        }
+      }
+      const port = String(process.env.PORT || 3000)
+      const urls = ips.map(ip => `http://${ip}:${port}`)
+      json(res, 200, { ips, port, urls })
+      return
+    }
+    res.writeHead(404); res.end('Not found')
+    return
+  }
+  serveStatic(req, res, pathname)
+})
+
+setInterval(() => {
+  const nowTs = now()
+  for (const o of state.orders.values()) {
+    if (o.status === 'pendiente_cobro' && nowTs > o.expiresAt) {
+      o.status = 'expirado'
+      sendToUser(o.emitterId, 'order_update', { order: o })
+      sendToUser(o.receiverId, 'order_update', { order: o })
+      sendToStaff(o.sessionId, 'order_update', { order: o })
+      persistOrders(o.sessionId)
+    }
+  }
+  for (const m of state.meetings.values()) {
+    if (!m.cancelled && nowTs > m.expiresAt) {
+      m.cancelled = true
+      sendToStaff(m.sessionId, 'meeting_expired', { meetingId: m.id })
+    }
+  }
+  // Cierre automático de SSE inactivas (>15 min sin eventos enviados)
+  const INACT_MS = 15 * 60 * 1000
+  for (const arr of state.sseUsers.values()) {
+    for (const res of arr.slice()) {
+      const meta = state.sseUserMeta.get(res)
+      const last = meta ? meta.lastWrite : nowTs
+      if ((nowTs - last) > INACT_MS) {
+        try { res.end() } catch {}
+        state.sseUserMeta.delete(res)
+        const list = arr.filter(r => r !== res)
+        // actualizar referencia en el mapa
+        const uidEntry = [...state.sseUsers.entries()].find(([, vals]) => vals === arr)
+        if (uidEntry) state.sseUsers.set(uidEntry[0], list)
+      }
+    }
+  }
+  for (const [sessId, arr] of state.sseStaff.entries()) {
+    for (const res of arr.slice()) {
+      const meta = state.sseStaffMeta.get(res)
+      const last = meta ? meta.lastWrite : nowTs
+      if ((nowTs - last) > INACT_MS) {
+        try { res.end() } catch {}
+        state.sseStaffMeta.delete(res)
+        state.sseStaff.set(sessId, arr.filter(r => r !== res))
+      }
+    }
+  }
+}, 10000)
+
+const PORT = process.env.PORT || 3000
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on http://localhost:${PORT}/`)
+})
