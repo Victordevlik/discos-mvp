@@ -156,6 +156,20 @@ function showModal(title, msg, type = 'info') {
 function showError(msg) { showModal('Error', msg || '', 'error') }
 function showInfo(msg) { showModal('Info', msg || '', 'info') }
 function showSuccess(msg) { showModal('Listo', msg || '', 'success') }
+function showModalAction(title, msg, btnText, handler, type = 'info') {
+  showModal(title, msg, type)
+  const row = document.querySelector('#modal .row')
+  if (!row) return
+  let btn = q('modal-action')
+  if (btn) { try { btn.remove() } catch {} }
+  btn = document.createElement('button')
+  btn.id = 'modal-action'
+  btn.textContent = btnText || 'Aceptar'
+  btn.onclick = () => { try { const m = q('modal'); if (m) m.classList.remove('show') } catch {}; if (typeof handler === 'function') handler() }
+  const closeBtn = q('modal-close')
+  if (closeBtn && closeBtn.parentElement === row) row.insertBefore(btn, closeBtn)
+  else row.append(btn)
+}
 function confirmAction(paraphrase) {
   return typeof window !== 'undefined' ? window.confirm(paraphrase) : true
 }
@@ -173,6 +187,7 @@ function scheduleUserSSEReconnect() {
   S.timers.userReconnect = setTimeout(() => { S.timers.userReconnect = 0; startEvents() }, 3000)
 }
 function scheduleStaffSSEReconnect() {
+  if (!S.sessionId) return
   if (S.timers.staffReconnect) return
   S.timers.staffReconnect = setTimeout(() => { S.timers.staffReconnect = 0; startStaffEvents() }, 3000)
 }
@@ -773,6 +788,7 @@ async function restartStaffSession() {
 }
 
 function startStaffEvents() {
+  if (!S.sessionId) return
   try { if (S.staffSSE) S.staffSSE.close() } catch {}
   S.staffSSE = new EventSource(`/api/events/staff?sessionId=${encodeURIComponent(S.sessionId)}`)
   S.staffSSE.onopen = () => { if (S.timers.staffReconnect) { try { clearTimeout(S.timers.staffReconnect) } catch {}; S.timers.staffReconnect = 0 } }
@@ -811,6 +827,15 @@ function startStaffEvents() {
   startStaffPolls()
 }
 
+async function ensureSessionActiveOffer() {
+  try {
+    const qs = S.venueId ? (`?venueId=${encodeURIComponent(S.venueId)}`) : ''
+    const r = await api(`/api/session/active${qs}`).catch(() => null)
+    if (r && r.sessionId) return true
+    showModalAction('Sin sesión activa', 'Inicia una sesión para este local', 'Iniciar sesión', () => { show('screen-staff-welcome') }, 'info')
+    return false
+  } catch { return false }
+}
 async function loadOrders(state = '') {
   const qs = state ? `&state=${encodeURIComponent(state)}` : ''
   const r = await api(`/api/staff/orders?sessionId=${encodeURIComponent(S.sessionId)}${qs}`)
@@ -931,7 +956,7 @@ function bind() {
   if (nm) nm.onclick = () => { setActiveNav('mesas'); exploreMesas() }
   if (no) no.onclick = () => { setActiveNav('orders'); loadUserOrders(); show('screen-orders-user') }
   if (nf) nf.onclick = () => { setActiveNav('perfil'); openEditProfile() }
-  const linkStaff = q('link-staff'); if (linkStaff) linkStaff.onclick = (e) => { e.preventDefault(); show('screen-staff-welcome') }
+  const linkStaff = q('link-staff'); if (linkStaff) linkStaff.onclick = async (e) => { e.preventDefault(); await ensureSessionActiveOffer() }
   const fab = q('fab-call'); if (fab) fab.onclick = openCallWaiter
   const bAT = q('btn-avail-by-table'); if (bAT) bAT.onclick = exploreMesas
   const bAA = q('btn-avail-all'); if (bAA) bAA.onclick = viewAvailable
