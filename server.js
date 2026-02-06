@@ -36,7 +36,32 @@ const ADMIN_SECRET = String(process.env.ADMIN_SECRET || '')
 
 // Créditos por venue: persistidos en /data/venues.json
 const venuesPath = path.join(dataDir, 'venues.json')
-function readVenues() {
+let db = null
+let dbReady = false
+try {
+  const { Pool } = require('pg')
+  const conn = String(process.env.DATABASE_URL || '')
+  if (conn) db = new Pool({ connectionString: conn, ssl: { rejectUnauthorized: false } })
+} catch {}
+async function initDB() {
+  if (!db || dbReady) return !!db
+  await db.query('CREATE TABLE IF NOT EXISTS venues (venue_id TEXT PRIMARY KEY, name TEXT NOT NULL, credits INTEGER NOT NULL, active BOOLEAN NOT NULL)')
+  await db.query('CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, role TEXT NOT NULL, alias TEXT, selfie TEXT, selfie_approved BOOLEAN, available BOOLEAN, prefs_json TEXT, zone TEXT, muted BOOLEAN, receive_mode TEXT, table_id TEXT, visibility TEXT, paused_until BIGINT, silenced BOOLEAN)')
+  await db.query('CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, emitter_id TEXT NOT NULL, receiver_id TEXT NOT NULL, product TEXT NOT NULL, quantity INTEGER NOT NULL, price INTEGER NOT NULL, total INTEGER NOT NULL, status TEXT NOT NULL, created_at BIGINT NOT NULL, expires_at BIGINT NOT NULL, emitter_table TEXT, receiver_table TEXT, mesa_entrega TEXT, is_invitation BOOLEAN)')
+  await db.query('CREATE TABLE IF NOT EXISTS table_closures (session_id TEXT NOT NULL, table_id TEXT NOT NULL, closed BOOLEAN NOT NULL, PRIMARY KEY (session_id, table_id))')
+  await db.query('CREATE TABLE IF NOT EXISTS waiter_calls (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, user_id TEXT NOT NULL, table_id TEXT, reason TEXT, status TEXT, ts BIGINT NOT NULL)')
+  await db.query('CREATE TABLE IF NOT EXISTS catalog_items (session_id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, PRIMARY KEY (session_id, name))')
+  dbReady = true
+  return true
+}
+async function readVenues() {
+  if (db) {
+    await initDB()
+    const r = await db.query('SELECT venue_id, name, credits, active FROM venues')
+    const obj = {}
+    for (const row of r.rows) obj[row.venue_id] = { name: row.name, credits: Number(row.credits || 0), active: !!row.active }
+    return obj
+  }
   try {
     if (!fs.existsSync(venuesPath)) return {}
     const raw = fs.readFileSync(venuesPath, 'utf-8')
@@ -44,8 +69,156 @@ function readVenues() {
     return typeof obj === 'object' && obj ? obj : {}
   } catch { return {} }
 }
-function writeVenues(obj) {
+async function writeVenues(obj) {
+  if (db) {
+    await initDB()
+    const entries = Object.entries(obj)
+    for (const [id, v] of entries) {
+      await db.query(
+        'INSERT INTO venues (venue_id, name, credits, active) VALUES ($1,$2,$3,$4) ON CONFLICT (venue_id) DO UPDATE SET name=EXCLUDED.name, credits=EXCLUDED.credits, active=EXCLUDED.active',
+        [String(id), String(v.name || id), Number(v.credits || 0), v.active !== false]
+      )
+    }
+    return
+  }
   try { fs.writeFileSync(venuesPath, JSON.stringify(obj)) } catch {}
+}
+async function dbReadGlobalCatalog() {
+  if (!db) return []
+  await initDB()
+  const r = await db.query('SELECT name, price FROM catalog_items WHERE session_id=$1 ORDER BY name', ['global'])
+  return r.rows.map(w => ({ name: w.name, price: Number(w.price || 0) }))
+}
+async function dbWriteGlobalCatalog(items) {
+  if (!db) return
+  await initDB()
+  await db.query('DELETE FROM catalog_items WHERE session_id=$1', ['global'])
+  for (const it of Array.isArray(items) ? items : []) {
+    await db.query('INSERT INTO catalog_items (session_id, name, price) VALUES ($1,$2,$3)', ['global', String(it.name || ''), Number(it.price || 0)])
+  }
+}
+async function dbReadSessionCatalog(sessionId) {
+  if (!db) return []
+  await initDB()
+  const r = await db.query('SELECT name, price FROM catalog_items WHERE session_id=$1 ORDER BY name', [String(sessionId)])
+  return r.rows.map(w => ({ name: w.name, price: Number(w.price || 0) }))
+}
+async function dbWriteSessionCatalog(sessionId, items) {
+  if (!db) return
+  await initDB()
+  await db.query('DELETE FROM catalog_items WHERE session_id=$1', [String(sessionId)])
+  for (const it of Array.isArray(items) ? items : []) {
+    await db.query('INSERT INTO catalog_items (session_id, name, price) VALUES ($1,$2,$3)', [String(sessionId), String(it.name || ''), Number(it.price || 0)])
+  }
+}
+async function dbUpsertUser(u) {
+  if (!db) return
+  await initDB()
+  const vals = [
+    String(u.id),
+    String(u.sessionId || ''),
+    String(u.role || 'user'),
+    String(u.alias || ''),
+    String(u.selfie || ''),
+    !!u.selfieApproved,
+    !!u.available,
+    JSON.stringify(u.prefs || {}),
+    String(u.zone || ''),
+    !!u.muted,
+    String(u.receiveMode || 'all'),
+    String(u.tableId || ''),
+    String(u.visibility || 'visible'),
+    Number(u.pausedUntil || 0),
+    !!u.silenced
+  ]
+  await db.query('INSERT INTO users (id, session_id, role, alias, selfie, selfie_approved, available, prefs_json, zone, muted, receive_mode, table_id, visibility, paused_until, silenced) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) ON CONFLICT (id) DO UPDATE SET session_id=EXCLUDED.session_id, role=EXCLUDED.role, alias=EXCLUDED.alias, selfie=EXCLUDED.selfie, selfie_approved=EXCLUDED.selfie_approved, available=EXCLUDED.available, prefs_json=EXCLUDED.prefs_json, zone=EXCLUDED.zone, muted=EXCLUDED.muted, receive_mode=EXCLUDED.receive_mode, table_id=EXCLUDED.table_id, visibility=EXCLUDED.visibility, paused_until=EXCLUDED.paused_until, silenced=EXCLUDED.silenced', vals)
+}
+async function dbGetUser(id) {
+  if (!db) return null
+  await initDB()
+  const r = await db.query('SELECT id, session_id, role, alias, selfie, selfie_approved, available, prefs_json, zone, muted, receive_mode, table_id, visibility, paused_until, silenced FROM users WHERE id=$1', [String(id)])
+  if (!r.rows.length) return null
+  const w = r.rows[0]
+  return {
+    id: w.id, sessionId: w.session_id, role: w.role, alias: w.alias || '',
+    selfie: w.selfie || '', selfieApproved: !!w.selfie_approved, available: !!w.available,
+    prefs: (typeof w.prefs_json === 'string' ? JSON.parse(w.prefs_json || '{}') : {}),
+    zone: w.zone || '', muted: !!w.muted, receiveMode: w.receive_mode || 'all',
+    tableId: w.table_id || '', visibility: w.visibility || 'visible', pausedUntil: Number(w.paused_until || 0), silenced: !!w.silenced
+  }
+}
+async function dbGetUsersBySession(sessionId) {
+  if (!db) return []
+  await initDB()
+  const r = await db.query('SELECT id, alias, selfie_approved, muted FROM users WHERE session_id=$1 AND role=$2', [String(sessionId), 'user'])
+  return r.rows.map(w => ({ id: w.id, alias: w.alias || '', selfieApproved: !!w.selfie_approved, muted: !!w.muted }))
+}
+async function dbInsertOrder(o) {
+  if (!db) return
+  await initDB()
+  const vals = [
+    String(o.id), String(o.sessionId), String(o.emitterId), String(o.receiverId),
+    String(o.product), Number(o.quantity || 1), Number(o.price || 0), Number(o.total || 0),
+    String(o.status), Number(o.createdAt || 0), Number(o.expiresAt || 0),
+    String(o.emitterTable || ''), String(o.receiverTable || ''), String(o.mesaEntrega || ''), !!o.isInvitation
+  ]
+  await db.query('INSERT INTO orders (id, session_id, emitter_id, receiver_id, product, quantity, price, total, status, created_at, expires_at, emitter_table, receiver_table, mesa_entrega, is_invitation) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status, quantity=EXCLUDED.quantity, price=EXCLUDED.price, total=EXCLUDED.total, emitter_table=EXCLUDED.emitter_table, receiver_table=EXCLUDED.receiver_table, mesa_entrega=EXCLUDED.mesa_entrega, expires_at=EXCLUDED.expires_at', vals)
+}
+async function dbUpdateOrderStatus(id, status) {
+  if (!db) return
+  await initDB()
+  await db.query('UPDATE orders SET status=$2 WHERE id=$1', [String(id), String(status)])
+}
+async function dbGetOrdersBySession(sessionId, stateFilter) {
+  if (!db) return []
+  await initDB()
+  if (stateFilter) {
+    const r = await db.query('SELECT id, product, quantity, price, total, status, created_at, expires_at, emitter_id, receiver_id, emitter_table, receiver_table, mesa_entrega FROM orders WHERE session_id=$1 AND status=$2', [String(sessionId), String(stateFilter)])
+    return r.rows
+  }
+  const r = await db.query('SELECT id, product, quantity, price, total, status, created_at, expires_at, emitter_id, receiver_id, emitter_table, receiver_table, mesa_entrega FROM orders WHERE session_id=$1', [String(sessionId)])
+  return r.rows
+}
+async function dbGetOrdersByTable(sessionId, tableId) {
+  if (!db) return []
+  await initDB()
+  const r = await db.query('SELECT id, product, quantity, price, total, status, created_at, expires_at, emitter_id, receiver_id, emitter_table, receiver_table, mesa_entrega FROM orders WHERE session_id=$1 AND (emitter_table=$2 OR receiver_table=$2 OR mesa_entrega=$2)', [String(sessionId), String(tableId)])
+  return r.rows
+}
+async function dbGetOrdersByUser(userId) {
+  if (!db) return []
+  await initDB()
+  const r = await db.query('SELECT id, product, quantity, price, total, status, created_at, expires_at, emitter_id, receiver_id, emitter_table, receiver_table, mesa_entrega FROM orders WHERE emitter_id=$1 OR receiver_id=$1', [String(userId)])
+  return r.rows
+}
+async function dbSetTableClosed(sessionId, tableId, closed) {
+  if (!db) return
+  await initDB()
+  await db.query('INSERT INTO table_closures (session_id, table_id, closed) VALUES ($1,$2,$3) ON CONFLICT (session_id, table_id) DO UPDATE SET closed=EXCLUDED.closed', [String(sessionId), String(tableId), !!closed])
+}
+async function dbIsTableClosed(sessionId, tableId) {
+  if (!db) return false
+  await initDB()
+  const r = await db.query('SELECT closed FROM table_closures WHERE session_id=$1 AND table_id=$2', [String(sessionId), String(tableId)])
+  if (!r.rows.length) return false
+  return !!r.rows[0].closed
+}
+async function dbInsertWaiterCall(c) {
+  if (!db) return
+  await initDB()
+  const vals = [String(c.id), String(c.sessionId), String(c.userId), String(c.tableId || ''), String(c.reason || ''), String(c.status || ''), Number(c.ts || 0)]
+  await db.query('INSERT INTO waiter_calls (id, session_id, user_id, table_id, reason, status, ts) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status', vals)
+}
+async function dbUpdateWaiterCallStatus(id, status) {
+  if (!db) return
+  await initDB()
+  await db.query('UPDATE waiter_calls SET status=$2 WHERE id=$1', [String(id), String(status)])
+}
+async function dbGetWaiterCalls(sessionId) {
+  if (!db) return []
+  await initDB()
+  const r = await db.query('SELECT id, session_id, user_id, table_id, reason, status, ts FROM waiter_calls WHERE session_id=$1', [String(sessionId)])
+  return r.rows
 }
 
 // Autorización admin: requiere ADMIN_SECRET por header o query
@@ -170,6 +343,9 @@ function persistOrders(sessionId) {
   const list = []
   for (const o of state.orders.values()) if (o.sessionId === sessionId) list.push(o)
   try { fs.writeFileSync(path.join(dataDir, `orders_${sessionId}.json`), JSON.stringify(list)) } catch {}
+  if (db) {
+    for (const o of list) { try { dbUpdateOrderStatus(o.id, o.status) } catch {} }
+  }
 }
 function persistReports(sessionId) {
   const list = state.reports.filter(r => r.sessionId === sessionId)
@@ -315,13 +491,13 @@ const server = http.createServer(async (req, res) => {
         }
       }
       // Verificar crédito del venue antes de crear nueva sesión
-      const venues = readVenues()
+      const venues = await readVenues()
       const entry = venues[venueId] || { name: venueId, credits: 0, active: true }
       const current = Number(entry.credits || 0)
       if (entry.active === false) { json(res, 403, { error: 'inactive' }); return }
       if (current <= 0) { json(res, 403, { error: 'no_credit' }); return }
       venues[venueId] = { name: String(entry.name || venueId), credits: current - 1, active: entry.active !== false }
-      writeVenues(venues)
+      await writeVenues(venues)
       const sessionId = genId('sess')
       const pin = String(Math.floor(1000 + Math.random() * 9000))
       state.sessions.set(sessionId, { id: sessionId, venueId, venue: body.venue || 'Venue', startedAt: now(), active: true, pin, publicBaseUrl: '', closedTables: new Set() })
@@ -379,12 +555,14 @@ const server = http.createServer(async (req, res) => {
       const id = genId(role === 'staff' ? 'staff' : 'user')
       const user = { id, sessionId: body.sessionId, role, alias: '', selfie: '', selfieApproved: false, available: false, prefs: { tags: [] }, zone: '', muted: false, receiveMode: 'all', allowedSenders: new Set(), tableId: '', visibility: 'visible', pausedUntil: 0, silenced: false }
       state.users.set(id, user)
+      try { await dbUpsertUser(user) } catch {}
       json(res, 200, { user })
       return
     }
     if (pathname === '/api/user/get' && req.method === 'GET') {
       const userId = query.userId
-      const u = state.users.get(userId)
+      let u = state.users.get(userId)
+      if (!u && db) { try { u = await dbGetUser(userId) } catch {} }
       if (!u) { json(res, 404, { error: 'no_user' }); return }
       json(res, 200, { user: { id: u.id, sessionId: u.sessionId, role: u.role, alias: u.alias, selfie: u.selfieApproved ? u.selfie : '', selfieApproved: u.selfieApproved, available: u.available, prefs: u.prefs, zone: u.zone, tableId: u.tableId, visibility: u.visibility } })
       return
@@ -415,6 +593,7 @@ const server = http.createServer(async (req, res) => {
       if (!okImage) { json(res, 400, { error: 'bad_image', reason: err }); return }
       u.selfie = selfieStr
       u.selfieApproved = false
+      try { await dbUpsertUser(u) } catch {}
       json(res, 200, { ok: true })
       return
     }
@@ -422,7 +601,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/admin/venues' && req.method === 'GET') {
       if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
       if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
-      const venues = readVenues()
+      const venues = await readVenues()
       const list = []
       for (const id of Object.keys(venues)) {
         const v = venues[id] || {}
@@ -439,11 +618,11 @@ const server = http.createServer(async (req, res) => {
       const venueId = String(body.venueId || '').trim()
       const amount = Number(body.amount || 0)
       if (!venueId || !Number.isFinite(amount)) { json(res, 400, { error: 'bad_input' }); return }
-      const venues = readVenues()
+      const venues = await readVenues()
       const prev = venues[venueId] || { name: venueId, credits: 0, active: true }
       const nextCredits = Number(prev.credits || 0) + amount
       venues[venueId] = { name: String(prev.name || venueId), credits: Math.max(0, nextCredits), active: prev.active !== false }
-      writeVenues(venues)
+      await writeVenues(venues)
       json(res, 200, { ok: true, venueId, credits: venues[venueId].credits })
       return
     }
@@ -456,6 +635,7 @@ const server = http.createServer(async (req, res) => {
       if (typeof body.visibility === 'string') u.visibility = body.visibility
       if (typeof body.tableId === 'string') u.tableId = body.tableId.slice(0,32)
       if (typeof body.available === 'boolean') u.available = body.available
+      try { await dbUpsertUser(u) } catch {}
       json(res, 200, { ok: true })
       return
     }
@@ -464,6 +644,7 @@ const server = http.createServer(async (req, res) => {
       const u = state.users.get(body.userId)
       if (!u) { json(res, 404, { error: 'no_user' }); return }
       u.pausedUntil = now() + 30*60*1000
+      try { await dbUpsertUser(u) } catch {}
       json(res, 200, { ok: true, pausedUntil: u.pausedUntil })
       return
     }
@@ -477,6 +658,7 @@ const server = http.createServer(async (req, res) => {
       if (fresh.length >= 2) { json(res, 429, { error: 'table_changes_limit' }); return }
       u.tableId = String(body.newTable || '').slice(0,32)
       state.rate.tableChangesByUserHour.set(hourKey, [...fresh, now()])
+      try { await dbUpsertUser(u) } catch {}
       json(res, 200, { ok: true })
       return
     }
@@ -487,6 +669,7 @@ const server = http.createServer(async (req, res) => {
       if (!staff || staff.role !== 'staff') { json(res, 403, { error: 'no_staff' }); return }
       if (!target) { json(res, 404, { error: 'no_user' }); return }
       target.selfieApproved = true
+      try { await dbUpsertUser(target) } catch {}
       json(res, 200, { ok: true })
       return
     }
@@ -498,6 +681,7 @@ const server = http.createServer(async (req, res) => {
       u.receiveMode = body.receiveMode || 'all'
       u.prefs = body.prefs || {}
       u.zone = body.zone || ''
+      try { await dbUpsertUser(u) } catch {}
       json(res, 200, { ok: true })
       return
     }
@@ -688,6 +872,7 @@ const server = http.createServer(async (req, res) => {
       const order = { id: orderId, sessionId: from.sessionId, emitterId: from.id, receiverId: to.id, product: body.product, quantity: 1, price: 0, total: 0, status: 'pendiente_cobro', createdAt: now(), expiresAt, emitterTable: from.tableId || '', receiverTable: to.tableId || '', mesaEntrega: to.tableId || '', isInvitation: true }
       state.orders.set(orderId, order)
       sendToStaff(order.sessionId, 'order_new', { order })
+      try { await dbInsertOrder(order) } catch {}
       persistOrders(order.sessionId)
       json(res, 200, { orderId })
       return
@@ -708,6 +893,7 @@ const server = http.createServer(async (req, res) => {
         state.orders.set(orderId, order)
         ids.push(orderId)
         sendToStaff(order.sessionId, 'order_new', { order })
+        try { await dbInsertOrder(order) } catch {}
       }
       if (ids.length) persistOrders(from.sessionId)
       json(res, 200, { orderIds: ids })
@@ -722,7 +908,7 @@ const server = http.createServer(async (req, res) => {
       const itemName = String(body.product || '')
       const qty = Math.max(1, Number(body.quantity || 1))
       const s = ensureSession(u.sessionId)
-      const base = readGlobalCatalog()
+      const base = db ? await dbReadGlobalCatalog() : readGlobalCatalog()
       const itemsBase = (s && Array.isArray(s.catalog) && s.catalog.length) ? s.catalog : base
       const found = itemsBase.find(i => i.name === itemName)
       const price = found ? found.price : 0
@@ -732,6 +918,7 @@ const server = http.createServer(async (req, res) => {
       state.orders.set(orderId, order)
       sendToStaff(order.sessionId, 'order_new', { order })
       sendToUser(u.id, 'order_update', { order })
+      try { await dbInsertOrder(order) } catch {}
       persistOrders(order.sessionId)
       json(res, 200, { orderId })
       return
@@ -741,7 +928,7 @@ const server = http.createServer(async (req, res) => {
       const u = state.users.get(body.userId)
       if (!u) { json(res, 404, { error: 'no_user' }); return }
       const s = ensureSession(u.sessionId)
-      const base = readGlobalCatalog()
+      const base = db ? await dbReadGlobalCatalog() : readGlobalCatalog()
       const itemsBase = (s && Array.isArray(s.catalog) && s.catalog.length) ? s.catalog : base
       const items = Array.isArray(body.items) ? body.items : []
       const orderIds = []
@@ -760,6 +947,7 @@ const server = http.createServer(async (req, res) => {
         orderIds.push(orderId)
         sendToStaff(order.sessionId, 'order_new', { order })
         sendToUser(u.id, 'order_update', { order })
+        try { await dbInsertOrder(order) } catch {}
       }
       if (orderIds.length) persistOrders(u.sessionId)
       json(res, 200, { orderIds })
@@ -776,6 +964,7 @@ const server = http.createServer(async (req, res) => {
       sendToUser(order.emitterId, 'order_update', { order })
       sendToUser(order.receiverId, 'order_update', { order })
       sendToStaff(order.sessionId, 'order_update', { order })
+      try { await dbUpdateOrderStatus(order.id, order.status) } catch {}
       persistOrders(order.sessionId)
       json(res, 200, { ok: true })
       return
@@ -783,13 +972,18 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/staff/orders' && req.method === 'GET') {
       const sessionId = query.sessionId
       const stateFilter = query.state || ''
-      const list = []
-      for (const o of state.orders.values()) {
-        if (o.sessionId !== sessionId) continue
-        if (stateFilter && o.status !== stateFilter) continue
-        list.push(o)
+      if (db) {
+        const rows = await dbGetOrdersBySession(sessionId, stateFilter || null)
+        json(res, 200, { orders: rows })
+      } else {
+        const list = []
+        for (const o of state.orders.values()) {
+          if (o.sessionId !== sessionId) continue
+          if (stateFilter && o.status !== stateFilter) continue
+          list.push(o)
+        }
+        json(res, 200, { orders: list })
       }
-      json(res, 200, { orders: list })
       return
     }
     if (pathname === '/api/table/orders' && req.method === 'GET') {
@@ -800,62 +994,122 @@ const server = http.createServer(async (req, res) => {
       if (!u || u.sessionId !== sessionId || u.role !== 'user') { json(res, 403, { error: 'no_user' }); return }
       if (u.tableId !== tableId) { json(res, 403, { error: 'not_in_table' }); return }
       const s = ensureSession(sessionId)
-      if (s && s.closedTables && s.closedTables.has(tableId)) { json(res, 200, { orders: [] }); return }
-      const list = []
-      for (const o of state.orders.values()) {
-        if (o.sessionId !== sessionId) continue
-        if (o.emitterTable === tableId || o.receiverTable === tableId || o.mesaEntrega === tableId) {
-          const emitter = state.users.get(o.emitterId)
-          const receiver = state.users.get(o.receiverId)
-          list.push({
+      const closed = db ? await dbIsTableClosed(sessionId, tableId) : (s && s.closedTables && s.closedTables.has(tableId))
+      if (closed) { json(res, 200, { orders: [] }); return }
+      if (db) {
+        const rows = await dbGetOrdersByTable(sessionId, tableId)
+        const out = []
+        for (const o of rows) {
+          let emitterAlias = ''
+          let receiverAlias = ''
+          const em = state.users.get(o.emitter_id) || (db ? await dbGetUser(o.emitter_id) : null)
+          const re = state.users.get(o.receiver_id) || (db ? await dbGetUser(o.receiver_id) : null)
+          emitterAlias = em ? em.alias : ''
+          receiverAlias = re ? re.alias : ''
+          out.push({
             id: o.id,
             product: o.product,
             quantity: o.quantity || 1,
             price: o.price || 0,
             total: o.total || 0,
             status: o.status,
-            createdAt: o.createdAt,
-            expiresAt: o.expiresAt,
-            emitterId: o.emitterId,
-            receiverId: o.receiverId,
-            emitterAlias: emitter ? emitter.alias : '',
-            receiverAlias: receiver ? receiver.alias : '',
-            mesaEntrega: o.mesaEntrega || '',
+            createdAt: o.created_at,
+            expiresAt: o.expires_at,
+            emitterId: o.emitter_id,
+            receiverId: o.receiver_id,
+            emitterAlias,
+            receiverAlias,
+            mesaEntrega: o.mesa_entrega || '',
           })
         }
+        json(res, 200, { orders: out })
+      } else {
+        const list = []
+        for (const o of state.orders.values()) {
+          if (o.sessionId !== sessionId) continue
+          if (o.emitterTable === tableId || o.receiverTable === tableId || o.mesaEntrega === tableId) {
+            const emitter = state.users.get(o.emitterId)
+            const receiver = state.users.get(o.receiverId)
+            list.push({
+              id: o.id,
+              product: o.product,
+              quantity: o.quantity || 1,
+              price: o.price || 0,
+              total: o.total || 0,
+              status: o.status,
+              createdAt: o.createdAt,
+              expiresAt: o.expiresAt,
+              emitterId: o.emitterId,
+              receiverId: o.receiverId,
+              emitterAlias: emitter ? emitter.alias : '',
+              receiverAlias: receiver ? receiver.alias : '',
+              mesaEntrega: o.mesaEntrega || '',
+            })
+          }
+        }
+        json(res, 200, { orders: list })
       }
-      json(res, 200, { orders: list })
       return
     }
     if (pathname === '/api/staff/table/orders' && req.method === 'GET') {
       const sessionId = query.sessionId
       const tableId = String(query.tableId || '')
-      const list = []
       const s = ensureSession(sessionId)
-      if (s && s.closedTables && s.closedTables.has(tableId)) { json(res, 200, { orders: [] }); return }
-      for (const o of state.orders.values()) {
-        if (o.sessionId !== sessionId) continue
-        if (o.emitterTable === tableId || o.receiverTable === tableId || o.mesaEntrega === tableId) {
-          const emitter = state.users.get(o.emitterId)
-          const receiver = state.users.get(o.receiverId)
-          list.push({
+      const closed = db ? await dbIsTableClosed(sessionId, tableId) : (s && s.closedTables && s.closedTables.has(tableId))
+      if (closed) { json(res, 200, { orders: [] }); return }
+      if (db) {
+        const rows = await dbGetOrdersByTable(sessionId, tableId)
+        const out = []
+        for (const o of rows) {
+          let emitterAlias = ''
+          let receiverAlias = ''
+          const em = state.users.get(o.emitter_id) || (db ? await dbGetUser(o.emitter_id) : null)
+          const re = state.users.get(o.receiver_id) || (db ? await dbGetUser(o.receiver_id) : null)
+          emitterAlias = em ? em.alias : ''
+          receiverAlias = re ? re.alias : ''
+          out.push({
             id: o.id,
             product: o.product,
             quantity: o.quantity || 1,
             price: o.price || 0,
             total: o.total || 0,
             status: o.status,
-            createdAt: o.createdAt,
-            expiresAt: o.expiresAt,
-            emitterId: o.emitterId,
-            receiverId: o.receiverId,
-            emitterAlias: emitter ? emitter.alias : '',
-            receiverAlias: receiver ? receiver.alias : '',
-            mesaEntrega: o.mesaEntrega || '',
+            createdAt: o.created_at,
+            expiresAt: o.expires_at,
+            emitterId: o.emitter_id,
+            receiverId: o.receiver_id,
+            emitterAlias,
+            receiverAlias,
+            mesaEntrega: o.mesa_entrega || '',
           })
         }
+        json(res, 200, { orders: out })
+      } else {
+        const list = []
+        for (const o of state.orders.values()) {
+          if (o.sessionId !== sessionId) continue
+          if (o.emitterTable === tableId || o.receiverTable === tableId || o.mesaEntrega === tableId) {
+            const emitter = state.users.get(o.emitterId)
+            const receiver = state.users.get(o.receiverId)
+            list.push({
+              id: o.id,
+              product: o.product,
+              quantity: o.quantity || 1,
+              price: o.price || 0,
+              total: o.total || 0,
+              status: o.status,
+              createdAt: o.createdAt,
+              expiresAt: o.expiresAt,
+              emitterId: o.emitterId,
+              receiverId: o.receiverId,
+              emitterAlias: emitter ? emitter.alias : '',
+              receiverAlias: receiver ? receiver.alias : '',
+              mesaEntrega: o.mesaEntrega || '',
+            })
+          }
+        }
+        json(res, 200, { orders: list })
       }
-      json(res, 200, { orders: list })
       return
     }
     if (pathname === '/api/staff/table/close' && req.method === 'POST') {
@@ -866,17 +1120,23 @@ const server = http.createServer(async (req, res) => {
       s.closedTables = s.closedTables || new Set()
       if (body.closed) s.closedTables.add(t)
       else s.closedTables.delete(t)
+      try { await dbSetTableClosed(s.id, t, !!body.closed) } catch {}
       sendToStaff(s.id, 'table_closed', { tableId: t, closed: !!body.closed })
       json(res, 200, { ok: true })
       return
     }
     if (pathname === '/api/user/orders' && req.method === 'GET') {
       const userId = query.userId
-      const list = []
-      for (const o of state.orders.values()) {
-        if (o.emitterId === userId || o.receiverId === userId) list.push(o)
+      if (db) {
+        const rows = await dbGetOrdersByUser(userId)
+        json(res, 200, { orders: rows })
+      } else {
+        const list = []
+        for (const o of state.orders.values()) {
+          if (o.emitterId === userId || o.receiverId === userId) list.push(o)
+        }
+        json(res, 200, { orders: list })
       }
-      json(res, 200, { orders: list })
       return
     }
     if (pathname === '/api/waiter/call' && req.method === 'POST') {
@@ -888,28 +1148,49 @@ const server = http.createServer(async (req, res) => {
       state.waiterCalls.set(callId, call)
       sendToStaff(call.sessionId, 'waiter_call', { call })
       sendToUser(call.userId, 'waiter_update', { call })
+      try { await dbInsertWaiterCall(call) } catch {}
       json(res, 200, { callId })
       return
     }
     if (pathname === '/api/staff/waiter' && req.method === 'GET') {
       const sessionId = query.sessionId
-      const list = []
-      for (const c of state.waiterCalls.values()) {
-        if (c.sessionId !== sessionId) continue
-        const u = state.users.get(c.userId)
-        list.push({
-          id: c.id,
-          sessionId: c.sessionId,
-          userId: c.userId,
-          tableId: c.tableId || '',
-          reason: c.reason,
-          status: c.status,
-          ts: c.ts,
-          userAlias: u ? u.alias : '',
-          zone: u ? u.zone : '',
-        })
+      if (db) {
+        const rows = await dbGetWaiterCalls(sessionId)
+        const out = []
+        for (const c of rows) {
+          const u = state.users.get(c.user_id) || (db ? await dbGetUser(c.user_id) : null)
+          out.push({
+            id: c.id,
+            sessionId: c.session_id,
+            userId: c.user_id,
+            tableId: c.table_id || '',
+            reason: c.reason,
+            status: c.status,
+            ts: c.ts,
+            userAlias: u ? u.alias : '',
+            zone: u ? u.zone : '',
+          })
+        }
+        json(res, 200, { calls: out })
+      } else {
+        const list = []
+        for (const c of state.waiterCalls.values()) {
+          if (c.sessionId !== sessionId) continue
+          const u = state.users.get(c.userId)
+          list.push({
+            id: c.id,
+            sessionId: c.sessionId,
+            userId: c.userId,
+            tableId: c.tableId || '',
+            reason: c.reason,
+            status: c.status,
+            ts: c.ts,
+            userAlias: u ? u.alias : '',
+            zone: u ? u.zone : '',
+          })
+        }
+        json(res, 200, { calls: list })
       }
-      json(res, 200, { calls: list })
       return
     }
     if (pathname.startsWith('/api/staff/waiter/') && req.method === 'POST') {
@@ -920,6 +1201,7 @@ const server = http.createServer(async (req, res) => {
       c.status = body.status || 'atendido'
       sendToStaff(c.sessionId, 'waiter_update', { call: c })
       sendToUser(c.userId, 'waiter_update', { call: c })
+      try { await dbUpdateWaiterCallStatus(c.id, c.status) } catch {}
       json(res, 200, { ok: true })
       return
     }
@@ -980,13 +1262,29 @@ const server = http.createServer(async (req, res) => {
         clean.push({ name, price })
       }
       if (s) s.catalog = clean
-      writeGlobalCatalog(clean)
+      if (db) {
+        try { await dbWriteSessionCatalog(s ? s.id : 'global', clean) } catch {}
+        try { await dbWriteGlobalCatalog(clean) } catch {}
+      } else {
+        writeGlobalCatalog(clean)
+      }
       if (s) sendToStaff(s.id, 'catalog_update', { items: s.catalog })
       json(res, 200, { ok: true })
       return
     }
     if (pathname === '/api/catalog' && req.method === 'GET') {
       const sessionId = query.sessionId
+      if (db) {
+        let items = []
+        if (sessionId) {
+          try { items = await dbReadSessionCatalog(sessionId) } catch {}
+        }
+        if (!items || !items.length) {
+          try { items = await dbReadGlobalCatalog() } catch {}
+        }
+        json(res, 200, { items })
+        return
+      }
       const s = sessionId ? ensureSession(sessionId) : null
       const base = readGlobalCatalog()
       const items = (s && Array.isArray(s.catalog) && s.catalog.length) ? s.catalog : base
@@ -1004,9 +1302,14 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/api/staff/users' && req.method === 'GET') {
       const sessionId = query.sessionId
-      const list = []
-      for (const u of state.users.values()) if (u.sessionId === sessionId && u.role === 'user') list.push({ id: u.id, alias: u.alias, selfieApproved: u.selfieApproved, muted: u.muted })
-      json(res, 200, { users: list })
+      if (db) {
+        const list = await dbGetUsersBySession(sessionId)
+        json(res, 200, { users: list })
+      } else {
+        const list = []
+        for (const u of state.users.values()) if (u.sessionId === sessionId && u.role === 'user') list.push({ id: u.id, alias: u.alias, selfieApproved: u.selfieApproved, muted: u.muted })
+        json(res, 200, { users: list })
+      }
       return
     }
     if (pathname === '/api/staff/moderate' && req.method === 'POST') {
@@ -1016,6 +1319,7 @@ const server = http.createServer(async (req, res) => {
       if (!staff || staff.role !== 'staff') { json(res, 403, { error: 'no_staff' }); return }
       if (!target) { json(res, 404, { error: 'no_user' }); return }
       target.muted = !!body.muted
+      try { await dbUpsertUser(target) } catch {}
       json(res, 200, { ok: true })
       return
     }
