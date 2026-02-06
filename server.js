@@ -481,28 +481,31 @@ const server = http.createServer(async (req, res) => {
   if (pathname.startsWith('/api/')) {
     expireOldSessions()
     if (pathname === '/api/session/start' && req.method === 'POST') {
-      const body = await parseBody(req)
-      const venueId = String(body.venueId || 'default')
-      // Si ya hay sesión activa para este venue, reutilizarla sin cobrar crédito
-      for (const s of state.sessions.values()) {
-        if (s.active && (now() - s.startedAt) < 12 * 60 * 60 * 1000 && s.venueId === venueId) {
-          json(res, 200, { sessionId: s.id, pin: s.pin, venueId })
-          return
+      try {
+        const body = await parseBody(req)
+        const venueId = String(body.venueId || 'default')
+        for (const s of state.sessions.values()) {
+          if (s.active && (now() - s.startedAt) < 12 * 60 * 60 * 1000 && s.venueId === venueId) {
+            json(res, 200, { sessionId: s.id, pin: s.pin, venueId, reused: true })
+            return
+          }
         }
+        const venues = await readVenues()
+        const entry = venues[venueId] || { name: venueId, credits: 0, active: true }
+        const current = Number(entry.credits || 0)
+        if (entry.active === false) { json(res, 403, { error: 'inactive' }); return }
+        if (current <= 0) { json(res, 403, { error: 'no_credit' }); return }
+        venues[venueId] = { name: String(entry.name || venueId), credits: current - 1, active: entry.active !== false }
+        await writeVenues(venues)
+        const sessionId = genId('sess')
+        const pin = String(Math.floor(1000 + Math.random() * 9000))
+        state.sessions.set(sessionId, { id: sessionId, venueId, venue: body.venue || 'Venue', startedAt: now(), active: true, pin, publicBaseUrl: '', closedTables: new Set() })
+        json(res, 200, { sessionId, pin, venueId })
+        return
+      } catch (e) {
+        json(res, 500, { error: 'session_start_failed', message: String(e && e.message ? e.message : e) })
+        return
       }
-      // Verificar crédito del venue antes de crear nueva sesión
-      const venues = await readVenues()
-      const entry = venues[venueId] || { name: venueId, credits: 0, active: true }
-      const current = Number(entry.credits || 0)
-      if (entry.active === false) { json(res, 403, { error: 'inactive' }); return }
-      if (current <= 0) { json(res, 403, { error: 'no_credit' }); return }
-      venues[venueId] = { name: String(entry.name || venueId), credits: current - 1, active: entry.active !== false }
-      await writeVenues(venues)
-      const sessionId = genId('sess')
-      const pin = String(Math.floor(1000 + Math.random() * 9000))
-      state.sessions.set(sessionId, { id: sessionId, venueId, venue: body.venue || 'Venue', startedAt: now(), active: true, pin, publicBaseUrl: '', closedTables: new Set() })
-      json(res, 200, { sessionId, pin, venueId })
-      return
     }
     if (pathname === '/api/session/active' && req.method === 'GET') {
       const venueId = String(query.venueId || '')
