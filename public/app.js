@@ -727,8 +727,6 @@ async function startStaffSession() {
   try {
     showError('')
     const pinInput = (q('join-pin') ? q('join-pin').value.trim() : '')
-    if (!pinInput) { showError('Ingresa el PIN'); return }
-    // venueId opcional desde la URL para multi-tenant (sin cambiar UI)
     try {
       const u = new URL(location.href)
       const v = u.searchParams.get('venueId') || ''
@@ -740,7 +738,9 @@ async function startStaffSession() {
     const joinCodeEl = q('join-code'); if (joinCodeEl) joinCodeEl.value = r.sessionId
     S.sessionId = r.sessionId
     S.venueId = r.venueId || (S.venueId || 'default')
-    const joinRes = await api('/api/join', { method: 'POST', body: JSON.stringify({ sessionId: r.sessionId, role: 'staff', pin: pinInput }) })
+    const pinToUse = pinInput || r.pin || ''
+    if (!pinToUse) { showError('Ingresa el PIN'); return }
+    const joinRes = await api('/api/join', { method: 'POST', body: JSON.stringify({ sessionId: r.sessionId, role: 'staff', pin: pinToUse }) })
     S.user = joinRes.user
     S.role = 'staff'
     try { saveLocalUser() } catch {}
