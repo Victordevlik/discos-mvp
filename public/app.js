@@ -359,6 +359,16 @@ async function viewAvailable() {
     const zone = document.createElement('div')
     zone.className = 'zone'
     zone.textContent = u.zone ? `Zona: ${u.zone}` : ''
+    const tagsEl = document.createElement('div')
+    tagsEl.className = 'tags'
+    if (Array.isArray(u.tags)) {
+      for (const t of u.tags) {
+        const chip = document.createElement('span')
+        chip.className = 'chip'
+        chip.textContent = t
+        tagsEl.append(chip)
+      }
+    }
     const row = document.createElement('div')
     row.className = 'row'
     const bDance = document.createElement('button'); bDance.textContent = 'Bailar'; bDance.onclick = () => sendInviteQuick(u)
@@ -366,7 +376,7 @@ async function viewAvailable() {
     const bBrindis = document.createElement('button'); bBrindis.textContent = 'Brindis'; bBrindis.onclick = () => { setReceiver(u); sendReaction(u.id, 'brindis') }
     const bConsumo = document.createElement('button'); bConsumo.textContent = 'Invitar'; bConsumo.onclick = () => { setReceiver(u); q('consumption-target').value = u.id; openConsumption() }
     row.append(bDance, bSaludo, bBrindis, bConsumo)
-    div.append(img, alias, tbl, zone, row)
+    div.append(img, alias, tbl, zone, tagsEl, row)
     container.append(div)
   }
   show('screen-disponibles')
@@ -393,6 +403,16 @@ async function refreshAvailableList() {
     const zone = document.createElement('div')
     zone.className = 'zone'
     zone.textContent = u.zone ? `Zona: ${u.zone}` : ''
+    const tagsEl = document.createElement('div')
+    tagsEl.className = 'tags'
+    if (Array.isArray(u.tags)) {
+      for (const t of u.tags) {
+        const chip = document.createElement('span')
+        chip.className = 'chip'
+        chip.textContent = t
+        tagsEl.append(chip)
+      }
+    }
     const row = document.createElement('div')
     row.className = 'row'
     const bDance = document.createElement('button'); bDance.textContent = 'Bailar'; bDance.onclick = () => sendInviteQuick(u)
@@ -400,7 +420,7 @@ async function refreshAvailableList() {
     const bBrindis = document.createElement('button'); bBrindis.textContent = 'Brindis'; bBrindis.onclick = () => { setReceiver(u); sendReaction(u.id, 'brindis') }
     const bConsumo = document.createElement('button'); bConsumo.textContent = 'Invitar'; bConsumo.onclick = () => { setReceiver(u); q('consumption-target').value = u.id; openConsumption() }
     row.append(bDance, bSaludo, bBrindis, bConsumo)
-    div.append(img, alias, tbl, zone, row)
+    div.append(img, alias, tbl, zone, tagsEl, row)
     container.append(div)
   }
 }
@@ -425,6 +445,16 @@ async function viewAvailableByTable() {
     const alias = document.createElement('div')
     alias.className = 'alias'
     alias.textContent = u.alias || u.id
+    const tagsEl = document.createElement('div')
+    tagsEl.className = 'tags'
+    if (Array.isArray(u.tags)) {
+      for (const t of u.tags) {
+        const chip = document.createElement('span')
+        chip.className = 'chip'
+        chip.textContent = t
+        tagsEl.append(chip)
+      }
+    }
     const zone = document.createElement('div')
     zone.className = 'zone'
     zone.textContent = u.zone ? `Zona: ${u.zone}` : ''
@@ -435,7 +465,7 @@ async function viewAvailableByTable() {
     const bBrindis = document.createElement('button'); bBrindis.textContent = 'Brindis'; bBrindis.onclick = () => { setReceiver(u); sendReaction(u.id, 'brindis') }
     const bConsumo = document.createElement('button'); bConsumo.textContent = 'Invitar'; bConsumo.onclick = () => { setReceiver(u); q('consumption-target').value = u.id; openConsumption() }
     row.append(bDance, bSaludo, bBrindis, bConsumo)
-    div.append(img, alias, zone, row)
+    div.append(img, alias, tagsEl, zone, row)
     container.append(div)
   }
   show('screen-disponibles')
@@ -959,6 +989,8 @@ function bind() {
   if (nm) nm.onclick = () => { setActiveNav('mesas'); exploreMesas() }
   if (no) no.onclick = () => { setActiveNav('orders'); loadUserOrders(); show('screen-orders-user') }
   if (nf) nf.onclick = () => { setActiveNav('perfil'); openEditProfile() }
+  const ua = q('user-alias'); if (ua) { ua.style.cursor = 'pointer'; ua.onclick = () => openEditProfileFocus('alias') }
+  const ut = q('user-table'); if (ut) { ut.style.cursor = 'pointer'; ut.onclick = () => openEditProfileFocus('table') }
   const linkStaff = q('link-staff'); if (linkStaff) linkStaff.onclick = async (e) => { e.preventDefault(); await ensureSessionActiveOffer() }
   const fab = q('fab-call'); if (fab) fab.onclick = openCallWaiter
   const bAT = q('btn-avail-by-table'); if (bAT) bAT.onclick = exploreMesas
@@ -1067,7 +1099,15 @@ async function loadMesasActive() {
     const info = document.createElement('div')
     info.textContent = `${m.tableId} • Personas ${m.people} • Disponibles ${m.disponibles} • +${m.incognitos} incógnitos`
     const tags = document.createElement('div')
-    tags.textContent = (m.tags && m.tags.length) ? `Tags: ${m.tags.join(', ')}` : ''
+    tags.className = 'tags'
+    if (Array.isArray(m.tags)) {
+      for (const t of m.tags) {
+        const chip = document.createElement('span')
+        chip.className = 'chip'
+        chip.textContent = t
+        tags.append(chip)
+      }
+    }
     const btn = document.createElement('button')
     btn.textContent = 'Ver mesa'
     btn.onclick = () => openMesaView(m.tableId)
@@ -1104,6 +1144,9 @@ async function loadMesaPeople(tableId) {
     const alias = document.createElement('div')
     alias.className = 'alias'
     alias.textContent = u.alias || u.id
+    const tagsEl = document.createElement('div')
+    tagsEl.className = 'tags'
+    tagsEl.textContent = (Array.isArray(u.tags) && u.tags.length) ? `Tags: ${u.tags.join(', ')}` : ''
     const row = document.createElement('div')
     row.className = 'row'
     const bInvite = document.createElement('button'); bInvite.textContent = 'Bailar'; bInvite.onclick = () => openInvite(u)
@@ -1111,7 +1154,7 @@ async function loadMesaPeople(tableId) {
     const bBrindis = document.createElement('button'); bBrindis.textContent = 'Brindis'; bBrindis.onclick = () => sendReaction(u.id, 'brindis')
     const bConsumo = document.createElement('button'); bConsumo.textContent = 'Invitar'; bConsumo.onclick = () => { q('consumption-target').value = u.id; openConsumption() }
     row.append(bInvite, bSaludo, bBrindis, bConsumo)
-    div.append(img, alias, row)
+    div.append(img, alias, tagsEl, row)
     container.append(div)
   }
 }
@@ -1151,6 +1194,13 @@ function openEditProfile() {
   q('edit-tags').value = (Array.isArray(S.user.prefs?.tags) ? S.user.prefs.tags.join(',') : '')
   q('edit-table').value = S.user.tableId || ''
   show('screen-edit-profile')
+}
+function openEditProfileFocus(field) {
+  openEditProfile()
+  const map = { alias: 'edit-alias', tags: 'edit-tags', table: 'edit-table' }
+  const id = map[field]
+  const el = id ? q(id) : null
+  if (el) el.focus()
 }
 
 async function saveEditProfile() {
