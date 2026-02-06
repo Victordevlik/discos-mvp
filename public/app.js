@@ -1,5 +1,5 @@
 // Añadimos venueId para operar en modo SaaS multi-venue
-let S = { sessionId: '', venueId: '', user: null, staff: null, role: '', sse: null, staffSSE: null, currentInvite: null, meeting: null, consumptionReq: null, nav: { history: [], current: '' }, notifications: { invites: 0 }, timers: { userPoll: 0, staffPoll: 0, userReconnect: 0, staffReconnect: 0, catalogSave: 0 }, staffTab: '', cart: [] }
+let S = { sessionId: '', venueId: '', user: null, staff: null, role: '', sse: null, staffSSE: null, currentInvite: null, meeting: null, consumptionReq: null, nav: { history: [], current: '' }, notifications: { invites: 0 }, timers: { userPoll: 0, staffPoll: 0, userReconnect: 0, staffReconnect: 0, catalogSave: 0, modalHide: 0 }, staffTab: '', cart: [], messageTTL: 4000, modalShownAt: 0 }
 
 function q(id) { return document.getElementById(id) }
 function show(id) {
@@ -152,9 +152,21 @@ function showModal(title, msg, type = 'info') {
   tt.textContent = title || ''
   t.textContent = msg || ''
   m.classList.add('show')
+  S.modalShownAt = Date.now()
+  if (S.timers.modalHide) { try { clearTimeout(S.timers.modalHide) } catch {}; S.timers.modalHide = 0 }
 }
 function showError(msg) {
-  if (!msg) { const m = q('modal'); if (m) m.classList.remove('show'); return }
+  if (!msg) {
+    const ttl = Number(S.messageTTL || 0)
+    const since = Date.now() - Number(S.modalShownAt || 0)
+    if (ttl > 0 && since < ttl) {
+      const rem = ttl - since
+      if (S.timers.modalHide) { try { clearTimeout(S.timers.modalHide) } catch {} }
+      S.timers.modalHide = setTimeout(() => { const m = q('modal'); if (m) m.classList.remove('show'); S.timers.modalHide = 0 }, rem)
+      return
+    }
+    const m = q('modal'); if (m) m.classList.remove('show'); return
+  }
   showModal('Error', msg || '', 'error')
 }
 function showInfo(msg) { showModal('Info', msg || '', 'info') }
@@ -203,6 +215,7 @@ function startUserPolls() {
   S.timers.userPoll = setInterval(() => {
     if (S.user && S.user.available && S.nav.current === 'screen-disponibles') refreshAvailableList()
     if (S.nav.current === 'screen-orders-user') loadUserOrders()
+    if (S.nav.current === 'screen-user-home') renderUserHeader()
   }, 8000)
 }
 function startStaffPolls() {
@@ -988,7 +1001,7 @@ function bind() {
   if (nd) nd.onclick = () => { setActiveNav('disponibles'); showAvailableChoice() }
   if (nm) nm.onclick = () => { setActiveNav('mesas'); exploreMesas() }
   if (no) no.onclick = () => { setActiveNav('orders'); loadUserOrders(); show('screen-orders-user') }
-  if (nf) nf.onclick = () => { setActiveNav('perfil'); openEditProfile() }
+  if (nf) nf.onclick = () => { setActiveNav('perfil'); renderUserHeader(); show('screen-user-home') }
   const ua = q('user-alias'); if (ua) { ua.style.cursor = 'pointer'; ua.onclick = () => openEditProfileFocus('alias') }
   const ut = q('user-table'); if (ut) { ut.style.cursor = 'pointer'; ut.onclick = () => openEditProfileFocus('table') }
   const linkStaff = q('link-staff'); if (linkStaff) linkStaff.onclick = async (e) => { e.preventDefault(); await ensureSessionActiveOffer() }
@@ -1194,6 +1207,12 @@ function openEditProfile() {
   q('edit-tags').value = (Array.isArray(S.user.prefs?.tags) ? S.user.prefs.tags.join(',') : '')
   q('edit-table').value = S.user.tableId || ''
   show('screen-edit-profile')
+}
+function renderUserHeader() {
+  const ua = q('user-alias'), us = q('user-selfie'), ut = q('user-table')
+  if (ua) ua.textContent = S.user?.alias || S.user?.id || ''
+  if (us) us.src = S.user?.selfie || ''
+  if (ut) ut.textContent = S.user?.tableId || '-'
 }
 function openEditProfileFocus(field) {
   openEditProfile()
