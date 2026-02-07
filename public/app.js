@@ -668,7 +668,6 @@ function startEvents() {
     S.user.partnerAlias = data.partner ? (data.partner.alias || data.partner.id || '') : S.user.partnerAlias
     if (data.meeting && data.meeting.id) { S.meeting = data.meeting }
     scheduleRenderUserHeader()
-    if (data.state === 'dancing' && !S.isMeetingReceiver) { show('screen-user-home') }
   })
   S.sse.addEventListener('invite_result', e => {
     const data = JSON.parse(e.data)
@@ -695,7 +694,7 @@ function startEvents() {
                       : ''
         el.textContent = planTxt ? `Plan: ${planTxt}` : ''
       }
-      if (!S.isMeetingReceiver) { show('screen-user-home') }
+      show('screen-meeting')
     }
   })
   S.sse.addEventListener('consumption_invite', e => {
@@ -714,6 +713,10 @@ function startEvents() {
     const listTxt = (Array.isArray(data.items) ? data.items.map(it => `${it.quantity} x ${it.product}`).join(', ') : '')
     q('invite-received-info').textContent = `${data.from.alias} te invita ${listTxt}${mesaTxt}${msg}`
     show('screen-invite-received')
+  })
+  S.sse.addEventListener('consumption_accepted', e => {
+    const data = JSON.parse(e.data)
+    showSuccess(`${data.from.alias} aceptó tu invitación: ${data.quantity} x ${data.product}`)
   })
   S.sse.addEventListener('order_update', e => {
     const data = JSON.parse(e.data)

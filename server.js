@@ -969,12 +969,15 @@ const server = http.createServer(async (req, res) => {
       // Pausa social eliminada
       if (applyRestrictedIfNeeded(from.id)) { json(res, 429, { error: 'restricted' }); return }
       if (isBlockedPair(from.id, to.id)) { json(res, 403, { error: 'blocked' }); return }
-      if (to.receiveMode === 'mesas') {
-        if (!from.zone || !to.zone || from.zone !== to.zone) { json(res, 403, { error: 'mode_mesas' }); return }
-      }
-      if (to.receiveMode === 'invitedOnly') {
-        const allowed = to.allowedSenders && to.allowedSenders.has(from.id)
-        if (!allowed) { json(res, 403, { error: 'mode_invited_only' }); return }
+      // Si el receptor está activo para bailar, entregar todas las invitaciones sin restricciones de modo
+      if (!to.available) {
+        if (to.receiveMode === 'mesas') {
+          if (!from.zone || !to.zone || from.zone !== to.zone) { json(res, 403, { error: 'mode_mesas' }); return }
+        }
+        if (to.receiveMode === 'invitedOnly') {
+          const allowed = to.allowedSenders && to.allowedSenders.has(from.id)
+          if (!allowed) { json(res, 403, { error: 'mode_invited_only' }); return }
+        }
       }
       const msg = body.messageType === 'invitoCancion' ? 'invitoCancion' : 'bailamos'
       if (!rateCanInvite(from.id, to.id)) { json(res, 429, { error: 'rate' }); return }
@@ -1147,6 +1150,7 @@ const server = http.createServer(async (req, res) => {
       sendToStaff(order.sessionId, 'order_new', { order })
       sendToUser(order.emitterId, 'order_update', { order })
       sendToUser(order.receiverId, 'order_update', { order })
+      sendToUser(order.emitterId, 'consumption_accepted', { from: { id: to.id, alias: to.alias }, product: itemName, quantity: 1 })
       try { await dbInsertOrder(order) } catch {}
       persistOrders(order.sessionId)
       json(res, 200, { orderId })
@@ -1176,6 +1180,7 @@ const server = http.createServer(async (req, res) => {
         sendToStaff(order.sessionId, 'order_new', { order })
         sendToUser(order.emitterId, 'order_update', { order })
         sendToUser(order.receiverId, 'order_update', { order })
+        sendToUser(order.emitterId, 'consumption_accepted', { from: { id: to.id, alias: to.alias }, product: it.product, quantity: it.quantity })
         try { await dbInsertOrder(order) } catch {}
       }
       if (ids.length) persistOrders(from.sessionId)
