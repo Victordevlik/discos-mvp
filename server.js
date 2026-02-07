@@ -559,7 +559,7 @@ const server = http.createServer(async (req, res) => {
         const current = Number(entry.credits || 0)
         if (entry.active === false) { json(res, 403, { error: 'inactive' }); return }
         if (current <= 0) { json(res, 403, { error: 'no_credit' }); return }
-        venues[venueId] = { name: String(entry.name || venueId), credits: current - 1, active: entry.active !== false }
+        venues[venueId] = { name: String(entry.name || venueId), credits: current - 1, active: entry.active !== false, pin: String(entry.pin || ''), email: String(entry.email || '') }
         await writeVenues(venues)
         const sessionId = genId('sess')
         const pin = String(Math.floor(1000 + Math.random() * 9000))
@@ -743,6 +743,30 @@ const server = http.createServer(async (req, res) => {
       venues[venueId] = { name: String(prev.name || venueId), credits: Number(prev.credits || 0), active: prev.active !== false, pin: String(prev.pin || ''), email }
       await writeVenues(venues)
       json(res, 200, { ok: true, venueId, email })
+      return
+    }
+    if (pathname === '/api/admin/venues/delete' && req.method === 'POST') {
+      if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const body = await parseBody(req)
+      const venueId = String(body.venueId || '').trim()
+      if (!venueId) { json(res, 400, { error: 'bad_input' }); return }
+      for (const s of state.sessions.values()) {
+        if (s.venueId === venueId) endAndArchive(s.id)
+      }
+      if (db) {
+        try {
+          await initDB()
+          await db.query('DELETE FROM venues WHERE venue_id=$1', [String(venueId)])
+        } catch {}
+      } else {
+        const venues = await readVenues()
+        if (venues[venueId]) {
+          delete venues[venueId]
+          await writeVenues(venues)
+        }
+      }
+      json(res, 200, { ok: true, venueId })
       return
     }
     if (pathname === '/api/admin/db-status' && req.method === 'GET') {

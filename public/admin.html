@@ -133,6 +133,20 @@
             await loadVenues()
           } catch (e) { showError(String(e.message)) }
         }
+        const delBtn = document.createElement('button')
+        delBtn.textContent = 'Eliminar'
+        delBtn.onclick = async () => {
+          try {
+            const ok = confirm(`¿Eliminar el local "${v.name}" (${v.venueId})?`)
+            if (!ok) return
+            await api('/api/admin/venues/delete', {
+              method: 'POST',
+              headers: { 'X-Admin-Secret': secret },
+              body: JSON.stringify({ venueId: v.venueId })
+            })
+            await loadVenues()
+          } catch (e) { showError(String(e.message)) }
+        }
         const col = document.createElement('div')
         col.appendChild(info)
         col.appendChild(link)
@@ -140,6 +154,7 @@
         col.appendChild(pinBtn)
         col.appendChild(emailInput)
         col.appendChild(emailBtn)
+        col.appendChild(delBtn)
         row.appendChild(col)
         row.appendChild(btn)
         container.appendChild(row)
