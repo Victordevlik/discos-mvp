@@ -642,7 +642,7 @@ const server = http.createServer(async (req, res) => {
       let u = state.users.get(userId)
       if (!u && db) { try { u = await dbGetUser(userId) } catch {} }
       if (!u) { json(res, 200, { found: false }); return }
-      json(res, 200, { found: true, user: { id: u.id, sessionId: u.sessionId, role: u.role, alias: u.alias, selfie: u.selfieApproved ? u.selfie : '', selfieApproved: u.selfieApproved, available: u.available, prefs: u.prefs, zone: u.zone, tableId: u.tableId, visibility: u.visibility } })
+      json(res, 200, { found: true, user: { id: u.id, sessionId: u.sessionId, role: u.role, alias: u.alias, selfie: u.selfie || '', selfieApproved: u.selfieApproved, available: u.available, prefs: u.prefs, zone: u.zone, tableId: u.tableId, visibility: u.visibility } })
       return
     }
     if (pathname === '/api/user/profile' && req.method === 'POST') {
@@ -670,7 +670,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (!okImage) { json(res, 400, { error: 'bad_image', reason: err }); return }
       u.selfie = selfieStr
-      u.selfieApproved = false
+      u.selfieApproved = true
       try { await dbUpsertUser(u) } catch {}
       json(res, 200, { ok: true })
       return
@@ -902,7 +902,7 @@ const server = http.createServer(async (req, res) => {
         const zoneOk = zoneQ ? (u.zone === zoneQ) : true
         const partner = (u.dancePartnerId && state.users.get(u.dancePartnerId)) || null
         const partnerAlias = partner ? (partner.alias || partner.id) : ''
-        arr.push({ id: u.id, alias: u.alias, selfie: u.selfieApproved ? u.selfie : '', tags: u.prefs.tags || [], zone: u.zone, available: u.available, tableId: u.tableId, danceState: u.danceState || 'idle', partnerAlias })
+        arr.push({ id: u.id, alias: u.alias, selfie: u.selfie || '', tags: u.prefs.tags || [], zone: u.zone, available: u.available, tableId: u.tableId, danceState: u.danceState || 'idle', partnerAlias })
       }
       json(res, 200, { users: arr })
       return
@@ -949,7 +949,7 @@ const server = http.createServer(async (req, res) => {
       const invId = genId('inv')
       const inv = { id: invId, sessionId: from.sessionId, fromId: from.id, toId: to.id, msg, status: 'pendiente', createdAt: now() }
       state.invites.set(invId, inv)
-      const fromSelfie = from.selfieApproved ? from.selfie : ''
+      const fromSelfie = from.selfie || ''
       sendToUser(to.id, 'dance_invite', { invite: { id: invId, from: { id: from.id, alias: from.alias, selfie: fromSelfie, tableId: from.tableId || '', zone: from.zone || '' } , msg } })
       for (const other of state.invites.values()) {
         if (other.sessionId === inv.sessionId && other.fromId === to.id && other.toId === from.id) {

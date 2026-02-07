@@ -365,7 +365,7 @@ async function saveProfile() {
   S.user.selfie = selfie
   S.user.tableId = tableId
   try { saveLocalUser() } catch {}
-  q('selfie-note').textContent = 'Selfie requiere aprobación antes de mostrarse'
+  q('selfie-note').textContent = 'Selfie cargada'
   const ua = q('user-alias'), us = q('user-selfie'); if (ua) ua.textContent = S.user.alias || S.user.id; if (us) us.src = S.user.selfie || ''
   const ut = q('user-table'); if (ut) ut.textContent = S.user.tableId || '-'
   show('screen-user-home')
@@ -682,7 +682,14 @@ function startEvents() {
     const data = JSON.parse(e.data)
     if (data.meetingId && S.meeting && data.meetingId === S.meeting.id) {
       S.meetingPlan = data.plan || ''
-      const el = q('meeting-plan-display'); if (el) el.textContent = (S.meetingPlan ? `Plan: ${S.meetingPlan}` : '')
+      const el = q('meeting-plan-display')
+      if (el) {
+        const planTxt = S.meetingPlan === 'come' ? 'Ven por mí'
+                      : S.meetingPlan === 'go' ? 'Ya voy por ti'
+                      : S.meetingPlan === 'pista' ? 'Nos vemos en la pista — no me quites la mirada que me pierdo'
+                      : ''
+        el.textContent = planTxt ? `Plan: ${planTxt}` : ''
+      }
     }
   })
   S.sse.addEventListener('consumption_invite', e => {
@@ -736,7 +743,14 @@ function renderMeeting() {
   if (bGo) bGo.style.display = showChoices ? '' : 'none'
   if (bPista) bPista.style.display = showChoices ? '' : 'none'
   if (bConfirm) bConfirm.style.display = showChoices ? '' : 'none'
-  const mpd = q('meeting-plan-display'); if (mpd) mpd.textContent = (S.meetingPlan ? `Plan: ${S.meetingPlan}` : '')
+  const mpd = q('meeting-plan-display')
+  if (mpd) {
+    const planTxt = S.meetingPlan === 'come' ? 'Ven por mí'
+                  : S.meetingPlan === 'go' ? 'Ya voy por ti'
+                  : S.meetingPlan === 'pista' ? 'Nos vemos en la pista — no me quites la mirada que me pierdo'
+                  : ''
+    mpd.textContent = planTxt ? `Plan: ${planTxt}` : ''
+  }
   show('screen-meeting')
 }
 
@@ -1069,12 +1083,11 @@ async function loadUsers() {
     const div = document.createElement('div')
     div.className = 'card'
     const info = document.createElement('div')
-    info.textContent = `${u.alias || u.id} • Selfie ${u.selfieApproved ? 'aprobada' : 'pendiente'} • ${u.muted ? 'silenciado' : 'activo'}`
+    info.textContent = `${u.alias || u.id} • Selfie cargada • ${u.muted ? 'silenciado' : 'activo'}`
     const row = document.createElement('div')
     row.className = 'row'
-    const approve = document.createElement('button'); approve.textContent = 'Aprobar selfie'; approve.onclick = () => approveSelfie(u.id)
     const mute = document.createElement('button'); mute.textContent = u.muted ? 'Activar' : 'Silenciar'; mute.onclick = () => moderateUser(u.id, !u.muted)
-    row.append(approve, mute)
+    row.append(mute)
     div.append(info, row)
     container.append(div)
   }
