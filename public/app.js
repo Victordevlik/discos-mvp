@@ -1641,25 +1641,35 @@ async function loadPendingInvites() {
 function startInviteCountdown(expiresAt) {
   try { if (S.timers && S.timers.inviteCountdown) { clearInterval(S.timers.inviteCountdown); S.timers.inviteCountdown = 0 } } catch {}
   const target = Number(expiresAt || 0)
-  if (!target) { const el = q('invite-expire'); if (el) el.textContent = ''; return }
-  const el = q('invite-expire'); if (!el) return
+  if (!target) { const txt = q('invite-ring-txt'); if (txt) txt.textContent = ''; const el = q('invite-ring'); if (el) el.style.setProperty('--deg','0deg'); return }
+  const el = q('invite-ring')
+  const txt = q('invite-ring-txt')
+  if (!el || !txt) return
+  S.inviteTTL = Math.max(1, Math.ceil((target - Date.now()) / 1000))
   const tick = () => {
     const remMs = target - Date.now()
-    const rem = Math.max(0, Math.ceil(remMs / 1000))
-    if (rem <= 0) {
-      el.textContent = 'Expirada'
+    const remSec = Math.max(0, Math.ceil(remMs / 1000))
+    if (remSec <= 0) {
+      txt.textContent = '00:00'
+      el.style.setProperty('--deg', '360deg')
       try { clearInterval(S.timers.inviteCountdown) } catch {}
       S.timers.inviteCountdown = 0
       return
     }
-    el.textContent = `Expira en ${rem}s`
+    const mm = String(Math.floor(remSec / 60)).padStart(2, '0')
+    const ss = String(remSec % 60).padStart(2, '0')
+    txt.textContent = `${mm}:${ss}`
+    const pct = (remSec / Math.max(1, S.inviteTTL))
+    const deg = Math.floor(pct * 360)
+    el.style.setProperty('--deg', `${deg}deg`)
   }
   tick()
   S.timers.inviteCountdown = setInterval(tick, 1000)
 }
 function stopInviteCountdown() {
   try { if (S.timers && S.timers.inviteCountdown) { clearInterval(S.timers.inviteCountdown); S.timers.inviteCountdown = 0 } } catch {}
-  const el = q('invite-expire'); if (el) el.textContent = ''
+  const el = q('invite-ring'); if (el) el.style.setProperty('--deg', '0deg')
+  const txt = q('invite-ring-txt'); if (txt) txt.textContent = ''
 }
 async function loadUserInvitesHistory() {
   const r = await api(`/api/user/invites/history?userId=${encodeURIComponent(S.user.id)}`)
