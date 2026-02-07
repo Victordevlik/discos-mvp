@@ -994,6 +994,17 @@ const server = http.createServer(async (req, res) => {
       const m = state.meetings.get(body.meetingId)
       if (!m) { json(res, 404, { error: 'no_meeting' }); return }
       m.cancelled = true
+      try {
+        const inv = state.invites.get(m.inviteId)
+        const uFrom = inv ? state.users.get(inv.fromId) : null
+        const uTo = inv ? state.users.get(inv.toId) : null
+        if (uFrom) { uFrom.danceState = 'idle'; uFrom.dancePartnerId = ''; uFrom.meetingId = '' }
+        if (uTo) { uTo.danceState = 'idle'; uTo.dancePartnerId = ''; uTo.meetingId = '' }
+        if (inv) {
+          sendToUser(inv.fromId, 'dance_status', { state: 'idle' })
+          sendToUser(inv.toId, 'dance_status', { state: 'idle' })
+        }
+      } catch {}
       sendToStaff(m.sessionId, 'meeting_cancel', { meetingId: m.id })
       json(res, 200, { ok: true })
       return
@@ -1362,6 +1373,12 @@ const server = http.createServer(async (req, res) => {
         const rows = await dbGetOrdersByUser(userId)
         const out = []
         for (const r of rows) {
+          let emitterAlias = ''
+          let receiverAlias = ''
+          const em = state.users.get(r.emitter_id) || (db ? await dbGetUser(r.emitter_id) : null)
+          const re = state.users.get(r.receiver_id) || (db ? await dbGetUser(r.receiver_id) : null)
+          emitterAlias = em ? (em.alias || '') : ''
+          receiverAlias = re ? (re.alias || '') : ''
           out.push({
             id: r.id,
             product: r.product,
@@ -1376,16 +1393,62 @@ const server = http.createServer(async (req, res) => {
             emitterTable: r.emitter_table || '',
             receiverTable: r.receiver_table || '',
             mesaEntrega: r.mesa_entrega || '',
+            emitterAlias,
+            receiverAlias,
+            isInvitation: !!r.is_invitation
           })
         }
         json(res, 200, { orders: out })
       } else {
         const list = []
         for (const o of state.orders.values()) {
-          if (o.emitterId === userId || o.receiverId === userId) list.push(o)
+          if (o.emitterId === userId || o.receiverId === userId) {
+            const em = state.users.get(o.emitterId)
+            const re = state.users.get(o.receiverId)
+            list.push({
+              id: o.id,
+              product: o.product,
+              quantity: Number(o.quantity || 1),
+              price: Number(o.price || 0),
+              total: Number(o.total || 0),
+              status: o.status,
+              createdAt: Number(o.createdAt || 0),
+              expiresAt: Number(o.expiresAt || 0),
+              emitterId: o.emitterId,
+              receiverId: o.receiverId,
+              emitterTable: o.emitterTable || '',
+              receiverTable: o.receiverTable || '',
+              mesaEntrega: o.mesaEntrega || '',
+              emitterAlias: em ? (em.alias || '') : '',
+              receiverAlias: re ? (re.alias || '') : '',
+              isInvitation: !!o.isInvitation
+            })
+          }
         }
         json(res, 200, { orders: list })
       }
+      return
+    }
+    if (pathname === '/api/dance/finish' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const u = state.users.get(body.userId)
+      if (!u) { json(res, 404, { error: 'no_user' }); return }
+      const partnerId = u.dancePartnerId || ''
+      const p = partnerId ? state.users.get(partnerId) : null
+      u.danceState = 'idle'; u.dancePartnerId = ''; u.meetingId = ''
+      if (p) { p.danceState = 'idle'; p.dancePartnerId = ''; p.meetingId = '' }
+      try {
+        sendToUser(u.id, 'dance_status', { state: 'idle' })
+        if (p) sendToUser(p.id, 'dance_status', { state: 'idle' })
+        if (u.meetingId) {
+          const m = state.meetings.get(u.meetingId)
+          if (m) {
+            m.cancelled = true
+            sendToStaff(m.sessionId, 'meeting_cancel', { meetingId: m.id })
+          }
+        }
+      } catch {}
+      json(res, 200, { ok: true })
       return
     }
     if (pathname === '/api/waiter/call' && req.method === 'POST') {

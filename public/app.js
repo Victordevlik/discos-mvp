@@ -1097,6 +1097,7 @@ function bind() {
   q('btn-invite-block').onclick = blockFromInvite
   q('btn-invite-report').onclick = reportFromInvite
   q('btn-meeting-confirm').onclick = confirmMeeting
+  const endBtn = q('btn-end-dance'); if (endBtn) endBtn.onclick = finishDance
   const btnMeetCome = q('btn-meet-come'); if (btnMeetCome) btnMeetCome.onclick = () => setMeetingPlan('come')
   const btnMeetGo = q('btn-meet-go'); if (btnMeetGo) btnMeetGo.onclick = () => setMeetingPlan('go')
   const btnMeetPista = q('btn-meet-pista'); if (btnMeetPista) btnMeetPista.onclick = () => setMeetingPlan('pista')
@@ -1272,6 +1273,11 @@ function renderUserHeader() {
     uds.textContent = st === 'waiting' ? (`Esperando para bailar con ${p || 'pareja'}`) :
                       st === 'dancing' ? (`Bailando con ${p || 'pareja'}`) : ''
   }
+  const endBtn = q('btn-end-dance')
+  if (endBtn) {
+    const st = S.user?.danceState || 'idle'
+    endBtn.style.display = (st === 'dancing') ? '' : 'none'
+  }
 }
 function openEditProfileFocus(field) {
   openEditProfile()
@@ -1384,11 +1390,22 @@ async function loadUserOrders() {
     if (o.isInvitation) { invChip.className = 'chip'; invChip.textContent = 'Invitación' }
     const forEmitter = o.emitterId === S.user.id
     const amountTxt = (forEmitter && o.isInvitation && o.status === 'pendiente_cobro') ? '' : ` • $${o.total || 0}`
-    div.textContent = `${o.product} x${o.quantity || 1}${amountTxt} • ${forEmitter ? 'Enviado a' : 'Recibido de'} ${forEmitter ? o.receiverId : o.emitterId}`
+    const otherAlias = forEmitter ? (o.receiverAlias || o.receiverId) : (o.emitterAlias || o.emitterId)
+    div.textContent = `${o.product} x${o.quantity || 1}${amountTxt} • ${forEmitter ? 'Enviado a' : 'Recibido de'} ${otherAlias}`
     div.append(chip)
     if (o.isInvitation) div.append(invChip)
     container.append(div)
   }
+}
+async function finishDance() {
+  const st = S.user?.danceState || 'idle'
+  if (st !== 'dancing') return
+  const ok = confirmAction('¿Terminaste de bailar? Esto cerrará tu estado de baile.')
+  if (!ok) return
+  await api('/api/dance/finish', { method: 'POST', body: JSON.stringify({ userId: S.user.id }) })
+  showError('Marcado: baile terminado')
+  setTimeout(() => showError(''), 1200)
+  renderUserHeader()
 }
 
 async function blockFromInvite() {
