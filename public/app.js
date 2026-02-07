@@ -1095,7 +1095,13 @@ async function loadOrders(state = '') {
   const r = await api(`/api/staff/orders?sessionId=${encodeURIComponent(S.sessionId)}${qs}`)
   const container = q('staff-orders-list') || q('orders')
   container.innerHTML = ''
-  for (const o of r.orders) {
+  const listAsc = (r.orders || []).slice().sort((a, b) => {
+    const ta = Number(a.createdAt || 0), tb = Number(b.createdAt || 0)
+    if (ta !== tb) return ta - tb
+    const ia = String(a.id || ''), ib = String(b.id || '')
+    return ia.localeCompare(ib)
+  })
+  for (const o of listAsc) {
     const div = document.createElement('div')
     div.className = 'card'
     const info = document.createElement('div')
@@ -2110,7 +2116,13 @@ async function viewStaffTableHistory() {
   const container = q('staff-table-orders')
   if (!container) return
   container.innerHTML = ''
-  for (const o of (r.orders || [])) {
+  const listAsc = (r.orders || []).slice().sort((a, b) => {
+    const ta = Number(a.createdAt || 0), tb = Number(b.createdAt || 0)
+    if (ta !== tb) return ta - tb
+    const ia = String(a.id || ''), ib = String(b.id || '')
+    return ia.localeCompare(ib)
+  })
+  for (const o of listAsc) {
     const div = document.createElement('div')
     div.className = 'card'
     const info = document.createElement('div')
@@ -2133,7 +2145,13 @@ async function viewStaffTableHistory2() {
   const container = q('staff2-table-orders')
   if (!container) return
   container.innerHTML = ''
-  for (const o of (r.orders || [])) {
+  const listAsc = (r.orders || []).slice().sort((a, b) => {
+    const ta = Number(a.createdAt || 0), tb = Number(b.createdAt || 0)
+    if (ta !== tb) return ta - tb
+    const ia = String(a.id || ''), ib = String(b.id || '')
+    return ia.localeCompare(ib)
+  })
+  for (const o of listAsc) {
     const div = document.createElement('div')
     div.className = 'card'
     const info = document.createElement('div')
