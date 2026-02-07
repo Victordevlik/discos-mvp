@@ -1528,6 +1528,7 @@ async function restoreLocalUser() {
     const d = JSON.parse(raw)
     if (!d.sessionId || !d.userId || !d.role) return false
     if (sidParam && ajParam === '1' && sidParam !== d.sessionId) {
+      return false
     }
     if (d.venueId) S.venueId = d.venueId
     const r = await api(`/api/user/get?userId=${encodeURIComponent(d.userId)}`).catch(() => null)
