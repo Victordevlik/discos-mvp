@@ -675,7 +675,9 @@ const server = http.createServer(async (req, res) => {
       let u = state.users.get(userId)
       if (!u && db) { try { u = await dbGetUser(userId) } catch {} }
       if (!u) { json(res, 200, { found: false }); return }
-      json(res, 200, { found: true, user: { id: u.id, sessionId: u.sessionId, role: u.role, alias: u.alias, selfie: u.selfie || '', selfieApproved: u.selfieApproved, available: u.available, prefs: u.prefs, zone: u.zone, tableId: u.tableId, visibility: u.visibility } })
+      const partner = (u.dancePartnerId && state.users.get(u.dancePartnerId)) || null
+      const partnerAlias = partner ? (partner.alias || partner.id) : ''
+      json(res, 200, { found: true, user: { id: u.id, sessionId: u.sessionId, role: u.role, alias: u.alias, selfie: u.selfie || '', selfieApproved: u.selfieApproved, available: u.available, prefs: u.prefs, zone: u.zone, tableId: u.tableId, visibility: u.visibility, danceState: u.danceState || 'idle', partnerAlias } })
       return
     }
     if (pathname === '/api/user/profile' && req.method === 'POST') {

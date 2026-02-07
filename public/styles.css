@@ -187,6 +187,15 @@ button.icon svg { width:18px; height:18px }
 #screen-staff .chip, #screen-staff-users .chip, #screen-staff-orders .chip { padding: 10px 14px; font-weight: 600; text-align: center }
 #screen-staff .card { border-radius: 18px }
 #screen-staff .card h3 { margin: 0 0 10px 0; font-size: 18px; color: var(--primary2) }
+/* Fiesta en perfil */
+#user-header.party { position: relative; background: radial-gradient(500px 200px at 10% 0%, rgba(125,136,255,0.16) 0%, rgba(23,24,38,0.85) 60%) }
+body[data-theme="light"] #user-header.party { background: linear-gradient(135deg, rgba(55,71,255,0.08) 0%, rgba(166,176,255,0.14) 100%) }
+#user-header.party .equalizer { position: absolute; right: 18px; bottom: 12px; display: flex; gap: 4px; align-items: flex-end; z-index: 2 }
+#user-header.party .equalizer span { width: 6px; height: 12px; border-radius: 4px; background: linear-gradient(180deg, #7d88ff, #5868ff); animation: equalize 1.1s ease-in-out infinite }
+#user-header.party .equalizer span:nth-child(2) { animation-delay: .08s }
+#user-header.party .equalizer span:nth-child(3) { animation-delay: .16s }
+#user-header.party .equalizer span:nth-child(4) { animation-delay: .24s }
+#user-header.party .equalizer span:nth-child(5) { animation-delay: .32s }
 #screen-staff #staff-table-orders .card, #screen-staff-mesas #staff2-table-orders .card, #screen-staff-orders #staff-orders-list .card { display: grid; grid-template-columns: 1fr auto; align-items: center }
 #screen-staff #staff-table-orders .card .row, #screen-staff-orders #staff-orders-list .card .row { justify-content: flex-end }
 #screen-staff-users #staff-users .card { display: grid; grid-template-columns: 1fr auto; align-items: center }

@@ -1426,6 +1426,11 @@ function renderUserHeader() {
     const st = S.user?.danceState || 'idle'
     endBtn.style.display = (st === 'dancing') ? '' : 'none'
   }
+  const header = q('user-header')
+  const eq = q('user-equalizer')
+  const st2 = S.user?.danceState || 'idle'
+  if (header) header.classList.toggle('party', st2 === 'dancing')
+  if (eq) eq.style.display = st2 === 'dancing' ? '' : 'none'
 }
 function openEditProfileFocus(field) {
   openEditProfile()
@@ -1734,6 +1739,7 @@ async function restoreLocalUser() {
       if (ua) ua.textContent = S.user.alias || S.user.id
       if (ut) ut.textContent = S.user.tableId || '-'
       if (us) us.src = S.user.selfie || ''
+      renderUserHeader()
       return true
     }
     return false
