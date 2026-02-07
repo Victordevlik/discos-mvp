@@ -728,6 +728,10 @@ function startEvents() {
     S.meeting = null
     show('screen-user-home')
   })
+  S.sse.addEventListener('thanks', e => {
+    const data = JSON.parse(e.data)
+    showSuccess(`Mensaje de ${data.from.alias}: ${data.message}`)
+  })
   startUserPolls()
 }
 
@@ -736,7 +740,6 @@ function renderMeeting() {
   const left = Math.max(0, Math.floor((m.expiresAt - Date.now()) / 1000))
   q('meeting-info').textContent = `Punto: ${m.point} • Tiempo: ${left}s`
   const noteEl = q('meeting-note')
-  if (noteEl) noteEl.textContent = ''
   const showChoices = !!S.isMeetingReceiver
   const bCome = q('btn-meet-come'), bGo = q('btn-meet-go'), bPista = q('btn-meet-pista')
   const bConfirm = q('btn-meeting-confirm')
@@ -766,8 +769,10 @@ async function respondInvite(accept) {
     if (accept) {
       if (hasItems) {
         await api('/api/consumption/respond/bulk', { method: 'POST', body: JSON.stringify({ fromId: S.consumptionReq.from.id, toId: S.user.id, items: S.consumptionReq.items, action: 'accept', requestId: S.consumptionReq.requestId || '' }) })
+        openThanks(S.consumptionReq.from.id, 'consumption')
       } else {
         await api('/api/consumption/respond', { method: 'POST', body: JSON.stringify({ fromId: S.consumptionReq.from.id, toId: S.user.id, product: S.consumptionReq.product, action: 'accept', requestId: S.consumptionReq.requestId || '' }) })
+        openThanks(S.consumptionReq.from.id, 'consumption')
       }
     }
     S.consumptionReq = null
@@ -785,6 +790,25 @@ async function respondInvite(accept) {
   S.notifications.invites = Math.max(0, (S.notifications.invites || 0) - 1)
   setBadgeNav('disponibles', S.notifications.invites)
   if (!accept) show('screen-user-home')
+}
+
+function openThanks(toId, context) {
+  showModal('Agradecer', 'Elige un mensaje para agradecer', 'success')
+  const row = document.querySelector('#modal .row')
+  if (!row) return
+  const options = ['¡Gracias!', 'Mil gracias, cuando quieras', 'Gracias por la invitación']
+  for (const txt of options) {
+    const b = document.createElement('button')
+    b.textContent = txt
+    b.onclick = async () => {
+      try {
+        const m = q('modal'); if (m) m.classList.remove('show')
+      } catch {}
+      await api('/api/thanks/send', { method: 'POST', body: JSON.stringify({ fromId: S.user.id, toId, context, message: txt }) })
+      showSuccess('Se envió tu agradecimiento')
+    }
+    row.append(b)
+  }
 }
 
 async function cancelMeeting() {
@@ -1216,7 +1240,7 @@ function bind() {
   const btnExploreMesas = q('btn-explore-mesas'); if (btnExploreMesas) btnExploreMesas.onclick = exploreMesas
   q('btn-edit-profile').onclick = openEditProfile
   q('btn-edit-save').onclick = saveEditProfile
-  q('btn-pause-social').onclick = pauseSocial
+  // Pausa social eliminada
   const btnViewPromos = q('btn-view-promos'); if (btnViewPromos) btnViewPromos.onclick = viewPromos
   const btnCallWaiter = q('btn-call-waiter'); if (btnCallWaiter) btnCallWaiter.onclick = openCallWaiter
   q('btn-waiter-send').onclick = sendWaiterCall
@@ -1446,13 +1470,7 @@ async function saveEditProfile() {
   show('screen-user-home')
 }
 
-async function pauseSocial() {
-  const ok = await confirmAction('Vas a activar la pausa social. ¿Confirmas?')
-  if (!ok) return
-  await api('/api/user/pause', { method: 'POST', body: JSON.stringify({ userId: S.user.id }) })
-  showError('Pausa social activada')
-  setTimeout(() => showError(''), 1000)
-}
+ 
 
 function openCallWaiter() {
   callWaiterQuick()

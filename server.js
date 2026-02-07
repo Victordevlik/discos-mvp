@@ -24,6 +24,7 @@ const state = {
     lastInvitePair: new Map(),
     restrictedUsers: new Map(),
     consumptionByUserHour: new Map(),
+    thanksByUserHour: new Map(),
     tableChangesByUserHour: new Map(),
   },
 }
@@ -877,15 +878,6 @@ const server = http.createServer(async (req, res) => {
       json(res, 200, { ok: true })
       return
     }
-    if (pathname === '/api/user/pause' && req.method === 'POST') {
-      const body = await parseBody(req)
-      const u = state.users.get(body.userId)
-      if (!u) { json(res, 404, { error: 'no_user' }); return }
-      u.pausedUntil = now() + 30*60*1000
-      try { await dbUpsertUser(u) } catch {}
-      json(res, 200, { ok: true, pausedUntil: u.pausedUntil })
-      return
-    }
     if (pathname === '/api/user/change-table' && req.method === 'POST') {
       const body = await parseBody(req)
       const u = state.users.get(body.userId)
@@ -974,7 +966,7 @@ const server = http.createServer(async (req, res) => {
       if (from.danceState && from.danceState !== 'idle') { json(res, 403, { error: 'busy_self' }); return }
       if (to.danceState && to.danceState !== 'idle') { json(res, 403, { error: 'busy_target' }); return }
       if (from.muted || from.silenced) { json(res, 429, { error: 'silenced' }); return }
-      if (to.pausedUntil && now() < to.pausedUntil) { json(res, 403, { error: 'paused' }); return }
+      // Pausa social eliminada
       if (applyRestrictedIfNeeded(from.id)) { json(res, 429, { error: 'restricted' }); return }
       if (isBlockedPair(from.id, to.id)) { json(res, 403, { error: 'blocked' }); return }
       if (to.receiveMode === 'mesas') {
@@ -1188,6 +1180,22 @@ const server = http.createServer(async (req, res) => {
       }
       if (ids.length) persistOrders(from.sessionId)
       json(res, 200, { orderIds: ids })
+      return
+    }
+    if (pathname === '/api/thanks/send' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const from = state.users.get(body.fromId)
+      const to = state.users.get(body.toId)
+      if (!from || !to) { json(res, 404, { error: 'no_user' }); return }
+      const hourKey = from.id
+      const bucket = state.rate.thanksByUserHour.get(hourKey) || []
+      const fresh = bucket.filter(ts => within(60 * 60 * 1000, ts))
+      if (fresh.length >= 10) { json(res, 429, { error: 'rate_thanks' }); return }
+      state.rate.thanksByUserHour.set(hourKey, [...fresh, now()])
+      const message = String(body.message || '').slice(0, 140)
+      const context = String(body.context || '')
+      sendToUser(to.id, 'thanks', { from: { id: from.id, alias: from.alias }, context, message })
+      json(res, 200, { ok: true })
       return
     }
     if (pathname === '/api/order/new' && req.method === 'POST') {
