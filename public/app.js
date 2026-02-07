@@ -1775,7 +1775,10 @@ async function openConsumption() {
   if (btnTable) btnTable.style.display = 'none'
   const cartSection = q('cart-section'); if (cartSection) { cartSection.style.display = ''; renderCart() }
   const addCart = q('btn-add-to-cart'); if (addCart) addCart.style.display = ''
-  const grid = q('catalog-list'); if (grid) grid.style.display = ''
+  const cats = q('catalog-cats'), grid = q('catalog-list'), back = q('btn-catalog-back')
+  if (cats) cats.style.display = ''
+  if (grid) grid.style.display = 'none'
+  if (back) back.style.display = 'none'
   show('screen-consumption')
 }
 async function openMenu() {
@@ -1793,15 +1796,20 @@ async function openMenu() {
   if (btnTable) btnTable.style.display = ''
   const cartSection = q('cart-section'); if (cartSection) { cartSection.style.display = ''; renderCart() }
   const addCart = q('btn-add-to-cart'); if (addCart) addCart.style.display = ''
-  const grid = q('catalog-list'); if (grid) grid.style.display = ''
+  const cats = q('catalog-cats'), grid = q('catalog-list'), back = q('btn-catalog-back')
+  if (cats) cats.style.display = ''
+  if (grid) grid.style.display = 'none'
+  if (back) back.style.display = 'none'
   show('screen-consumption')
 }
 async function loadCatalog() {
   try {
     const r = await api(`/api/catalog${S.sessionId ? ('?sessionId=' + encodeURIComponent(S.sessionId)) : ''}`)
-    const container = q('catalog-list')
-    if (!container) return
-    container.innerHTML = ''
+    const catsEl = q('catalog-cats')
+    const itemsEl = q('catalog-list')
+    if (!catsEl || !itemsEl) return
+    catsEl.innerHTML = ''
+    itemsEl.innerHTML = ''
     const groups = {}
     for (const it of r.items || []) {
       const cat = (it.category || 'otros').toLowerCase()
@@ -1816,26 +1824,59 @@ async function loadCatalog() {
       sodas: 'Sodas y sin alcohol',
       otros: 'Otros'
     }
-    for (const cat of order) {
-      const items = groups[cat]
-      if (!items || !items.length) continue
-      const title = document.createElement('h3')
-      title.textContent = labels[cat] || cat
-      container.append(title)
-      for (const it of items) {
-        const div = document.createElement('div')
-        div.className = 'card'
-        const name = document.createElement('div')
-        name.textContent = it.name
-        const price = document.createElement('span')
-        price.className = 'chip'
-        price.textContent = formatPriceShort(it.price)
-        div.onclick = () => { q('product').value = it.name }
-        div.append(name, price)
-        container.append(div)
-      }
-    }
+    S.catalogGroups = groups
+    renderCatalogCats(order, labels)
   } catch {}
+}
+function renderCatalogCats(order, labels) {
+  const catsEl = q('catalog-cats'), itemsEl = q('catalog-list'), back = q('btn-catalog-back')
+  if (!catsEl || !itemsEl) return
+  catsEl.innerHTML = ''
+  itemsEl.innerHTML = ''
+  if (back) back.style.display = 'none'
+  if (itemsEl) itemsEl.style.display = 'none'
+  if (catsEl) catsEl.style.display = ''
+  for (const cat of order) {
+    const items = S.catalogGroups[cat]
+    if (!items || !items.length) continue
+    const div = document.createElement('div')
+    div.className = 'card'
+    const name = document.createElement('div')
+    name.textContent = labels[cat] || cat
+    const count = document.createElement('span')
+    count.className = 'chip'
+    count.textContent = `${items.length}`
+    div.onclick = () => renderCatalogItems(cat, labels)
+    div.append(name, count)
+    catsEl.append(div)
+  }
+}
+function renderCatalogItems(cat, labels) {
+  S.catalogCat = cat
+  const catsEl = q('catalog-cats'), itemsEl = q('catalog-list'), back = q('btn-catalog-back')
+  if (!catsEl || !itemsEl) return
+  catsEl.style.display = 'none'
+  itemsEl.style.display = ''
+  itemsEl.innerHTML = ''
+  if (back) { back.style.display = ''; back.onclick = () => renderCatalogCats(['cervezas','botellas','cocteles','sodas','otros'], {
+    cervezas: 'Cervezas', botellas: 'Botellas', cocteles: 'Cocteles', sodas: 'Sodas y sin alcohol', otros: 'Otros'
+  }) }
+  const items = S.catalogGroups[cat] || []
+  const title = document.createElement('h3')
+  title.textContent = labels[cat] || cat
+  itemsEl.append(title)
+  for (const it of items) {
+    const div = document.createElement('div')
+    div.className = 'card'
+    const name = document.createElement('div')
+    name.textContent = it.name
+    const price = document.createElement('span')
+    price.className = 'chip'
+    price.textContent = formatPriceShort(it.price)
+    div.onclick = () => { const p = q('product'); if (p) p.value = it.name }
+    div.append(name, price)
+    itemsEl.append(div)
+  }
 }
 function renderCart() {
   const list = q('cart-list')
