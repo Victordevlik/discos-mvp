@@ -85,7 +85,10 @@ async function sendEmail(to, subject, text) {
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + RESEND_API_KEY },
         body: JSON.stringify({ from, to, subject, text })
       })
-      return r.ok
+      if (r.ok) return { ok: true, provider: 'resend' }
+      let err = ''
+      try { const j = await r.json(); err = String(j?.error?.message || j?.message || '') } catch {}
+      return { ok: false, provider: 'resend', status: r.status, error: err }
     } else if (SENDGRID_API_KEY) {
       const body = {
         personalizations: [{ to: [{ email: to }] }],
@@ -98,14 +101,17 @@ async function sendEmail(to, subject, text) {
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SENDGRID_API_KEY },
         body: JSON.stringify(body)
       })
-      return r.status === 202
+      if (r.status === 202) return { ok: true, provider: 'sendgrid' }
+      let err = ''
+      try { const j = await r.json(); err = String(j?.errors?.[0]?.message || '') } catch {}
+      return { ok: false, provider: 'sendgrid', status: r.status, error: err }
     } else {
       console.log('[email] no provider configured', { to, subject })
-      return false
+      return { ok: false, provider: 'none', status: 0, error: 'no_provider' }
     }
   } catch (e) {
     console.log('[email] error', String(e && e.message || e))
-    return false
+    return { ok: false, provider: RESEND_API_KEY ? 'resend' : (SENDGRID_API_KEY ? 'sendgrid' : 'none'), status: -1, error: String(e && e.message || e) }
   }
 }
 async function isDBConnected() {
@@ -810,12 +816,8 @@ const server = http.createServer(async (req, res) => {
       const subject = `PIN del local ${String(v.name || venueId)}`
       const link = `${process.env.PUBLIC_BASE_URL || ''}/?venueId=${encodeURIComponent(venueId)}`
       const text = `Hola,\n\nEste es el PIN del local "${String(v.name || venueId)}" (ID: ${venueId}).\nPIN del venue: ${pin}\nAcceso: ${link}\n\nSi no solicitaste este envío, por favor contáctanos.\n`
-      const ok = await sendEmail(to, subject, text)
-      if (!ok) { 
-        const provider = RESEND_API_KEY ? 'resend' : (SENDGRID_API_KEY ? 'sendgrid' : 'none')
-        json(res, 502, { error: 'email_failed', provider }); 
-        return 
-      }
+      const r = await sendEmail(to, subject, text)
+      if (!r.ok) { json(res, 502, { error: 'email_failed', provider: r.provider, status: r.status, message: r.error }); return }
       json(res, 200, { ok: true, venueId })
       return
     }

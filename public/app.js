@@ -168,7 +168,12 @@ async function apiStaff(path, secret, opts = {}) {
   let data = null
   try { data = await res.json() } catch {}
   if (!res.ok) {
-    const msg = data && data.error ? (data.provider ? `${data.error}:${data.provider}` : data.error) : 'api_staff'
+    const msg = data && data.error ? [
+      data.error,
+      data.provider ? String(data.provider) : '',
+      data.status != null ? String(data.status) : '',
+      data.message ? String(data.message) : ''
+    ].filter(Boolean).join(':') : 'api_staff'
     throw new Error(msg)
   }
   return data
@@ -1654,6 +1659,7 @@ function chooseWaiterReason(e) {
   for (const b of document.querySelectorAll('.btn-waiter-reason')) b.classList.remove('active')
   el.classList.add('active')
   const other = q('waiter-other'); if (other) other.style.display = val === 'otro' ? '' : 'none'
+  if (val && val !== 'otro') { sendWaiterCall() }
 }
 
 async function viewPromos() {
