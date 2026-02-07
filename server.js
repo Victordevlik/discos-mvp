@@ -1436,6 +1436,16 @@ const server = http.createServer(async (req, res) => {
   serveStatic(req, res, pathname)
 })
 
+// Manejo simple de favicon para evitar 404s
+// Nota: esto se evalúa cuando el server ya está creado, por lo que añadimos un listener extra
+server.on('request', (req, res) => {
+  const { pathname } = url.parse(req.url, true)
+  if (pathname === '/favicon.ico') {
+    res.writeHead(200, { 'Content-Type': 'image/x-icon', 'Cache-Control': 'max-age=86400', 'Access-Control-Allow-Origin': '*' })
+    res.end('')
+  }
+})
+
 setInterval(() => {
   const nowTs = now()
   for (const o of state.orders.values()) {

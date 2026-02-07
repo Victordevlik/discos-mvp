@@ -1426,6 +1426,8 @@ async function restoreLocalUser() {
     S.sessionId = r.user.sessionId
     S.role = r.user.role
     if (S.role === 'staff') {
+      const okActive = await ensureSessionActiveOffer()
+      if (!okActive) { show('screen-staff-welcome'); return true }
       show('screen-staff')
       showStaffTab('session')
       await loadSessionInfo()
@@ -1635,16 +1637,18 @@ async function saveStaffCatalog() {
   } catch (e) { showError(String(e.message)) }
 }
 async function loadStaffPromos() {
-  const r = await api(`/api/promos?sessionId=${encodeURIComponent(S.sessionId)}`)
-  const container = q('staff-promos-list')
-  if (!container) return
-  container.innerHTML = ''
-  for (const p of r.promos || []) {
-    const div = document.createElement('div')
-    div.className = 'card'
-    div.textContent = p.title || ''
-    container.append(div)
-  }
+  try {
+    const r = await api(`/api/promos?sessionId=${encodeURIComponent(S.sessionId)}`)
+    const container = q('staff-promos-list')
+    if (!container) return
+    container.innerHTML = ''
+    for (const p of r.promos || []) {
+      const div = document.createElement('div')
+      div.className = 'card'
+      div.textContent = p.title || ''
+      container.append(div)
+    }
+  } catch {}
 }
 async function viewStaffTableHistory() {
   const raw = q('staff-table-id')?.value.trim()

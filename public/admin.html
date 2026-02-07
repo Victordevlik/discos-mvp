@@ -80,6 +80,12 @@
         row.className = 'row'
         const info = document.createElement('div')
         info.textContent = `${v.name} (${v.venueId}) • créditos: ${v.credits} • activo: ${v.active ? 'sí' : 'no'}`
+        const url = `${location.origin}/?venueId=${encodeURIComponent(v.venueId)}`
+        const link = document.createElement('a')
+        link.href = url
+        link.target = '_blank'
+        link.rel = 'noopener'
+        link.textContent = url
         const btn = document.createElement('button')
         btn.textContent = '+1 noche'
         btn.onclick = async () => {
@@ -93,7 +99,10 @@
             await loadVenues()
           } catch (e) { showError(String(e.message)) }
         }
-        row.appendChild(info)
+        const col = document.createElement('div')
+        col.appendChild(info)
+        col.appendChild(link)
+        row.appendChild(col)
         row.appendChild(btn)
         container.appendChild(row)
       }
