@@ -24,7 +24,6 @@ const state = {
     lastInvitePair: new Map(),
     restrictedUsers: new Map(),
     consumptionByUserHour: new Map(),
-    reactionsByUserHour: new Map(),
     tableChangesByUserHour: new Map(),
   },
 }
@@ -1598,22 +1597,6 @@ const server = http.createServer(async (req, res) => {
       sendToStaff(c.sessionId, 'waiter_update', { call: c })
       sendToUser(c.userId, 'waiter_update', { call: c })
       try { await dbUpdateWaiterCallStatus(c.id, c.status) } catch {}
-      json(res, 200, { ok: true })
-      return
-    }
-    if (pathname === '/api/reaction/send' && req.method === 'POST') {
-      const body = await parseBody(req)
-      const from = state.users.get(body.fromId)
-      const to = state.users.get(body.toId)
-      if (!from || !to) { json(res, 404, { error: 'no_user' }); return }
-      if (isBlockedPair(from.id, to.id)) { json(res, 403, { error: 'blocked' }); return }
-      const hourKey = from.id
-      const bucket = state.rate.reactionsByUserHour.get(hourKey) || []
-      const fresh = bucket.filter(ts => within(60*60*1000, ts))
-      if (fresh.length >= 10) { json(res, 429, { error: 'rate_reaction' }); return }
-      state.rate.reactionsByUserHour.set(hourKey, [...fresh, now()])
-      const type = body.type === 'brindis' ? 'brindis' : 'saludo'
-      sendToUser(to.id, 'reaction', { from: { id: from.id, alias: from.alias }, type })
       json(res, 200, { ok: true })
       return
     }

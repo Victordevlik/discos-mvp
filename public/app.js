@@ -728,11 +728,6 @@ function startEvents() {
     S.meeting = null
     show('screen-user-home')
   })
-  S.sse.addEventListener('reaction', e => {
-    const data = JSON.parse(e.data)
-    showError(`${data.from.alias} te envió ${data.type}`)
-    setTimeout(() => showError(''), 1500)
-  })
   startUserPolls()
 }
 
@@ -1401,9 +1396,7 @@ async function loadMesaOrders(tableId) {
   }
 }
 
-async function sendReaction(toId, type) {
-  await api('/api/reaction/send', { method: 'POST', body: JSON.stringify({ fromId: S.user.id, toId, type }) })
-}
+// Reacciones retiradas (saludo, brindis): UI y backend eliminados
 
 function openEditProfile() {
   q('edit-alias').value = S.user.alias || ''
