@@ -614,7 +614,7 @@ function chooseMsg(e) {
 async function sendInvite() {
   if (!S.currentInvite) return
   const name = S.currentInvite.alias || S.currentInvite.id
-  const ok = confirmAction(`Vas a invitar a ${name} con el mensaje "${inviteMsgType}". ¿Confirmas?`)
+  const ok = await confirmAction(`Vas a invitar a ${name} con el mensaje "${inviteMsgType}". ¿Confirmas?`)
   if (!ok) return
   await api('/api/invite/dance', { method: 'POST', body: JSON.stringify({ fromId: S.user.id, toId: S.currentInvite.id, messageType: inviteMsgType }) })
   show('screen-user-home')
@@ -664,6 +664,7 @@ function startEvents() {
     S.user.partnerAlias = data.partner ? (data.partner.alias || data.partner.id || '') : S.user.partnerAlias
     if (data.meeting && data.meeting.id) { S.meeting = data.meeting }
     scheduleRenderUserHeader()
+    if (data.state === 'dancing' && !S.isMeetingReceiver) { show('screen-user-home') }
   })
   S.sse.addEventListener('invite_result', e => {
     const data = JSON.parse(e.data)
@@ -690,6 +691,7 @@ function startEvents() {
                       : ''
         el.textContent = planTxt ? `Plan: ${planTxt}` : ''
       }
+      if (!S.isMeetingReceiver) { show('screen-user-home') }
     }
   })
   S.sse.addEventListener('consumption_invite', e => {
