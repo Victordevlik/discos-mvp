@@ -611,7 +611,13 @@ const server = http.createServer(async (req, res) => {
       for (const s of state.sessions.values()) {
         if (s.active && (now() - s.startedAt) < 12 * 60 * 60 * 1000) {
           if (!venueId || s.venueId === venueId) {
-            json(res, 200, { active: true, sessionId: s.id, pin: s.pin, venueId: s.venueId })
+            let venueName = s.venue || ''
+            try {
+              const venues = await readVenues()
+              const v = venues[s.venueId]
+              venueName = (v && v.name) ? v.name : (venueName || s.venueId)
+            } catch {}
+            json(res, 200, { active: true, sessionId: s.id, pin: s.pin, venueId: s.venueId, venueName })
             return
           }
         }

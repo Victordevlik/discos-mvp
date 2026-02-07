@@ -1059,6 +1059,11 @@ function formatOrderProductFull(name) {
 }
 async function loadOrders(state = '') {
   const qs = state ? `&state=${encodeURIComponent(state)}` : ''
+  try {
+    const sess = await api(`/api/session/active${S.venueId ? ('?venueId=' + encodeURIComponent(S.venueId)) : ''}`)
+    const vnEl = q('staff-venue-name')
+    if (vnEl) vnEl.textContent = `Local: ${sess.venueName || S.venueId || '-'}`
+  } catch {}
   const r = await api(`/api/staff/orders?sessionId=${encodeURIComponent(S.sessionId)}${qs}`)
   const container = q('staff-orders-list') || q('orders')
   container.innerHTML = ''
