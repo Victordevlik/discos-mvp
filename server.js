@@ -1187,7 +1187,25 @@ const server = http.createServer(async (req, res) => {
       const stateFilter = query.state || ''
       if (db) {
         const rows = await dbGetOrdersBySession(sessionId, stateFilter || null)
-        json(res, 200, { orders: rows })
+        const out = []
+        for (const r of rows) {
+          out.push({
+            id: r.id,
+            product: r.product,
+            quantity: Number(r.quantity || 1),
+            price: Number(r.price || 0),
+            total: Number(r.total || 0),
+            status: r.status,
+            createdAt: Number(r.created_at || 0),
+            expiresAt: Number(r.expires_at || 0),
+            emitterId: r.emitter_id,
+            receiverId: r.receiver_id,
+            emitterTable: r.emitter_table || '',
+            receiverTable: r.receiver_table || '',
+            mesaEntrega: r.mesa_entrega || '',
+          })
+        }
+        json(res, 200, { orders: out })
       } else {
         const list = []
         for (const o of state.orders.values()) {
@@ -1342,7 +1360,25 @@ const server = http.createServer(async (req, res) => {
       const userId = query.userId
       if (db) {
         const rows = await dbGetOrdersByUser(userId)
-        json(res, 200, { orders: rows })
+        const out = []
+        for (const r of rows) {
+          out.push({
+            id: r.id,
+            product: r.product,
+            quantity: Number(r.quantity || 1),
+            price: Number(r.price || 0),
+            total: Number(r.total || 0),
+            status: r.status,
+            createdAt: Number(r.created_at || 0),
+            expiresAt: Number(r.expires_at || 0),
+            emitterId: r.emitter_id,
+            receiverId: r.receiver_id,
+            emitterTable: r.emitter_table || '',
+            receiverTable: r.receiver_table || '',
+            mesaEntrega: r.mesa_entrega || '',
+          })
+        }
+        json(res, 200, { orders: out })
       } else {
         const list = []
         for (const o of state.orders.values()) {

@@ -147,6 +147,7 @@ function showModal(title, msg, type = 'info') {
   const t = q('modal-text')
   const tt = q('modal-title')
   if (!m || !t || !tt) return
+  try { const btn = q('modal-action'); if (btn) btn.remove() } catch {}
   m.classList.remove('type-error', 'type-success', 'type-info')
   m.classList.add('type-' + type)
   tt.textContent = title || ''
@@ -1381,7 +1382,9 @@ async function loadUserOrders() {
     chip.textContent = o.status.replace('_',' ')
     const invChip = document.createElement('span')
     if (o.isInvitation) { invChip.className = 'chip'; invChip.textContent = 'Invitación' }
-    div.textContent = `${o.product} x${o.quantity || 1} • $${o.total || 0} • ${o.emitterId === S.user.id ? 'Enviado a' : 'Recibido de'} ${o.emitterId === S.user.id ? o.receiverId : o.emitterId}`
+    const forEmitter = o.emitterId === S.user.id
+    const amountTxt = (forEmitter && o.isInvitation && o.status === 'pendiente_cobro') ? '' : ` • $${o.total || 0}`
+    div.textContent = `${o.product} x${o.quantity || 1}${amountTxt} • ${forEmitter ? 'Enviado a' : 'Recibido de'} ${forEmitter ? o.receiverId : o.emitterId}`
     div.append(chip)
     if (o.isInvitation) div.append(invChip)
     container.append(div)
