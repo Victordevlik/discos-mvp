@@ -1032,6 +1032,29 @@ async function ensureSessionActiveOffer() {
     return false
   } catch { return false }
 }
+async function ensureCatalogIndex() {
+  if (S.catalogIndex) return
+  try {
+    const r = await api(`/api/catalog${S.sessionId ? ('?sessionId=' + encodeURIComponent(S.sessionId)) : ''}`)
+    const idx = {}
+    for (const it of r.items || []) {
+      const key = String(it.name || '').toLowerCase()
+      if (key) idx[key] = it
+    }
+    S.catalogIndex = idx
+  } catch {}
+}
+function formatOrderProductFull(name) {
+  const key = String(name || '').toLowerCase()
+  const it = S.catalogIndex ? S.catalogIndex[key] : null
+  if (!it) return name
+  const cats = { cervezas: 'Cerveza', botellas: 'Botella', cocteles: 'Coctel', sodas: 'Soda', otros: 'Otro' }
+  const cat = cats[(it.category || '').toLowerCase()] || (it.category || '')
+  const sub = String(it.subcategory || '').trim()
+  if (cat && sub) return `${cat} • ${sub} • ${it.name}`
+  if (cat) return `${cat} • ${it.name}`
+  return it.name
+}
 async function loadOrders(state = '') {
   const qs = state ? `&state=${encodeURIComponent(state)}` : ''
   const r = await api(`/api/staff/orders?sessionId=${encodeURIComponent(S.sessionId)}${qs}`)
@@ -1048,7 +1071,9 @@ async function loadOrders(state = '') {
     const emAlias = (S.usersIndex && S.usersIndex[o.emitterId] ? S.usersIndex[o.emitterId].alias : o.emitterId)
     const reAlias = (S.usersIndex && S.usersIndex[o.receiverId] ? S.usersIndex[o.receiverId].alias : o.receiverId)
     const amountTxt = ` • $${o.total || 0}`
-    info.textContent = `${o.product} x${o.quantity || 1}${amountTxt} • Emisor ${emAlias} → Receptor ${reAlias}${mesaInfo} `
+    await ensureCatalogIndex()
+    const label = formatOrderProductFull(o.product)
+    info.textContent = `${label} x${o.quantity || 1}${amountTxt} • Emisor ${emAlias} → Receptor ${reAlias}${mesaInfo} `
     info.append(chip)
     if (o.isInvitation) {
       const invChip = document.createElement('span')
@@ -1355,7 +1380,9 @@ async function loadMesaOrders(tableId) {
     const chip = document.createElement('span')
     chip.className = 'chip ' + (o.status === 'pendiente_cobro' ? 'pending' : o.status)
     chip.textContent = o.status.replace('_', ' ')
-    info.textContent = `${o.product} • ${o.emitterAlias || o.emitterId} → ${o.receiverAlias || o.receiverId}`
+    await ensureCatalogIndex()
+    const label = formatOrderProductFull(o.product)
+    info.textContent = `${label} • ${o.emitterAlias || o.emitterId} → ${o.receiverAlias || o.receiverId}`
     const row = document.createElement('div')
     row.className = 'row'
     info.append(chip)
@@ -1518,7 +1545,9 @@ async function loadUserOrders() {
     const forEmitter = o.emitterId === S.user.id
     const amountTxt = ` • $${o.total || 0}`
     const otherAlias = forEmitter ? (o.receiverAlias || o.receiverId) : (o.emitterAlias || o.emitterId)
-    div.textContent = `${o.product} x${o.quantity || 1}${amountTxt} • ${forEmitter ? 'Enviado a' : 'Recibido de'} ${otherAlias}`
+    await ensureCatalogIndex()
+    const label = formatOrderProductFull(o.product)
+    div.textContent = `${label} x${o.quantity || 1}${amountTxt} • ${forEmitter ? 'Enviado a' : 'Recibido de'} ${otherAlias}`
     div.append(chip)
     if (o.isInvitation) div.append(invChip)
     container.append(div)
