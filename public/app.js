@@ -632,7 +632,7 @@ async function sendInviteQuick(u) {
   S.currentInvite = u
   inviteMsgType = 'bailamos'
   const name = u.alias || u.id
-  const ok = confirmAction(`Vas a invitar a ${name} con el mensaje "bailamos". ¿Confirmas?`)
+  const ok = await confirmAction(`Vas a invitar a ${name} con el mensaje "bailamos". ¿Confirmas?`)
   if (!ok) return
   await api('/api/invite/dance', { method: 'POST', body: JSON.stringify({ fromId: S.user.id, toId: u.id, messageType: 'bailamos' }) })
   show('screen-disponibles')
