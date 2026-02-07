@@ -1,5 +1,5 @@
 // Añadimos venueId para operar en modo SaaS multi-venue
-let S = { sessionId: '', venueId: '', user: null, staff: null, role: '', sse: null, staffSSE: null, currentInvite: null, meeting: null, consumptionReq: null, nav: { history: [], current: '' }, notifications: { invites: 0 }, timers: { userPoll: 0, staffPoll: 0, userReconnect: 0, staffReconnect: 0, catalogSave: 0, modalHide: 0 }, staffTab: '', cart: [], messageTTL: 4000, modalShownAt: 0, isMeetingReceiver: false, meetingPlan: '', sched: {}, loading: {} }
+let S = { sessionId: '', venueId: '', user: null, staff: null, role: '', sse: null, staffSSE: null, currentInvite: null, meeting: null, consumptionReq: null, nav: { history: [], current: '' }, notifications: { invites: 0 }, timers: { userPoll: 0, staffPoll: 0, userReconnect: 0, staffReconnect: 0, catalogSave: 0, modalHide: 0 }, staffTab: '', cart: [], messageTTL: 4000, modalShownAt: 0, isMeetingReceiver: false, meetingPlan: '', sched: {}, loading: {}, catalogGroups: {}, catalogCat: '', catalogSubcat: '' }
 
 function q(id) { return document.getElementById(id) }
 function show(id) {
@@ -1214,6 +1214,7 @@ function bind() {
     const name = q('staff-catalog-add-name')?.value.trim()
     const price = Number(q('staff-catalog-add-price')?.value || 0)
     const catVal = (q('staff-catalog-add-category')?.value || 'otros').toLowerCase()
+    const subVal = (q('staff-catalog-add-subcategory')?.value || '').trim()
     const container = q('staff-catalog-list')
     if (!container || !name) return
     const row = document.createElement('div')
@@ -1228,15 +1229,18 @@ function bind() {
       category.append(o)
     }
     category.value = catVal
+    const subInput = document.createElement('input'); subInput.type = 'text'; subInput.placeholder = 'Subcategoría'; subInput.value = subVal
     nameInput.oninput = scheduleCatalogSave
     priceInput.oninput = scheduleCatalogSave
     category.oninput = scheduleCatalogSave
+    subInput.oninput = scheduleCatalogSave
     const del = document.createElement('button'); del.textContent = 'Eliminar'; del.onclick = () => { try { row.remove(); scheduleCatalogSave() } catch {} }
-    row.append(nameInput, priceInput, category, del)
+    row.append(nameInput, priceInput, category, subInput, del)
     container.append(row)
     const inpName = q('staff-catalog-add-name'); if (inpName) inpName.value = ''
     const inpPrice = q('staff-catalog-add-price'); if (inpPrice) inpPrice.value = ''
     const inpCat = q('staff-catalog-add-category'); if (inpCat) inpCat.value = 'otros'
+    const inpSub = q('staff-catalog-add-subcategory'); if (inpSub) inpSub.value = ''
     saveStaffCatalog()
   }
   const anUsers = q('an-users'); if (anUsers) anUsers.onclick = () => { showStaffTab('users'); loadUsers() }
@@ -1833,7 +1837,7 @@ function renderCatalogCats(order, labels) {
   if (!catsEl || !itemsEl) return
   catsEl.innerHTML = ''
   itemsEl.innerHTML = ''
-  if (back) back.style.display = 'none'
+  if (back) { back.style.display = 'none'; back.textContent = 'Volver a categorías' }
   if (itemsEl) itemsEl.style.display = 'none'
   if (catsEl) catsEl.style.display = ''
   for (const cat of order) {
@@ -1846,24 +1850,68 @@ function renderCatalogCats(order, labels) {
     const count = document.createElement('span')
     count.className = 'chip'
     count.textContent = `${items.length}`
-    div.onclick = () => renderCatalogItems(cat, labels)
+    div.onclick = () => renderCatalogCategory(cat, labels)
     div.append(name, count)
     catsEl.append(div)
   }
 }
-function renderCatalogItems(cat, labels) {
+function renderCatalogCategory(cat, labels) {
   S.catalogCat = cat
+  const items = S.catalogGroups[cat] || []
+  const subgroups = {}
+  for (const it of items) {
+    const sub = String(it.subcategory || '').trim()
+    if (!sub) continue
+    if (!subgroups[sub]) subgroups[sub] = []
+    subgroups[sub].push(it)
+  }
+  const names = Object.keys(subgroups)
+  if (names.length) {
+    renderCatalogSubcats(cat, labels, names, subgroups)
+  } else {
+    renderCatalogItems(cat, labels, items)
+  }
+}
+function renderCatalogSubcats(cat, labels, names, subgroups) {
+  const catsEl = q('catalog-cats'), itemsEl = q('catalog-list'), back = q('btn-catalog-back')
+  if (!catsEl || !itemsEl) return
+  S.catalogSubcat = ''
+  catsEl.style.display = 'none'
+  itemsEl.style.display = ''
+  itemsEl.innerHTML = ''
+  if (back) { back.style.display = ''; back.textContent = 'Volver a categorías'; back.onclick = () => { S.catalogCat=''; S.catalogSubcat=''; renderCatalogCats(['cervezas','botellas','cocteles','sodas','otros'], { cervezas:'Cervezas', botellas:'Botellas', cocteles:'Cocteles', sodas:'Sodas y sin alcohol', otros:'Otros' }) } }
+  const title = document.createElement('h3')
+  title.textContent = labels[cat] || cat
+  itemsEl.append(title)
+  for (const sub of names) {
+    const div = document.createElement('div')
+    div.className = 'card'
+    const name = document.createElement('div')
+    name.textContent = sub
+    const count = document.createElement('span')
+    count.className = 'chip'
+    count.textContent = `${(subgroups[sub]||[]).length}`
+    div.onclick = () => { S.catalogSubcat = sub; renderCatalogItems(cat, labels, subgroups[sub] || []) }
+    div.append(name, count)
+    itemsEl.append(div)
+  }
+}
+function renderCatalogItems(cat, labels, items) {
   const catsEl = q('catalog-cats'), itemsEl = q('catalog-list'), back = q('btn-catalog-back')
   if (!catsEl || !itemsEl) return
   catsEl.style.display = 'none'
   itemsEl.style.display = ''
   itemsEl.innerHTML = ''
-  if (back) { back.style.display = ''; back.onclick = () => renderCatalogCats(['cervezas','botellas','cocteles','sodas','otros'], {
-    cervezas: 'Cervezas', botellas: 'Botellas', cocteles: 'Cocteles', sodas: 'Sodas y sin alcohol', otros: 'Otros'
-  }) }
-  const items = S.catalogGroups[cat] || []
+  if (back) {
+    back.style.display = ''
+    back.textContent = S.catalogSubcat ? 'Volver a subcategorías' : 'Volver a categorías'
+    back.onclick = () => {
+      if (S.catalogSubcat) { S.catalogSubcat=''; renderCatalogCategory(cat, labels) }
+      else { S.catalogCat=''; renderCatalogCats(['cervezas','botellas','cocteles','sodas','otros'], { cervezas:'Cervezas', botellas:'Botellas', cocteles:'Cocteles', sodas:'Sodas y sin alcohol', otros:'Otros' }) }
+    }
+  }
   const title = document.createElement('h3')
-  title.textContent = labels[cat] || cat
+  title.textContent = S.catalogSubcat ? `${labels[cat] || cat} • ${S.catalogSubcat}` : (labels[cat] || cat)
   itemsEl.append(title)
   for (const it of items) {
     const div = document.createElement('div')
@@ -1929,11 +1977,16 @@ async function loadStaffCatalogEditor() {
         category.append(o)
       }
       category.value = (it.category || 'otros').toLowerCase()
+      const subInput = document.createElement('input')
+      subInput.type = 'text'
+      subInput.placeholder = 'Subcategoría'
+      subInput.value = String(it.subcategory || '')
       name.oninput = scheduleCatalogSave
       price.oninput = scheduleCatalogSave
       category.oninput = scheduleCatalogSave
+      subInput.oninput = scheduleCatalogSave
       const del = document.createElement('button'); del.textContent = 'Eliminar'; del.onclick = () => { try { row.remove(); scheduleCatalogSave() } catch {} }
-      row.append(name, price, category, del)
+      row.append(name, price, category, subInput, del)
       container.append(row)
     }
   } catch {}
@@ -1947,11 +2000,13 @@ async function saveStaffCatalog() {
       const nameInput = row.querySelector('input[type="text"]')
       const priceInput = row.querySelector('input[type="number"]')
       const catSelect = row.querySelector('select')
+      const subInput = (() => { const arr = row.querySelectorAll('input[type=\"text\"]'); return arr.length > 1 ? arr[1] : null })()
       if (!nameInput || !priceInput || !catSelect) continue
       const name = nameInput.value.trim()
       const price = Number(priceInput.value || 0)
       const category = (catSelect.value || 'otros').toLowerCase()
-      items.push({ name, price, category })
+      const subcategory = subInput ? String(subInput.value || '').trim() : ''
+      items.push({ name, price, category, subcategory })
     }
     await api('/api/staff/catalog', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, items }) })
     showError('Carta guardada')

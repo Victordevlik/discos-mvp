@@ -69,8 +69,9 @@ async function initDB() {
   await db.query('CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, emitter_id TEXT NOT NULL, receiver_id TEXT NOT NULL, product TEXT NOT NULL, quantity INTEGER NOT NULL, price INTEGER NOT NULL, total INTEGER NOT NULL, status TEXT NOT NULL, created_at BIGINT NOT NULL, expires_at BIGINT NOT NULL, emitter_table TEXT, receiver_table TEXT, mesa_entrega TEXT, is_invitation BOOLEAN)')
   await db.query('CREATE TABLE IF NOT EXISTS table_closures (session_id TEXT NOT NULL, table_id TEXT NOT NULL, closed BOOLEAN NOT NULL, PRIMARY KEY (session_id, table_id))')
   await db.query('CREATE TABLE IF NOT EXISTS waiter_calls (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, user_id TEXT NOT NULL, table_id TEXT, reason TEXT, status TEXT, ts BIGINT NOT NULL)')
-  await db.query('CREATE TABLE IF NOT EXISTS catalog_items (session_id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, category TEXT, PRIMARY KEY (session_id, name))')
+  await db.query('CREATE TABLE IF NOT EXISTS catalog_items (session_id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, category TEXT, subcategory TEXT, PRIMARY KEY (session_id, name))')
   await db.query('ALTER TABLE IF EXISTS catalog_items ADD COLUMN IF NOT EXISTS category TEXT')
+  await db.query('ALTER TABLE IF EXISTS catalog_items ADD COLUMN IF NOT EXISTS subcategory TEXT')
   dbReady = true
   return true
 }
@@ -151,29 +152,29 @@ async function writeVenues(obj) {
 async function dbReadGlobalCatalog() {
   if (!db) return []
   await initDB()
-  const r = await db.query('SELECT name, price, category FROM catalog_items WHERE session_id=$1 ORDER BY name', ['global'])
-  return r.rows.map(w => ({ name: w.name, price: Number(w.price || 0), category: String(w.category || 'otros') }))
+  const r = await db.query('SELECT name, price, category, subcategory FROM catalog_items WHERE session_id=$1 ORDER BY name', ['global'])
+  return r.rows.map(w => ({ name: w.name, price: Number(w.price || 0), category: String(w.category || 'otros'), subcategory: String(w.subcategory || '') }))
 }
 async function dbWriteGlobalCatalog(items) {
   if (!db) return
   await initDB()
   await db.query('DELETE FROM catalog_items WHERE session_id=$1', ['global'])
   for (const it of Array.isArray(items) ? items : []) {
-    await db.query('INSERT INTO catalog_items (session_id, name, price, category) VALUES ($1,$2,$3,$4)', ['global', String(it.name || ''), Number(it.price || 0), String(it.category || 'otros')])
+    await db.query('INSERT INTO catalog_items (session_id, name, price, category, subcategory) VALUES ($1,$2,$3,$4,$5)', ['global', String(it.name || ''), Number(it.price || 0), String(it.category || 'otros'), String(it.subcategory || '')])
   }
 }
 async function dbReadSessionCatalog(sessionId) {
   if (!db) return []
   await initDB()
-  const r = await db.query('SELECT name, price, category FROM catalog_items WHERE session_id=$1 ORDER BY name', [String(sessionId)])
-  return r.rows.map(w => ({ name: w.name, price: Number(w.price || 0), category: String(w.category || 'otros') }))
+  const r = await db.query('SELECT name, price, category, subcategory FROM catalog_items WHERE session_id=$1 ORDER BY name', [String(sessionId)])
+  return r.rows.map(w => ({ name: w.name, price: Number(w.price || 0), category: String(w.category || 'otros'), subcategory: String(w.subcategory || '') }))
 }
 async function dbWriteSessionCatalog(sessionId, items) {
   if (!db) return
   await initDB()
   await db.query('DELETE FROM catalog_items WHERE session_id=$1', [String(sessionId)])
   for (const it of Array.isArray(items) ? items : []) {
-    await db.query('INSERT INTO catalog_items (session_id, name, price, category) VALUES ($1,$2,$3,$4)', [String(sessionId), String(it.name || ''), Number(it.price || 0), String(it.category || 'otros')])
+    await db.query('INSERT INTO catalog_items (session_id, name, price, category, subcategory) VALUES ($1,$2,$3,$4,$5)', [String(sessionId), String(it.name || ''), Number(it.price || 0), String(it.category || 'otros'), String(it.subcategory || '')])
   }
 }
 async function dbUpsertUser(u) {
@@ -296,33 +297,36 @@ function isAdminAuthorized(req, query) {
 
 const defaultCatalog = [
   // Cervezas
-  { name: 'Cerveza Lager', price: 10000, category: 'cervezas' },
-  { name: 'Cerveza IPA', price: 12000, category: 'cervezas' },
-  { name: 'Cerveza Stout', price: 12000, category: 'cervezas' },
-  { name: 'Cerveza Pilsner', price: 10000, category: 'cervezas' },
-  { name: 'Cerveza Wheat', price: 11000, category: 'cervezas' },
+  { name: 'Cerveza Lager', price: 10000, category: 'cervezas', subcategory: '' },
+  { name: 'Cerveza IPA', price: 12000, category: 'cervezas', subcategory: '' },
+  { name: 'Cerveza Stout', price: 12000, category: 'cervezas', subcategory: '' },
+  { name: 'Cerveza Pilsner', price: 10000, category: 'cervezas', subcategory: '' },
+  { name: 'Cerveza Wheat', price: 11000, category: 'cervezas', subcategory: '' },
+  { name: 'Dorada', price: 11000, category: 'cervezas', subcategory: 'Club Colombia' },
+  { name: 'Roja', price: 11000, category: 'cervezas', subcategory: 'Club Colombia' },
+  { name: 'Negra', price: 11000, category: 'cervezas', subcategory: 'Club Colombia' },
   // Botellas
-  { name: 'Botella de Ron', price: 120000, category: 'botellas' },
-  { name: 'Botella de Aguardiente', price: 100000, category: 'botellas' },
-  { name: 'Botella de Whisky', price: 220000, category: 'botellas' },
-  { name: 'Botella de Tequila', price: 180000, category: 'botellas' },
-  { name: 'Botella de Vodka', price: 160000, category: 'botellas' },
-  { name: 'Botella de Gin', price: 160000, category: 'botellas' },
+  { name: 'Botella de Ron', price: 120000, category: 'botellas', subcategory: '' },
+  { name: 'Botella de Aguardiente', price: 100000, category: 'botellas', subcategory: '' },
+  { name: 'Botella de Whisky', price: 220000, category: 'botellas', subcategory: '' },
+  { name: 'Botella de Tequila', price: 180000, category: 'botellas', subcategory: '' },
+  { name: 'Botella de Vodka', price: 160000, category: 'botellas', subcategory: '' },
+  { name: 'Botella de Gin', price: 160000, category: 'botellas', subcategory: '' },
   // Cocteles
-  { name: 'Mojito', price: 20000, category: 'cocteles' },
-  { name: 'Gin Tonic', price: 18000, category: 'cocteles' },
-  { name: 'Margarita', price: 22000, category: 'cocteles' },
-  { name: 'Piña Colada', price: 22000, category: 'cocteles' },
-  { name: 'Cuba Libre', price: 18000, category: 'cocteles' },
-  { name: 'Negroni', price: 24000, category: 'cocteles' },
+  { name: 'Mojito', price: 20000, category: 'cocteles', subcategory: '' },
+  { name: 'Gin Tonic', price: 18000, category: 'cocteles', subcategory: '' },
+  { name: 'Margarita', price: 22000, category: 'cocteles', subcategory: '' },
+  { name: 'Piña Colada', price: 22000, category: 'cocteles', subcategory: '' },
+  { name: 'Cuba Libre', price: 18000, category: 'cocteles', subcategory: '' },
+  { name: 'Negroni', price: 24000, category: 'cocteles', subcategory: '' },
   // Sodas y sin alcohol
-  { name: 'Agua', price: 5000, category: 'sodas' },
-  { name: 'Agua con gas', price: 6000, category: 'sodas' },
-  { name: 'Soda', price: 6000, category: 'sodas' },
-  { name: 'Tónica', price: 7000, category: 'sodas' },
-  { name: 'Coca Cola', price: 7000, category: 'sodas' },
-  { name: 'Sprite', price: 7000, category: 'sodas' },
-  { name: 'Jugo natural', price: 12000, category: 'sodas' },
+  { name: 'Agua', price: 5000, category: 'sodas', subcategory: '' },
+  { name: 'Agua con gas', price: 6000, category: 'sodas', subcategory: '' },
+  { name: 'Soda', price: 6000, category: 'sodas', subcategory: '' },
+  { name: 'Tónica', price: 7000, category: 'sodas', subcategory: '' },
+  { name: 'Coca Cola', price: 7000, category: 'sodas', subcategory: '' },
+  { name: 'Sprite', price: 7000, category: 'sodas', subcategory: '' },
+  { name: 'Jugo natural', price: 12000, category: 'sodas', subcategory: '' },
 ]
 const allowedCategories = ['cervezas','botellas','cocteles','sodas','otros']
 function sanitizeItem(it) {
@@ -330,7 +334,8 @@ function sanitizeItem(it) {
   const price = Number(it.price || 0)
   const rawCat = String(it.category || '').toLowerCase().slice(0, 24)
   const category = allowedCategories.includes(rawCat) ? rawCat : 'otros'
-  return { name, price, category }
+  const subcategory = String(it.subcategory || '').slice(0, 60)
+  return { name, price, category, subcategory }
 }
 function readGlobalCatalog() {
   try {
@@ -1643,8 +1648,9 @@ const server = http.createServer(async (req, res) => {
         const price = Number(it.price || 0)
         const rawCat = String(it.category || '').toLowerCase().slice(0, 24)
         const category = allowedCategories.includes(rawCat) ? rawCat : 'otros'
+        const subcategory = String(it.subcategory || '').slice(0, 60)
         if (!name) continue
-        clean.push({ name, price, category })
+        clean.push({ name, price, category, subcategory })
       }
       if (s) s.catalog = clean
       if (db) {
