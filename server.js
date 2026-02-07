@@ -1027,6 +1027,9 @@ const server = http.createServer(async (req, res) => {
         if (uTo) { uTo.danceState = 'dancing'; uTo.meetingId = m.id }
         sendToUser(inv.fromId, 'dance_status', { state: 'dancing', partner: { id: inv.toId, alias: uTo ? (uTo.alias || uTo.id) : '' }, meeting: m })
         sendToUser(inv.toId, 'dance_status', { state: 'dancing', partner: { id: inv.fromId, alias: uFrom ? (uFrom.alias || uFrom.id) : '' }, meeting: m })
+        const planTxt = String(body.plan || '')
+        sendToUser(inv.fromId, 'meeting_plan', { meetingId: m.id, plan: planTxt })
+        sendToUser(inv.toId, 'meeting_plan', { meetingId: m.id, plan: planTxt })
       }
       sendToStaff(m.sessionId, 'meeting_confirm', { meetingId: m.id, plan: body.plan || '' })
       json(res, 200, { ok: true })

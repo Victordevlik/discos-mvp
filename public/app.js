@@ -1,5 +1,5 @@
 // Añadimos venueId para operar en modo SaaS multi-venue
-let S = { sessionId: '', venueId: '', user: null, staff: null, role: '', sse: null, staffSSE: null, currentInvite: null, meeting: null, consumptionReq: null, nav: { history: [], current: '' }, notifications: { invites: 0 }, timers: { userPoll: 0, staffPoll: 0, userReconnect: 0, staffReconnect: 0, catalogSave: 0, modalHide: 0 }, staffTab: '', cart: [], messageTTL: 4000, modalShownAt: 0 }
+let S = { sessionId: '', venueId: '', user: null, staff: null, role: '', sse: null, staffSSE: null, currentInvite: null, meeting: null, consumptionReq: null, nav: { history: [], current: '' }, notifications: { invites: 0 }, timers: { userPoll: 0, staffPoll: 0, userReconnect: 0, staffReconnect: 0, catalogSave: 0, modalHide: 0 }, staffTab: '', cart: [], messageTTL: 4000, modalShownAt: 0, isMeetingReceiver: false, meetingPlan: '' }
 
 function q(id) { return document.getElementById(id) }
 function show(id) {
@@ -148,6 +148,7 @@ function showModal(title, msg, type = 'info') {
   const tt = q('modal-title')
   if (!m || !t || !tt) return
   try { const btn = q('modal-action'); if (btn) btn.remove() } catch {}
+  try { const inp = q('modal-input'); if (inp) inp.remove() } catch {}
   m.classList.remove('type-error', 'type-success', 'type-info')
   m.classList.add('type-' + type)
   tt.textContent = title || ''
@@ -187,8 +188,51 @@ function showModalAction(title, msg, btnText, handler, type = 'info') {
   if (closeBtn && closeBtn.parentElement === row) row.insertBefore(btn, closeBtn)
   else row.append(btn)
 }
-function confirmAction(paraphrase) {
-  return typeof window !== 'undefined' ? window.confirm(paraphrase) : true
+async function confirmAction(paraphrase) {
+  return await new Promise(resolve => {
+    const m = q('modal')
+    const closeBtn = q('modal-close')
+    const onCancel = () => { try { if (m) m.classList.remove('show') } catch {}; cleanup(); resolve(false) }
+    const onEsc = (e) => { if (e.key === 'Escape') { onCancel() } }
+    const onOverlay = (e) => { if (e.target && e.target.id === 'modal') { onCancel() } }
+    const cleanup = () => {
+      try { document.removeEventListener('keydown', onEsc) } catch {}
+      try { if (m) m.removeEventListener('click', onOverlay) } catch {}
+      try { if (closeBtn) closeBtn.onclick = () => { const mm = q('modal'); if (mm) mm.classList.remove('show') } } catch {}
+    }
+    showModalAction('Confirmar', paraphrase || '', 'Aceptar', () => { cleanup(); resolve(true) }, 'info')
+    try { document.addEventListener('keydown', onEsc) } catch {}
+    try { if (m) m.addEventListener('click', onOverlay) } catch {}
+    try { if (closeBtn) closeBtn.onclick = onCancel } catch {}
+  })
+}
+async function promptInput(title, placeholder = '') {
+  return await new Promise(resolve => {
+    showModal(title || '', '', 'info')
+    const t = q('modal-text')
+    const row = document.querySelector('#modal .row')
+    const closeBtn = q('modal-close')
+    if (!t || !row || !closeBtn) { resolve(''); return }
+    const inp = document.createElement('input')
+    inp.id = 'modal-input'
+    inp.type = 'text'
+    inp.placeholder = placeholder || ''
+    inp.style.width = '100%'
+    t.innerHTML = ''
+    t.appendChild(inp)
+    let btn = q('modal-action')
+    if (btn) { try { btn.remove() } catch {} }
+    btn = document.createElement('button')
+    btn.id = 'modal-action'
+    btn.textContent = 'Aceptar'
+    btn.onclick = () => { try { const m = q('modal'); if (m) m.classList.remove('show') } catch {}; resolve(String(inp.value || '').trim()) }
+    if (closeBtn && closeBtn.parentElement === row) row.insertBefore(btn, closeBtn)
+    else row.append(btn)
+    inp.focus()
+    const onEnter = (e) => { if (e.key === 'Enter') { btn.click() } }
+    inp.addEventListener('keydown', onEnter)
+    closeBtn.onclick = () => { try { const m = q('modal'); if (m) m.classList.remove('show') } catch {}; resolve('') }
+  })
 }
 function formatPriceShort(p) {
   const n = Number(p || 0)
@@ -238,8 +282,7 @@ async function join(role, codeOverride = '', pinOverride = '') {
     if (role === 'user') {
       alias = (q('alias') ? q('alias').value.trim() : '')
       if (!alias) {
-        try { alias = (window.prompt && prompt('Ingresa tu alias')) || '' } catch {}
-        alias = String(alias || '').trim()
+        alias = await promptInput('Ingresa tu alias', 'Tu alias')
       }
       if (!alias) { showError('Ingresa tu alias'); return }
     }
@@ -365,7 +408,7 @@ async function setAvailable() {
   const zoneTxt = zone ? `en zona ${zone}` : 'en todas las zonas'
   const phr = next ? `Vas a activar modo disponible para bailar y recibir ${modeTxt} ${zoneTxt}. ¿Confirmas?`
                     : `Vas a desactivar el modo disponible para bailar. ¿Confirmas?`
-  const ok = confirmAction(phr)
+  const ok = await confirmAction(phr)
   if (!ok) { if (q('switch-available')) q('switch-available').checked = prev; return }
   await api('/api/user/available', { method: 'POST', body: JSON.stringify({ userId: S.user.id, available: next, receiveMode, zone }) })
   if (!S.user) S.user = {}
@@ -598,28 +641,27 @@ function startEvents() {
     S.user = S.user || {}
     S.user.danceState = data.state || 'idle'
     S.user.partnerAlias = data.partner ? (data.partner.alias || data.partner.id || '') : S.user.partnerAlias
-    if (S.user.danceState === 'waiting') {
-      const alias = S.user.partnerAlias || 'tu pareja'
-      showError(`En camino a la pista con ${alias} — afinen pasos`)
-      setTimeout(() => showError(''), 1500)
-    } else if (S.user.danceState === 'dancing') {
-      const alias = S.user.partnerAlias || 'tu pareja'
-      showError(`Bailando con ${alias} — que no pare la música`)
-      setTimeout(() => showError(''), 1500)
-    } else {
-      // idle: sin mensaje persistente
-    }
+    if (data.meeting && data.meeting.id) { S.meeting = data.meeting }
     renderUserHeader()
   })
   S.sse.addEventListener('invite_result', e => {
     const data = JSON.parse(e.data)
     if (data.status === 'aceptado') {
       S.meeting = data.meeting
+      S.isMeetingReceiver = !!(S.currentInvite && data.inviteId && S.currentInvite.id === data.inviteId)
+      S.currentInvite = null
       if (data.note) { const noteEl = q('meeting-note'); if (noteEl) noteEl.textContent = `Respuesta: ${data.note}`; showError(`Respuesta: ${data.note}`); setTimeout(() => showError(''), 1500) }
       renderMeeting()
     } else {
       if (data.note) { showError(`Respuesta: ${data.note}`); setTimeout(() => showError(''), 1500) }
       show('screen-user-home')
+    }
+  })
+  S.sse.addEventListener('meeting_plan', e => {
+    const data = JSON.parse(e.data)
+    if (data.meetingId && S.meeting && data.meetingId === S.meeting.id) {
+      S.meetingPlan = data.plan || ''
+      const el = q('meeting-plan-display'); if (el) el.textContent = (S.meetingPlan ? `Plan: ${S.meetingPlan}` : '')
     }
   })
   S.sse.addEventListener('consumption_invite', e => {
@@ -666,6 +708,14 @@ function renderMeeting() {
   q('meeting-info').textContent = `Punto: ${m.point} • Tiempo: ${left}s`
   const noteEl = q('meeting-note')
   if (noteEl) noteEl.textContent = ''
+  const showChoices = !!S.isMeetingReceiver
+  const bCome = q('btn-meet-come'), bGo = q('btn-meet-go'), bPista = q('btn-meet-pista')
+  const bConfirm = q('btn-meeting-confirm')
+  if (bCome) bCome.style.display = showChoices ? '' : 'none'
+  if (bGo) bGo.style.display = showChoices ? '' : 'none'
+  if (bPista) bPista.style.display = showChoices ? '' : 'none'
+  if (bConfirm) bConfirm.style.display = showChoices ? '' : 'none'
+  const mpd = q('meeting-plan-display'); if (mpd) mpd.textContent = (S.meetingPlan ? `Plan: ${S.meetingPlan}` : '')
   show('screen-meeting')
 }
 
@@ -675,7 +725,7 @@ async function respondInvite(accept) {
     const listTxt = hasItems ? S.consumptionReq.items.map(it => `${it.quantity} x ${it.product}`).join(', ') : S.consumptionReq.product
     const phr = accept ? `Vas a aceptar invitación de consumo de ${S.consumptionReq.from.alias} (${listTxt}). ¿Confirmas?`
                        : `Vas a ignorar invitación de consumo. ¿Confirmas?`
-    const ok = confirmAction(phr)
+    const ok = await confirmAction(phr)
     if (!ok) return
     if (accept) {
       if (hasItems) {
@@ -692,7 +742,7 @@ async function respondInvite(accept) {
   const id = S.currentInvite.id
   const action = accept ? 'accept' : 'pass'
   const phr2 = accept ? `Vas a aceptar invitación de baile. ¿Confirmas?` : `Vas a pasar la invitación de baile. ¿Confirmas?`
-  const ok2 = confirmAction(phr2)
+  const ok2 = await confirmAction(phr2)
   if (!ok2) return
   const note = (q('invite-response') ? q('invite-response').value.trim().slice(0, 120) : '')
   await api('/api/invite/respond', { method: 'POST', body: JSON.stringify({ inviteId: id, action, note }) })
@@ -703,7 +753,7 @@ async function respondInvite(accept) {
 
 async function cancelMeeting() {
   if (!S.meeting) return
-  const ok = confirmAction('Vas a cancelar el encuentro. ¿Confirmas?')
+  const ok = await confirmAction('Vas a cancelar el encuentro. ¿Confirmas?')
   if (!ok) return
   await api('/api/meeting/cancel', { method: 'POST', body: JSON.stringify({ meetingId: S.meeting.id }) })
   S.meeting = null
@@ -715,7 +765,7 @@ async function confirmMeeting() {
   const plan = S.meetingPlan || ''
   const planTxt = plan === 'come' ? 'Ven por mí' : plan === 'go' ? 'Ya voy por ti' : plan === 'pista' ? 'Nos vemos en la pista — no me quites la mirada que me pierdo' : ''
   const phr = planTxt ? `Vas a confirmar el encuentro: ${planTxt}. ¿Confirmas?` : 'Vas a confirmar el encuentro. ¿Confirmas?'
-  const ok = confirmAction(phr)
+  const ok = await confirmAction(phr)
   if (!ok) return
   showConfetti()
   await api('/api/meeting/confirm', { method: 'POST', body: JSON.stringify({ meetingId: S.meeting.id, plan }) })
@@ -761,7 +811,7 @@ async function sendConsumption() {
   const listTxt = items.map(it => `${it.quantity} x ${it.product}`).join(', ')
   const phr = note ? `Vas a invitar consumo: ${listTxt} para ${displayTo}. Mensaje: "${note}". ¿Confirmas?`
                     : `Vas a invitar consumo: ${listTxt} para ${displayTo}. ¿Confirmas?`
-  const ok = confirmAction(phr)
+  const ok = await confirmAction(phr)
   if (!ok) return
   if (items.length > 1) {
     await api('/api/consumption/invite/bulk', { method: 'POST', body: JSON.stringify({ fromId: S.user.id, toId, items, note }) })
@@ -781,7 +831,7 @@ async function orderSelf() {
   const items = (S.cart && S.cart.length) ? S.cart.slice() : (product ? [{ product, quantity: qty }] : [])
   if (!items.length) { showError('Selecciona producto(s)'); return }
   const listTxt = items.map(it => `${it.quantity} x ${it.product}`).join(', ')
-  const ok = confirmAction(`Vas a ordenar: ${listTxt} para ti. ¿Confirmas?`)
+  const ok = await confirmAction(`Vas a ordenar: ${listTxt} para ti. ¿Confirmas?`)
   if (!ok) return
   if (items.length > 1) {
     await api('/api/order/bulk', { method: 'POST', body: JSON.stringify({ userId: S.user.id, items, for: 'self' }) })
@@ -802,7 +852,7 @@ async function orderTable() {
   if (!items.length) { showError('Selecciona producto(s)'); return }
   if (!S.user.tableId) { showError('Debes seleccionar tu mesa'); return }
   const listTxt = items.map(it => `${it.quantity} x ${it.product}`).join(', ')
-  const ok = confirmAction(`Vas a ordenar: ${listTxt} para la mesa ${S.user.tableId}. ¿Confirmas?`)
+  const ok = await confirmAction(`Vas a ordenar: ${listTxt} para la mesa ${S.user.tableId}. ¿Confirmas?`)
   if (!ok) return
   if (items.length > 1) {
     await api('/api/order/bulk', { method: 'POST', body: JSON.stringify({ userId: S.user.id, items, for: 'mesa' }) })
@@ -820,7 +870,7 @@ async function orderTable() {
 async function blockUser() {
   const targetId = q('block-id').value.trim()
   if (!targetId) return
-  const ok = confirmAction(`Vas a bloquear a ${targetId}. ¿Confirmas?`)
+  const ok = await confirmAction(`Vas a bloquear a ${targetId}. ¿Confirmas?`)
   if (!ok) return
   await api('/api/block', { method: 'POST', body: JSON.stringify({ userId: S.user.id, targetId }) })
 }
@@ -830,7 +880,7 @@ async function reportUser() {
   const category = q('report-cat').value.trim()
   const note = q('report-note').value.trim()
   if (!targetId) return
-  const ok = confirmAction(`Vas a reportar a ${targetId} por "${category}". Nota: "${note}". ¿Confirmas?`)
+  const ok = await confirmAction(`Vas a reportar a ${targetId} por "${category}". Nota: "${note}". ¿Confirmas?`)
   if (!ok) return
   await api('/api/report', { method: 'POST', body: JSON.stringify({ userId: S.user.id, targetId, category, note }) })
 }
@@ -873,7 +923,7 @@ async function startStaffSession() {
 
 async function endStaffSession() {
   if (!S.sessionId) return
-  const ok = typeof window !== 'undefined' ? window.confirm('¿Cerrar sesión de la noche y borrar datos?') : true
+  const ok = await confirmAction('¿Cerrar sesión de la noche y borrar datos?')
   if (!ok) return
   try { await saveStaffCatalog() } catch {}
   await api('/api/session/end', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId }) })
@@ -887,7 +937,7 @@ async function endStaffSession() {
 }
 async function restartStaffSession() {
   if (S.sessionId) {
-    const ok = typeof window !== 'undefined' ? window.confirm('¿Destruir sesión actual y crear una nueva?') : true
+    const ok = await confirmAction('¿Destruir sesión actual y crear una nueva?')
     if (!ok) return
     try { await saveStaffCatalog() } catch {}
     try { await api('/api/session/end', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId }) }) } catch {}
@@ -1323,7 +1373,7 @@ async function saveEditProfile() {
 }
 
 async function pauseSocial() {
-  const ok = confirmAction('Vas a activar la pausa social. ¿Confirmas?')
+  const ok = await confirmAction('Vas a activar la pausa social. ¿Confirmas?')
   if (!ok) return
   await api('/api/user/pause', { method: 'POST', body: JSON.stringify({ userId: S.user.id }) })
   showError('Pausa social activada')
@@ -1337,7 +1387,7 @@ function openCallWaiter() {
 
 async function sendWaiterCall() {
   const reason = q('waiter-reason').value.trim()
-  const ok = confirmAction(`Vas a llamar al mesero por: ${reason || 'atención'}. ¿Confirmas?`)
+  const ok = await confirmAction(`Vas a llamar al mesero por: ${reason || 'atención'}. ¿Confirmas?`)
   if (!ok) return
   if (!S.user.tableId) { showError('Debes seleccionar tu mesa'); setTimeout(() => showError(''), 1200); openSelectTable(); return }
   await api('/api/waiter/call', { method: 'POST', body: JSON.stringify({ userId: S.user.id, reason }) })
@@ -1346,7 +1396,7 @@ async function sendWaiterCall() {
   show('screen-user-home')
 }
 async function callWaiterOrder() {
-  const ok = confirmAction(`Vas a pedir tomar orden en tu mesa ${S.user.tableId || '-'}. ¿Confirmas?`)
+  const ok = await confirmAction(`Vas a pedir tomar orden en tu mesa ${S.user.tableId || '-'}. ¿Confirmas?`)
   if (!ok) return
   if (!S.user.tableId) { showError('Debes seleccionar tu mesa'); setTimeout(() => showError(''), 1200); openSelectTable(); return }
   await api('/api/waiter/call', { method: 'POST', body: JSON.stringify({ userId: S.user.id, reason: 'Tomar orden en mesa' }) })
@@ -1424,7 +1474,7 @@ async function loadUserOrders() {
 async function finishDance() {
   const st = S.user?.danceState || 'idle'
   if (st !== 'dancing') return
-  const ok = confirmAction('¿Terminaste de bailar? Esto cerrará tu estado de baile.')
+  const ok = await confirmAction('¿Terminaste de bailar? Esto cerrará tu estado de baile.')
   if (!ok) return
   await api('/api/dance/finish', { method: 'POST', body: JSON.stringify({ userId: S.user.id }) })
   showError('Marcado: baile terminado')

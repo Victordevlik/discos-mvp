@@ -231,7 +231,7 @@
           try {
             const secret = document.getElementById('admin-secret').value.trim()
             if (!secret) { showError('Ingresa clave admin'); return }
-            const ok = confirm(`¿Eliminar el local "${v.name}" (${v.venueId})?`)
+            const ok = await confirmModal(`¿Eliminar el local "${v.name}" (${v.venueId})?`)
             if (!ok) return
             await api('/api/admin/venues/delete', { method: 'POST', headers: { 'X-Admin-Secret': secret }, body: JSON.stringify({ venueId: v.venueId }) })
             await loadVenues()
@@ -274,6 +274,31 @@
     document.getElementById('btn-refresh').onclick = () => loadVenues().catch(e => showError(String(e.message)))
     document.getElementById('modal-close').onclick = () => { const m = document.getElementById('modal'); if (m) m.classList.remove('show') }
     document.getElementById('modal').onclick = (e) => { if (e.target && e.target.id === 'modal') { const m = document.getElementById('modal'); if (m) m.classList.remove('show') } }
+    async function confirmModal(text) {
+      return await new Promise(resolve => {
+        const m = document.getElementById('modal')
+        const t = document.getElementById('modal-text')
+        const row = document.querySelector('#modal .row')
+        const closeBtn = document.getElementById('modal-close')
+        if (!m || !t || !row || !closeBtn) { resolve(true); return }
+        m.classList.remove('type-error','type-info','type-success')
+        m.classList.add('type-info')
+        t.textContent = text || ''
+        m.classList.add('show')
+        let btn = document.getElementById('modal-action')
+        if (btn) { try { btn.remove() } catch {} }
+        btn = document.createElement('button')
+        btn.id = 'modal-action'
+        btn.textContent = 'Aceptar'
+        btn.onclick = () => { try { m.classList.remove('show') } catch {}; resolve(true) }
+        if (closeBtn && closeBtn.parentElement === row) row.insertBefore(btn, closeBtn)
+        else row.appendChild(btn)
+        const onCancel = () => { try { m.classList.remove('show') } catch {}; resolve(false) }
+        closeBtn.onclick = onCancel
+        const onOverlay = (e) => { if (e.target && e.target.id === 'modal') { onCancel() } }
+        m.addEventListener('click', onOverlay, { once: true })
+      })
+    }
     document.getElementById('btn-add-credit').onclick = async () => {
       showError('')
       const secret = document.getElementById('admin-secret').value.trim()
