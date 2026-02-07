@@ -1294,6 +1294,8 @@ function bind() {
   if (nm) nm.onclick = () => { setActiveNav('mesas'); exploreMesas() }
   if (no) no.onclick = () => { setActiveNav('orders'); loadUserOrders(); show('screen-orders-user') }
   const btnShowAllInv = q('btn-invite-show-all'); if (btnShowAllInv) btnShowAllInv.onclick = openInvitesInbox
+  const btnPassAllInv = q('btn-pass-all-invites'); if (btnPassAllInv) btnPassAllInv.onclick = passAllDanceInvites
+  const btnPassAllCons = q('btn-pass-all-consumption'); if (btnPassAllCons) btnPassAllCons.onclick = passAllConsumptionInvites
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden && Array.isArray(S.missed) && S.missed.length) {
       const msg = S.missed.join('\n')
@@ -1759,6 +1761,45 @@ function openInvitesInbox() {
     container.append(div)
   }
   show('screen-invites-inbox')
+}
+async function passAllDanceInvites() {
+  const ids = []
+  if (S.currentInvite && S.currentInvite.id) ids.push(S.currentInvite.id)
+  for (const it of S.invitesQueue) if (it.type === 'dance' && it.id) ids.push(it.id)
+  if (ids.length === 0) { showModal('Invitaciones', 'No hay invitaciones de baile para pasar', 'info'); return }
+  const ok = await confirmAction(`Vas a pasar ${ids.length} invitación${ids.length > 1 ? 'es' : ''} de baile. ¿Confirmas?`)
+  if (!ok) return
+  for (const id of ids) { try { await api('/api/invite/respond', { method: 'POST', body: JSON.stringify({ inviteId: id, action: 'pass', note: '' }) }) } catch {} }
+  S.invitesQueue = S.invitesQueue.filter(x => x.type !== 'dance')
+  stopInviteCountdown()
+  S.currentInvite = null
+  S.inInviteFlow = false
+  showNextInvite()
+  openInvitesInbox()
+  showSuccess('Invitaciones de baile pasadas')
+}
+async function passAllConsumptionInvites() {
+  const items = []
+  if (S.consumptionReq) items.push(S.consumptionReq)
+  for (const it of S.invitesQueue) if (it.type === 'consumption' && it.data) items.push(it.data)
+  if (items.length === 0) { showModal('Invitaciones', 'No hay invitaciones de consumo para pasar', 'info'); return }
+  const ok = await confirmAction(`Vas a pasar ${items.length} invitación${items.length > 1 ? 'es' : ''} de consumo. ¿Confirmas?`)
+  if (!ok) return
+  for (const data of items) {
+    try {
+      if (Array.isArray(data.items) && data.items.length) {
+        await api('/api/consumption/respond/bulk', { method: 'POST', body: JSON.stringify({ fromId: data.from.id, toId: S.user.id, items: data.items, action: 'pass', requestId: data.requestId || '' }) })
+      } else {
+        await api('/api/consumption/respond', { method: 'POST', body: JSON.stringify({ fromId: data.from.id, toId: S.user.id, product: data.product, action: 'pass', requestId: data.requestId || '' }) })
+      }
+    } catch {}
+  }
+  S.invitesQueue = S.invitesQueue.filter(x => x.type !== 'consumption')
+  S.consumptionReq = null
+  S.inInviteFlow = false
+  showNextInvite()
+  openInvitesInbox()
+  showSuccess('Invitaciones de consumo pasadas')
 }
 function startInviteCountdown(expiresAt) {
   try { if (S.timers && S.timers.inviteCountdown) { clearInterval(S.timers.inviteCountdown); S.timers.inviteCountdown = 0 } } catch {}
