@@ -385,11 +385,19 @@ async function viewAvailable() {
     }
     const row = document.createElement('div')
     row.className = 'row'
-    const bDance = document.createElement('button'); bDance.textContent = 'Bailar'; bDance.onclick = () => sendInviteQuick(u)
+    const bDance = document.createElement('button')
+    const busy = (u.danceState && u.danceState !== 'idle')
+    bDance.textContent = busy ? 'Ocupado' : 'Bailar'
+    bDance.disabled = !!busy
+    bDance.onclick = () => sendInviteQuick(u)
+    const statusChip = document.createElement('span')
+    statusChip.className = 'chip ' + (u.danceState === 'dancing' ? 'success' : (u.danceState === 'waiting' ? 'pending' : ''))
+    statusChip.textContent = u.danceState === 'dancing' ? `Bailando con ${u.partnerAlias || ''}` :
+                             u.danceState === 'waiting' ? `Esperando con ${u.partnerAlias || ''}` : ''
     const bSaludo = document.createElement('button'); bSaludo.textContent = 'Saludo'; bSaludo.onclick = () => { setReceiver(u); sendReaction(u.id, 'saludo') }
     const bBrindis = document.createElement('button'); bBrindis.textContent = 'Brindis'; bBrindis.onclick = () => { setReceiver(u); sendReaction(u.id, 'brindis') }
     const bConsumo = document.createElement('button'); bConsumo.textContent = 'Invitar'; bConsumo.onclick = () => { setReceiver(u); q('consumption-target').value = u.id; openConsumption() }
-    row.append(bDance, bSaludo, bBrindis, bConsumo)
+    row.append(bDance, bSaludo, bBrindis, bConsumo, statusChip)
     div.append(img, alias, tbl, zone, tagsEl, row)
     container.append(div)
   }
@@ -429,11 +437,19 @@ async function refreshAvailableList() {
     }
     const row = document.createElement('div')
     row.className = 'row'
-    const bDance = document.createElement('button'); bDance.textContent = 'Bailar'; bDance.onclick = () => sendInviteQuick(u)
+    const bDance = document.createElement('button')
+    const busy = (u.danceState && u.danceState !== 'idle')
+    bDance.textContent = busy ? 'Ocupado' : 'Bailar'
+    bDance.disabled = !!busy
+    bDance.onclick = () => sendInviteQuick(u)
+    const statusChip = document.createElement('span')
+    statusChip.className = 'chip ' + (u.danceState === 'dancing' ? 'success' : (u.danceState === 'waiting' ? 'pending' : ''))
+    statusChip.textContent = u.danceState === 'dancing' ? `Bailando con ${u.partnerAlias || ''}` :
+                             u.danceState === 'waiting' ? `Esperando con ${u.partnerAlias || ''}` : ''
     const bSaludo = document.createElement('button'); bSaludo.textContent = 'Saludo'; bSaludo.onclick = () => { setReceiver(u); sendReaction(u.id, 'saludo') }
     const bBrindis = document.createElement('button'); bBrindis.textContent = 'Brindis'; bBrindis.onclick = () => { setReceiver(u); sendReaction(u.id, 'brindis') }
     const bConsumo = document.createElement('button'); bConsumo.textContent = 'Invitar'; bConsumo.onclick = () => { setReceiver(u); q('consumption-target').value = u.id; openConsumption() }
-    row.append(bDance, bSaludo, bBrindis, bConsumo)
+    row.append(bDance, bSaludo, bBrindis, bConsumo, statusChip)
     div.append(img, alias, tbl, zone, tagsEl, row)
     container.append(div)
   }
@@ -545,6 +561,24 @@ function startEvents() {
     const data = JSON.parse(e.data)
     showError(`Match con ${data.with.alias}`)
     setTimeout(() => showError(''), 1500)
+  })
+  S.sse.addEventListener('dance_status', e => {
+    const data = JSON.parse(e.data)
+    S.user = S.user || {}
+    S.user.danceState = data.state || 'idle'
+    S.user.partnerAlias = data.partner ? (data.partner.alias || data.partner.id || '') : S.user.partnerAlias
+    if (S.user.danceState === 'waiting') {
+      const alias = S.user.partnerAlias || 'tu pareja'
+      showError(`En camino a la pista con ${alias} — afinen pasos`)
+      setTimeout(() => showError(''), 1500)
+    } else if (S.user.danceState === 'dancing') {
+      const alias = S.user.partnerAlias || 'tu pareja'
+      showError(`Bailando con ${alias} — que no pare la música`)
+      setTimeout(() => showError(''), 1500)
+    } else {
+      // idle: sin mensaje persistente
+    }
+    renderUserHeader()
   })
   S.sse.addEventListener('invite_result', e => {
     const data = JSON.parse(e.data)
@@ -1214,6 +1248,13 @@ function renderUserHeader() {
   if (ua) ua.textContent = S.user?.alias || S.user?.id || ''
   if (us) us.src = S.user?.selfie || ''
   if (ut) ut.textContent = S.user?.tableId || '-'
+  const uds = q('user-dance-status')
+  if (uds) {
+    const st = S.user?.danceState || 'idle'
+    const p = S.user?.partnerAlias || ''
+    uds.textContent = st === 'waiting' ? (`Esperando para bailar con ${p || 'pareja'}`) :
+                      st === 'dancing' ? (`Bailando con ${p || 'pareja'}`) : ''
+  }
 }
 function openEditProfileFocus(field) {
   openEditProfile()

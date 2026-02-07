@@ -626,7 +626,7 @@ const server = http.createServer(async (req, res) => {
         if (!pinStr || (!okSessionPin && !okGlobalPin && !okVenuePin)) { json(res, 403, { error: 'bad_pin' }); return }
       }
       const id = genId(role === 'staff' ? 'staff' : 'user')
-      const user = { id, sessionId: body.sessionId, role, alias: '', selfie: '', selfieApproved: false, available: false, prefs: { tags: [] }, zone: '', muted: false, receiveMode: 'all', allowedSenders: new Set(), tableId: '', visibility: 'visible', pausedUntil: 0, silenced: false }
+      const user = { id, sessionId: body.sessionId, role, alias: '', selfie: '', selfieApproved: false, available: false, prefs: { tags: [] }, zone: '', muted: false, receiveMode: 'all', allowedSenders: new Set(), tableId: '', visibility: 'visible', pausedUntil: 0, silenced: false, danceState: 'idle', dancePartnerId: '', meetingId: '' }
       state.users.set(id, user)
       try { await dbUpsertUser(user) } catch {}
       json(res, 200, { user })
@@ -840,7 +840,9 @@ const server = http.createServer(async (req, res) => {
         const ageOk = u.prefs && u.prefs.age ? (u.prefs.age >= min && u.prefs.age <= max) : true
         const tagsOk = tagsQ.length ? (Array.isArray(u.prefs.tags) && tagsQ.every(t => u.prefs.tags.includes(t))) : true
         const zoneOk = zoneQ ? (u.zone === zoneQ) : true
-        arr.push({ id: u.id, alias: u.alias, selfie: u.selfieApproved ? u.selfie : '', tags: u.prefs.tags || [], zone: u.zone, available: u.available, tableId: u.tableId })
+        const partner = (u.dancePartnerId && state.users.get(u.dancePartnerId)) || null
+        const partnerAlias = partner ? (partner.alias || partner.id) : ''
+        arr.push({ id: u.id, alias: u.alias, selfie: u.selfieApproved ? u.selfie : '', tags: u.prefs.tags || [], zone: u.zone, available: u.available, tableId: u.tableId, danceState: u.danceState || 'idle', partnerAlias })
       }
       json(res, 200, { users: arr })
       return
@@ -869,6 +871,8 @@ const server = http.createServer(async (req, res) => {
       const from = state.users.get(body.fromId)
       const to = state.users.get(body.toId)
       if (!from || !to) { json(res, 404, { error: 'no_user' }); return }
+      if (from.danceState && from.danceState !== 'idle') { json(res, 403, { error: 'busy_self' }); return }
+      if (to.danceState && to.danceState !== 'idle') { json(res, 403, { error: 'busy_target' }); return }
       if (from.muted || from.silenced) { json(res, 429, { error: 'silenced' }); return }
       if (to.pausedUntil && now() < to.pausedUntil) { json(res, 403, { error: 'paused' }); return }
       if (applyRestrictedIfNeeded(from.id)) { json(res, 429, { error: 'restricted' }); return }
@@ -921,6 +925,13 @@ const server = http.createServer(async (req, res) => {
       const expiresAt = now() + minutes * 60 * 1000
       const meeting = { id: meetingId, sessionId: inv.sessionId, inviteId: inv.id, point, expiresAt, cancelled: false }
       state.meetings.set(meetingId, meeting)
+      // Marcar estado "esperando" para ambos
+      const uFrom = state.users.get(inv.fromId); const uTo = state.users.get(inv.toId)
+      if (uFrom) { uFrom.danceState = 'waiting'; uFrom.dancePartnerId = inv.toId; uFrom.meetingId = meetingId }
+      if (uTo) { uTo.danceState = 'waiting'; uTo.dancePartnerId = inv.fromId; uTo.meetingId = meetingId }
+      // Notificar estado a ambos
+      sendToUser(inv.fromId, 'dance_status', { state: 'waiting', partner: { id: inv.toId, alias: uTo ? (uTo.alias || uTo.id) : '' }, meeting })
+      sendToUser(inv.toId, 'dance_status', { state: 'waiting', partner: { id: inv.fromId, alias: uFrom ? (uFrom.alias || uFrom.id) : '' }, meeting })
       sendToUser(inv.fromId, 'invite_result', { inviteId: inv.id, status: 'aceptado', meeting, note })
       sendToUser(inv.toId, 'invite_result', { inviteId: inv.id, status: 'aceptado', meeting, note })
       json(res, 200, { meeting })
@@ -939,6 +950,15 @@ const server = http.createServer(async (req, res) => {
       const body = await parseBody(req)
       const m = state.meetings.get(body.meetingId)
       if (!m) { json(res, 404, { error: 'no_meeting' }); return }
+      // Cambiar estado a "bailando" para ambos
+      const inv = state.invites.get(m.inviteId)
+      if (inv) {
+        const uFrom = state.users.get(inv.fromId); const uTo = state.users.get(inv.toId)
+        if (uFrom) { uFrom.danceState = 'dancing'; uFrom.meetingId = m.id }
+        if (uTo) { uTo.danceState = 'dancing'; uTo.meetingId = m.id }
+        sendToUser(inv.fromId, 'dance_status', { state: 'dancing', partner: { id: inv.toId, alias: uTo ? (uTo.alias || uTo.id) : '' }, meeting: m })
+        sendToUser(inv.toId, 'dance_status', { state: 'dancing', partner: { id: inv.fromId, alias: uFrom ? (uFrom.alias || uFrom.id) : '' }, meeting: m })
+      }
       sendToStaff(m.sessionId, 'meeting_confirm', { meetingId: m.id, plan: body.plan || '' })
       json(res, 200, { ok: true })
       return
@@ -1548,6 +1568,19 @@ setInterval(() => {
     if (!m.cancelled && nowTs > m.expiresAt) {
       m.cancelled = true
       sendToStaff(m.sessionId, 'meeting_expired', { meetingId: m.id })
+      const inv = state.invites.get(m.inviteId)
+      if (inv) {
+        const uFrom = state.users.get(inv.fromId)
+        const uTo = state.users.get(inv.toId)
+        if (uFrom) { uFrom.danceState = 'idle'; uFrom.dancePartnerId = ''; uFrom.meetingId = '' }
+        if (uTo) { uTo.danceState = 'idle'; uTo.dancePartnerId = ''; uTo.meetingId = '' }
+        try {
+          sendToUser(inv.fromId, 'meeting_expired', { meetingId: m.id })
+          sendToUser(inv.toId, 'meeting_expired', { meetingId: m.id })
+          sendToUser(inv.fromId, 'dance_status', { state: 'idle' })
+          sendToUser(inv.toId, 'dance_status', { state: 'idle' })
+        } catch {}
+      }
     }
   }
   // Cierre automático de SSE inactivas (>15 min sin eventos enviados)
