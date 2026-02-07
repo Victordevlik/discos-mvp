@@ -298,7 +298,7 @@ function startUserPolls() {
   if (S.timers.userPoll) { try { clearInterval(S.timers.userPoll) } catch {} }
   S.timers.userPoll = setInterval(() => {
     if (S.user && S.user.available && S.nav.current === 'screen-disponibles') scheduleRefreshAvailableList()
-    if (S.nav.current === 'screen-orders-user') scheduleUserOrdersUpdate()
+    if (S.nav.current === 'screen-orders-user') { scheduleUserOrdersUpdate(); scheduleLater('user_invites', async () => { await loadUserInvitesHistory() }, 600) }
     if (S.nav.current === 'screen-user-home') scheduleRenderUserHeader()
   }, 8000)
 }
@@ -656,7 +656,8 @@ function startEvents() {
     S.currentInvite = { id: data.invite.id, from: data.invite.from }
     const mesaTxt = data.invite.from.tableId ? ` • Mesa ${data.invite.from.tableId}` : ''
     const zoneTxt = data.invite.from.zone ? ` • Zona ${data.invite.from.zone}` : ''
-    q('invite-received-info').textContent = `${data.invite.from.alias} te invita${mesaTxt}${zoneTxt}`
+    const exp = data.invite.expiresAt ? ` • Expira en 30s` : ''
+    q('invite-received-info').textContent = `${data.invite.from.alias} te invita${mesaTxt}${zoneTxt}${exp}`
     const img = q('invite-from-selfie')
     if (img) img.src = data.invite.from.selfie || ''
     S.notifications.invites = (S.notifications.invites || 0) + 1
@@ -684,8 +685,12 @@ function startEvents() {
       S.currentInvite = null
       if (data.note) { const noteEl = q('meeting-note'); if (noteEl) noteEl.textContent = `Respuesta: ${data.note}`; showError(`Respuesta: ${data.note}`); setTimeout(() => showError(''), 1500) }
       renderMeeting()
-    } else {
+    } else if (data.status === 'pasado') {
       if (data.note) { showError(`Respuesta: ${data.note}`); setTimeout(() => showError(''), 1500) }
+      show('screen-user-home')
+    } else if (data.status === 'expirado') {
+      showError('Invitación expirada (30s)')
+      setTimeout(() => showError(''), 1500)
       show('screen-user-home')
     }
   })
@@ -1286,7 +1291,7 @@ function bind() {
   q('mesa-only-available').onchange = () => loadMesaPeople(S.currentTableId)
   q('btn-select-table').onclick = openSelectTable
   q('btn-select-table-save').onclick = saveSelectTable
-  const btnViewOrders = q('btn-view-orders'); if (btnViewOrders) btnViewOrders.onclick = () => { loadUserOrders(); show('screen-orders-user') }
+  const btnViewOrders = q('btn-view-orders'); if (btnViewOrders) btnViewOrders.onclick = () => { loadUserOrders(); loadUserInvitesHistory(); show('screen-orders-user') }
   q('btn-invite-block').onclick = blockFromInvite
   q('btn-invite-report').onclick = reportFromInvite
   q('btn-meeting-confirm').onclick = confirmMeeting
@@ -1630,6 +1635,33 @@ async function loadPendingInvites() {
       showModal('Invitaciones pendientes', `Tienes ${count} invitación${count > 1 ? 'es' : ''} sin ver`, 'info')
     }
   } catch {}
+}
+async function loadUserInvitesHistory() {
+  const r = await api(`/api/user/invites/history?userId=${encodeURIComponent(S.user.id)}`)
+  const container = q('user-invites')
+  if (!container) return
+  container.innerHTML = ''
+  const listAsc = (r.invites || []).slice().sort((a, b) => {
+    const ta = Number(a.createdAt || 0), tb = Number(b.createdAt || 0)
+    if (ta !== tb) return ta - tb
+    const ia = String(a.id || ''), ib = String(b.id || '')
+    return ia.localeCompare(ib)
+  })
+  for (const inv of listAsc) {
+    const div = document.createElement('div')
+    div.className = 'card'
+    const chip = document.createElement('span')
+    chip.className = 'chip ' + (inv.status === 'pendiente' ? 'pending' : (inv.status || ''))
+    chip.textContent = inv.status || ''
+    const meSender = inv.from && inv.from.id === (S.user ? S.user.id : '')
+    const otherAlias = meSender ? (inv.to.alias || inv.to.id) : (inv.from.alias || inv.from.id)
+    const timeTxt = inv.createdAt ? ` • ${formatTimeShort(inv.createdAt)}` : ''
+    const dirTxt = meSender ? 'Enviada a' : 'Recibida de'
+    const msgTxt = inv.msg === 'invitoCancion' ? '¿Te invito una canción?' : '¿Bailamos?'
+    div.textContent = `${dirTxt} ${otherAlias} • ${msgTxt}${timeTxt}`
+    div.append(chip)
+    container.append(div)
+  }
 }
 async function finishDance() {
   const st = S.user?.danceState || 'idle'

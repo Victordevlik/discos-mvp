@@ -982,10 +982,10 @@ const server = http.createServer(async (req, res) => {
       const msg = body.messageType === 'invitoCancion' ? 'invitoCancion' : 'bailamos'
       if (!rateCanInvite(from.id, to.id)) { json(res, 429, { error: 'rate' }); return }
       const invId = genId('inv')
-      const inv = { id: invId, sessionId: from.sessionId, fromId: from.id, toId: to.id, msg, status: 'pendiente', createdAt: now() }
+      const inv = { id: invId, sessionId: from.sessionId, fromId: from.id, toId: to.id, msg, status: 'pendiente', createdAt: now(), expiresAt: now() + 30 * 1000 }
       state.invites.set(invId, inv)
       const fromSelfie = from.selfie || ''
-      sendToUser(to.id, 'dance_invite', { invite: { id: invId, from: { id: from.id, alias: from.alias, selfie: fromSelfie, tableId: from.tableId || '', zone: from.zone || '' } , msg } })
+      sendToUser(to.id, 'dance_invite', { invite: { id: invId, from: { id: from.id, alias: from.alias, selfie: fromSelfie, tableId: from.tableId || '', zone: from.zone || '' } , msg, expiresAt: inv.expiresAt } })
       for (const other of state.invites.values()) {
         if (other.sessionId === inv.sessionId && other.fromId === to.id && other.toId === from.id) {
           if (within(10*60*1000, other.createdAt)) {
@@ -1527,7 +1527,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/api/user/invites' && req.method === 'GET') {
       const userId = query.userId
-      const TTL = 15 * 60 * 1000
+      const TTL = 30 * 1000
       const invites = []
       for (const inv of state.invites.values()) {
         if (inv.toId === userId && inv.status === 'pendiente' && within(TTL, inv.createdAt)) {
@@ -1536,11 +1536,35 @@ const server = http.createServer(async (req, res) => {
             id: inv.id,
             msg: inv.msg,
             createdAt: inv.createdAt,
+            expiresAt: inv.expiresAt,
             from: { id: inv.fromId, alias: from ? (from.alias || '') : '', selfie: from ? (from.selfie || '') : '', tableId: from ? (from.tableId || '') : '', zone: from ? (from.zone || '') : '' }
           })
         }
       }
       json(res, 200, { invites })
+      return
+    }
+    if (pathname === '/api/user/invites/history' && req.method === 'GET') {
+      const userId = query.userId
+      const out = []
+      for (const inv of state.invites.values()) {
+        if ((inv.fromId === userId || inv.toId === userId)) {
+          const from = state.users.get(inv.fromId)
+          const to = state.users.get(inv.toId)
+          out.push({
+            id: inv.id,
+            msg: inv.msg,
+            status: inv.status,
+            createdAt: inv.createdAt,
+            expiresAt: inv.expiresAt || 0,
+            from: { id: inv.fromId, alias: from ? (from.alias || '') : '' },
+            to: { id: inv.toId, alias: to ? (to.alias || '') : '' },
+          })
+        }
+      }
+      // ordenar por fecha ascendente para consistencia
+      out.sort((a, b) => Number(a.createdAt || 0) - Number(b.createdAt || 0))
+      json(res, 200, { invites: out })
       return
     }
     if (pathname === '/api/dance/finish' && req.method === 'POST') {
@@ -1814,6 +1838,16 @@ setInterval(() => {
       sendToUser(o.receiverId, 'order_update', { order: o })
       sendToStaff(o.sessionId, 'order_update', { order: o })
       persistOrders(o.sessionId)
+    }
+  }
+  // Expirar invitaciones pendientes (>30s sin respuesta)
+  for (const inv of state.invites.values()) {
+    if (inv.status === 'pendiente' && inv.expiresAt && nowTs > inv.expiresAt) {
+      inv.status = 'expirado'
+      try {
+        sendToUser(inv.fromId, 'invite_result', { inviteId: inv.id, status: 'expirado' })
+        sendToUser(inv.toId, 'invite_result', { inviteId: inv.id, status: 'expirado' })
+      } catch {}
     }
   }
   for (const m of state.meetings.values()) {
