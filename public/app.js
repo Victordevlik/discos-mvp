@@ -279,7 +279,14 @@ function scheduleLater(key, fn, wait = 500) {
     S.loading[lk] = false
   }, wait)
 }
-function scheduleStaffOrdersUpdate() { scheduleLater('staff_orders', async () => { await loadOrders(); await loadAnalytics() }, 500) }
+function scheduleStaffOrdersUpdate() {
+  scheduleLater('staff_orders', async () => {
+    S.ui = S.ui || {}
+    if (S.ui.freezeStaffOrders) { scheduleStaffOrdersUpdate(); return }
+    await loadOrders()
+    await loadAnalytics()
+  }, 500)
+}
 function scheduleStaffUsersUpdate() { scheduleLater('staff_users', async () => { await loadUsers() }, 500) }
 function scheduleStaffWaiterUpdate() { scheduleLater('staff_waiter', async () => { await loadWaiterCalls(); await loadAnalytics() }, 500) }
 function scheduleStaffReportsUpdate() { scheduleLater('staff_reports', async () => { await loadReports(); await loadAnalytics() }, 500) }
@@ -1118,6 +1125,17 @@ async function loadOrders(state = '') {
     row.append(b0, b1, b2, b3)
     div.append(info, row)
     container.append(div)
+  }
+  const list = q('staff-orders-list')
+  if (list) {
+    list.onpointerdown = () => {
+      S.ui = S.ui || {}; S.ui.freezeStaffOrders = true
+      S.timers = S.timers || {}
+      if (S.timers.ordersFreeze) { try { clearTimeout(S.timers.ordersFreeze) } catch {} }
+      S.timers.ordersFreeze = setTimeout(() => { S.ui.freezeStaffOrders = false; S.timers.ordersFreeze = 0 }, 1500)
+    }
+    list.onpointerup = () => { S.ui = S.ui || {}; S.ui.freezeStaffOrders = false; if (S.timers.ordersFreeze) { try { clearTimeout(S.timers.ordersFreeze) } catch {}; S.timers.ordersFreeze = 0 } }
+    list.onmouseleave = () => { S.ui = S.ui || {}; S.ui.freezeStaffOrders = false; if (S.timers.ordersFreeze) { try { clearTimeout(S.timers.ordersFreeze) } catch {}; S.timers.ordersFreeze = 0 } }
   }
 }
 
