@@ -1200,6 +1200,7 @@ function bind() {
   const btnInviteAccept = q('btn-invite-accept'); if (btnInviteAccept) btnInviteAccept.onclick = () => respondInvite(true)
   const btnInvitePass = q('btn-invite-pass'); if (btnInvitePass) btnInvitePass.onclick = () => respondInvite(false)
   q('btn-meeting-cancel').onclick = cancelMeeting
+  const btnMeetingHome = q('btn-meeting-home'); if (btnMeetingHome) btnMeetingHome.onclick = goHome
   const btnInviteConsumption = q('btn-invite-consumption'); if (btnInviteConsumption) btnInviteConsumption.onclick = openConsumption
   q('btn-consumption-send').onclick = sendConsumption
   const btnAddCart = q('btn-add-to-cart'); if (btnAddCart) btnAddCart.onclick = addToCart
