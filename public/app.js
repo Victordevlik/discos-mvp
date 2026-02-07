@@ -497,10 +497,8 @@ async function viewAvailable() {
     statusChip.className = 'chip ' + (u.danceState === 'dancing' ? 'success' : (u.danceState === 'waiting' ? 'pending' : ''))
     statusChip.textContent = u.danceState === 'dancing' ? `Bailando con ${u.partnerAlias || ''}` :
                              u.danceState === 'waiting' ? `Esperando con ${u.partnerAlias || ''}` : ''
-    const bSaludo = document.createElement('button'); bSaludo.textContent = 'Saludo'; bSaludo.onclick = () => { setReceiver(u); sendReaction(u.id, 'saludo') }
-    const bBrindis = document.createElement('button'); bBrindis.textContent = 'Brindis'; bBrindis.onclick = () => { setReceiver(u); sendReaction(u.id, 'brindis') }
     const bConsumo = document.createElement('button'); bConsumo.textContent = 'Invitar'; bConsumo.onclick = () => { setReceiver(u); q('consumption-target').value = u.id; openConsumption() }
-    row.append(bDance, bSaludo, bBrindis, bConsumo, statusChip)
+    row.append(bDance, bConsumo, statusChip)
     div.append(img, alias, tbl, zone, tagsEl, row)
     container.append(div)
   }
@@ -551,10 +549,8 @@ async function refreshAvailableList() {
     statusChip.className = 'chip ' + (u.danceState === 'dancing' ? 'success' : (u.danceState === 'waiting' ? 'pending' : ''))
     statusChip.textContent = u.danceState === 'dancing' ? `Bailando con ${u.partnerAlias || ''}` :
                              u.danceState === 'waiting' ? `Esperando con ${u.partnerAlias || ''}` : ''
-    const bSaludo = document.createElement('button'); bSaludo.textContent = 'Saludo'; bSaludo.onclick = () => { setReceiver(u); sendReaction(u.id, 'saludo') }
-    const bBrindis = document.createElement('button'); bBrindis.textContent = 'Brindis'; bBrindis.onclick = () => { setReceiver(u); sendReaction(u.id, 'brindis') }
     const bConsumo = document.createElement('button'); bConsumo.textContent = 'Invitar'; bConsumo.onclick = () => { setReceiver(u); q('consumption-target').value = u.id; openConsumption() }
-    row.append(bDance, bSaludo, bBrindis, bConsumo, statusChip)
+    row.append(bDance, bConsumo, statusChip)
     div.append(img, alias, tbl, zone, tagsEl, row)
     container.append(div)
   }
@@ -596,10 +592,8 @@ async function viewAvailableByTable() {
     const row = document.createElement('div')
     row.className = 'row'
     const bDance = document.createElement('button'); bDance.textContent = 'Bailar'; bDance.onclick = () => sendInviteQuick(u)
-    const bSaludo = document.createElement('button'); bSaludo.textContent = 'Saludo'; bSaludo.onclick = () => { setReceiver(u); sendReaction(u.id, 'saludo') }
-    const bBrindis = document.createElement('button'); bBrindis.textContent = 'Brindis'; bBrindis.onclick = () => { setReceiver(u); sendReaction(u.id, 'brindis') }
     const bConsumo = document.createElement('button'); bConsumo.textContent = 'Invitar'; bConsumo.onclick = () => { setReceiver(u); q('consumption-target').value = u.id; openConsumption() }
-    row.append(bDance, bSaludo, bBrindis, bConsumo)
+    row.append(bDance, bConsumo)
     div.append(img, alias, tagsEl, zone, row)
     container.append(div)
   }
@@ -1372,10 +1366,8 @@ async function loadMesaPeople(tableId) {
     const row = document.createElement('div')
     row.className = 'row'
     const bInvite = document.createElement('button'); bInvite.textContent = 'Bailar'; bInvite.onclick = () => openInvite(u)
-    const bSaludo = document.createElement('button'); bSaludo.textContent = 'Saludo'; bSaludo.onclick = () => sendReaction(u.id, 'saludo')
-    const bBrindis = document.createElement('button'); bBrindis.textContent = 'Brindis'; bBrindis.onclick = () => sendReaction(u.id, 'brindis')
     const bConsumo = document.createElement('button'); bConsumo.textContent = 'Invitar'; bConsumo.onclick = () => { q('consumption-target').value = u.id; openConsumption() }
-    row.append(bInvite, bSaludo, bBrindis, bConsumo)
+    row.append(bInvite, bConsumo)
     div.append(img, alias, tagsEl, row)
     container.append(div)
   }
