@@ -162,17 +162,28 @@ async function apiAdmin(path, secret, opts = {}) {
   }
   return data
 }
+async function apiStaff(path, secret, opts = {}) {
+  const headers = { 'Content-Type': 'application/json', 'X-Staff-Secret': String(secret || '') }
+  const res = await fetch(path, { method: 'GET', ...opts, headers })
+  let data = null
+  try { data = await res.json() } catch {}
+  if (!res.ok) {
+    const msg = data && data.error ? data.error : 'api_staff'
+    throw new Error(msg)
+  }
+  return data
+}
 async function sendVenuePinAdminWelcome() {
   try {
     const secret = q('admin-secret-welcome')?.value.trim()
-    if (!secret) { showError('Ingresa clave admin'); return }
+    if (!secret) { showError('Ingresa clave staff'); return }
     let venueId = 'default'
     try {
       const u = new URL(location.href)
       const v = u.searchParams.get('venueId') || ''
       if (v) venueId = v
     } catch {}
-    await apiAdmin('/api/admin/venues/pin/send', secret, { method: 'POST', body: JSON.stringify({ venueId }) })
+    await apiStaff('/api/admin/venues/pin/send', secret, { method: 'POST', body: JSON.stringify({ venueId }) })
     showError('PIN enviado al email')
     setTimeout(() => showError(''), 1000)
   } catch (e) { showError(String(e.message)) }
