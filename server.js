@@ -71,6 +71,12 @@ async function isDBConnected() {
   if (!db) return false
   try { await db.query('SELECT 1'); return true } catch { return false }
 }
+async function listPublicTables() {
+  if (!db) return []
+  await initDB()
+  const r = await db.query("SELECT table_name FROM information_schema.tables WHERE table_schema='public' ORDER BY table_name")
+  return r.rows.map(w => w.table_name)
+}
 async function readVenues() {
   if (db) {
     try {
@@ -655,6 +661,21 @@ const server = http.createServer(async (req, res) => {
       if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
       const connected = await isDBConnected()
       json(res, 200, { connected })
+      return
+    }
+    if (pathname === '/api/admin/db-tables' && req.method === 'GET') {
+      if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const tables = await listPublicTables()
+      json(res, 200, { tables })
+      return
+    }
+    if (pathname === '/api/admin/db-init' && req.method === 'POST') {
+      if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      await initDB()
+      const tables = await listPublicTables()
+      json(res, 200, { ok: true, tables })
       return
     }
     if (pathname === '/api/user/update' && req.method === 'POST') {
