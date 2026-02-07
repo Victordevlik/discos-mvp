@@ -1100,11 +1100,19 @@ const server = http.createServer(async (req, res) => {
       const from = state.users.get(body.fromId)
       const to = state.users.get(body.toId)
       if (!from || !to) { json(res, 404, { error: 'no_user' }); return }
+      const s = ensureSession(from.sessionId)
+      const base = db ? await dbReadGlobalCatalog() : readGlobalCatalog()
+      const itemsBase = (s && Array.isArray(s.catalog) && s.catalog.length) ? s.catalog : base
+      const itemName = String(body.product || '')
+      const found = itemsBase.find(i => i.name === itemName)
+      const price = found ? Number(found.price || 0) : 0
       const orderId = genId('ord')
       const expiresAt = now() + 10 * 60 * 1000
-      const order = { id: orderId, sessionId: from.sessionId, emitterId: from.id, receiverId: to.id, product: body.product, quantity: 1, price: 0, total: 0, status: 'pendiente_cobro', createdAt: now(), expiresAt, emitterTable: from.tableId || '', receiverTable: to.tableId || '', mesaEntrega: to.tableId || '', isInvitation: true }
+      const order = { id: orderId, sessionId: from.sessionId, emitterId: from.id, receiverId: to.id, product: itemName, quantity: 1, price, total: price * 1, status: 'pendiente_cobro', createdAt: now(), expiresAt, emitterTable: from.tableId || '', receiverTable: to.tableId || '', mesaEntrega: to.tableId || '', isInvitation: true }
       state.orders.set(orderId, order)
       sendToStaff(order.sessionId, 'order_new', { order })
+      sendToUser(order.emitterId, 'order_update', { order })
+      sendToUser(order.receiverId, 'order_update', { order })
       try { await dbInsertOrder(order) } catch {}
       persistOrders(order.sessionId)
       json(res, 200, { orderId })
@@ -1116,16 +1124,24 @@ const server = http.createServer(async (req, res) => {
       const from = state.users.get(body.fromId)
       const to = state.users.get(body.toId)
       if (!from || !to) { json(res, 404, { error: 'no_user' }); return }
+      const s = ensureSession(from.sessionId)
+      const base = db ? await dbReadGlobalCatalog() : readGlobalCatalog()
+      const itemsBase = (s && Array.isArray(s.catalog) && s.catalog.length) ? s.catalog : base
       const items = Array.isArray(body.items) ? body.items.map(it => ({ product: String(it.product || ''), quantity: Math.max(1, Number(it.quantity || 1)) })) : []
       const filtered = items.filter(it => it.product)
       const ids = []
       for (const it of filtered) {
+        const found = itemsBase.find(i => i.name === it.product)
+        const price = found ? Number(found.price || 0) : 0
+        const total = price * Number(it.quantity || 1)
         const orderId = genId('ord')
         const expiresAt = now() + 10 * 60 * 1000
-        const order = { id: orderId, sessionId: from.sessionId, emitterId: from.id, receiverId: to.id, product: it.product, quantity: it.quantity, price: 0, total: 0, status: 'pendiente_cobro', createdAt: now(), expiresAt, emitterTable: from.tableId || '', receiverTable: to.tableId || '', mesaEntrega: to.tableId || '', isInvitation: true }
+        const order = { id: orderId, sessionId: from.sessionId, emitterId: from.id, receiverId: to.id, product: it.product, quantity: it.quantity, price, total, status: 'pendiente_cobro', createdAt: now(), expiresAt, emitterTable: from.tableId || '', receiverTable: to.tableId || '', mesaEntrega: to.tableId || '', isInvitation: true }
         state.orders.set(orderId, order)
         ids.push(orderId)
         sendToStaff(order.sessionId, 'order_new', { order })
+        sendToUser(order.emitterId, 'order_update', { order })
+        sendToUser(order.receiverId, 'order_update', { order })
         try { await dbInsertOrder(order) } catch {}
       }
       if (ids.length) persistOrders(from.sessionId)

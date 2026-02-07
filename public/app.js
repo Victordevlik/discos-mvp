@@ -1013,10 +1013,7 @@ async function loadOrders(state = '') {
     const mesaInfo = (o.mesaEntrega || o.receiverTable || o.emitterTable) ? ` • Mesa entrega ${o.mesaEntrega || o.receiverTable}` : ''
     const emAlias = (S.usersIndex && S.usersIndex[o.emitterId] ? S.usersIndex[o.emitterId].alias : o.emitterId)
     const reAlias = (S.usersIndex && S.usersIndex[o.receiverId] ? S.usersIndex[o.receiverId].alias : o.receiverId)
-    let amountTxt = ` • $${o.total || 0}`
-    if (o.isInvitation) {
-      amountTxt = (o.status === 'cobrado' || o.status === 'entregado') ? ` • $${o.total || 0}` : ' • Invitación'
-    }
+    const amountTxt = ` • $${o.total || 0}`
     info.textContent = `${o.product} x${o.quantity || 1}${amountTxt} • Emisor ${emAlias} → Receptor ${reAlias}${mesaInfo} `
     info.append(chip)
     if (o.isInvitation) {
@@ -1381,16 +1378,24 @@ async function pauseSocial() {
 }
 
 function openCallWaiter() {
-  q('waiter-reason').value = ''
-  show('screen-call-waiter')
+  callWaiterQuick()
 }
 
 async function sendWaiterCall() {
-  const reason = q('waiter-reason').value.trim()
-  const ok = await confirmAction(`Vas a llamar al mesero por: ${reason || 'atención'}. ¿Confirmas?`)
+  const reason = q('waiter-reason') ? q('waiter-reason').value.trim() : ''
+  const ok = await confirmAction(`Vas a llamar al mesero. ¿Confirmas?`)
   if (!ok) return
   if (!S.user.tableId) { showError('Debes seleccionar tu mesa'); setTimeout(() => showError(''), 1200); openSelectTable(); return }
-  await api('/api/waiter/call', { method: 'POST', body: JSON.stringify({ userId: S.user.id, reason }) })
+  await api('/api/waiter/call', { method: 'POST', body: JSON.stringify({ userId: S.user.id, reason: (reason || 'Atención') }) })
+  showError('Mesero llamado')
+  setTimeout(() => showError(''), 1000)
+  show('screen-user-home')
+}
+async function callWaiterQuick() {
+  const ok = await confirmAction('¿Confirmas llamar al mesero?')
+  if (!ok) return
+  if (!S.user.tableId) { showError('Debes seleccionar tu mesa'); setTimeout(() => showError(''), 1200); openSelectTable(); return }
+  await api('/api/waiter/call', { method: 'POST', body: JSON.stringify({ userId: S.user.id, reason: 'Atención' }) })
   showError('Mesero llamado')
   setTimeout(() => showError(''), 1000)
   show('screen-user-home')
