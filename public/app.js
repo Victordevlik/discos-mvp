@@ -1640,11 +1640,17 @@ async function restoreLocalUser() {
     if (!d || !d.sessionId || !d.userId || !d.role) return false
     if (sidParam && ajParam === '1' && sidParam !== d.sessionId) { return false }
     S.venueId = d.venueId || (S.venueId || 'default')
-    const r = await api(`/api/user/get?userId=${encodeURIComponent(d.userId)}`).catch(() => null)
-    if (!r || !r.user) return false
-    S.user = r.user
-    S.sessionId = r.user.sessionId
-    S.role = r.user.role
+    if (d.role === 'staff') {
+      S.user = { id: d.userId, role: 'staff', sessionId: d.sessionId }
+      S.sessionId = d.sessionId
+      S.role = 'staff'
+    } else {
+      const r = await api(`/api/user/get?userId=${encodeURIComponent(d.userId)}`).catch(() => null)
+      if (!r || !r.user) return false
+      S.user = r.user
+      S.sessionId = r.user.sessionId
+      S.role = r.user.role
+    }
     if (S.role === 'staff') {
       const okActive = await ensureSessionActiveOffer()
       if (!okActive) { show('screen-staff-welcome'); return true }
