@@ -951,7 +951,7 @@ async function endStaffSession() {
   try { if (S.sse) S.sse.close() } catch {}
   try { if (S.staffSSE) S.staffSSE.close() } catch {}
   S.sessionId = ''; S.user = null; S.role = ''; S.sse = null; S.staffSSE = null
-  try { localStorage.removeItem('discos_user') } catch {}
+  try { removeLocalUser(S.venueId) } catch {}
   show('screen-welcome')
   showError('Sesión destruida')
   setTimeout(() => showError(''), 1200)
@@ -965,7 +965,7 @@ async function restartStaffSession() {
     try { if (S.sse) S.sse.close() } catch {}
     try { if (S.staffSSE) S.staffSSE.close() } catch {}
     S.sessionId = ''; S.user = null; S.role = ''; S.sse = null; S.staffSSE = null
-    try { localStorage.removeItem('discos_user') } catch {}
+    try { removeLocalUser(S.venueId) } catch {}
   }
   await startStaffSession()
 }
@@ -1581,9 +1581,40 @@ function init() {
 }
 
 init()
+function getLocalUsers() {
+  try {
+    const rawMap = localStorage.getItem('discos_users')
+    if (rawMap) {
+      const obj = JSON.parse(rawMap || '{}')
+      return typeof obj === 'object' && obj ? obj : {}
+    }
+    const raw = localStorage.getItem('discos_user')
+    if (raw) {
+      const d = JSON.parse(raw || '{}')
+      if (d && d.venueId) {
+        const m = {}
+        m[d.venueId] = { sessionId: d.sessionId || '', role: d.role || '', userId: d.userId || '' }
+        return m
+      }
+    }
+  } catch {}
+  return {}
+}
+function setLocalUsers(map) {
+  try { localStorage.setItem('discos_users', JSON.stringify(map || {})) } catch {}
+}
 function saveLocalUser() {
-  const payload = { sessionId: S.sessionId, venueId: S.venueId || 'default', role: S.role || (S.user ? S.user.role : ''), userId: S.user ? S.user.id : '' }
-  try { localStorage.setItem('discos_user', JSON.stringify(payload)) } catch {}
+  const v = S.venueId || 'default'
+  const m = getLocalUsers()
+  m[v] = { sessionId: S.sessionId || '', role: S.role || (S.user ? S.user.role : ''), userId: S.user ? S.user.id : '' }
+  setLocalUsers(m)
+  try { localStorage.setItem('discos_last_venue', v) } catch {}
+}
+function removeLocalUser(venueId) {
+  const v = venueId || (S.venueId || 'default')
+  const m = getLocalUsers()
+  if (m[v]) { delete m[v] }
+  setLocalUsers(m)
 }
 async function restoreLocalUser() {
   try {
@@ -1599,14 +1630,13 @@ async function restoreLocalUser() {
       staffParam = u.searchParams.get('staff') || ''
     } catch {}
     if (venueParam && !sidParam && staffParam !== '1') return false
-    const raw = localStorage.getItem('discos_user')
-    if (!raw) return false
-    const d = JSON.parse(raw)
-    if (!d.sessionId || !d.userId || !d.role) return false
-    if (sidParam && ajParam === '1' && sidParam !== d.sessionId) {
-      return false
-    }
-    if (d.venueId) S.venueId = d.venueId
+    const m = getLocalUsers()
+    const lastVenue = (() => { try { return localStorage.getItem('discos_last_venue') || '' } catch { return '' } })()
+    const key = venueParam || lastVenue
+    const d = (key && m[key]) ? { sessionId: m[key].sessionId, userId: m[key].userId, role: m[key].role, venueId: key } : null
+    if (!d || !d.sessionId || !d.userId || !d.role) return false
+    if (sidParam && ajParam === '1' && sidParam !== d.sessionId) { return false }
+    S.venueId = d.venueId || (S.venueId || 'default')
     const r = await api(`/api/user/get?userId=${encodeURIComponent(d.userId)}`).catch(() => null)
     if (!r || !r.user) return false
     S.user = r.user
