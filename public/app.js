@@ -653,16 +653,16 @@ function startEvents() {
   S.sse.onerror = () => { scheduleUserSSEReconnect() }
   S.sse.addEventListener('dance_invite', e => {
     const data = JSON.parse(e.data)
-    S.currentInvite = { id: data.invite.id, from: data.invite.from }
+    S.currentInvite = { id: data.invite.id, from: data.invite.from, expiresAt: Number(data.invite.expiresAt || 0) }
     const mesaTxt = data.invite.from.tableId ? ` • Mesa ${data.invite.from.tableId}` : ''
     const zoneTxt = data.invite.from.zone ? ` • Zona ${data.invite.from.zone}` : ''
-    const exp = data.invite.expiresAt ? ` • Expira en 30s` : ''
-    q('invite-received-info').textContent = `${data.invite.from.alias} te invita${mesaTxt}${zoneTxt}${exp}`
+    q('invite-received-info').textContent = `${data.invite.from.alias} te invita${mesaTxt}${zoneTxt}`
     const img = q('invite-from-selfie')
     if (img) img.src = data.invite.from.selfie || ''
     S.notifications.invites = (S.notifications.invites || 0) + 1
     setBadgeNav('disponibles', S.notifications.invites)
     show('screen-invite-received')
+    startInviteCountdown(S.currentInvite.expiresAt)
   })
   S.sse.addEventListener('match', e => {
     const data = JSON.parse(e.data)
@@ -679,6 +679,7 @@ function startEvents() {
   })
   S.sse.addEventListener('invite_result', e => {
     const data = JSON.parse(e.data)
+    stopInviteCountdown()
     if (data.status === 'aceptado') {
       S.meeting = data.meeting
       S.isMeetingReceiver = !!(S.currentInvite && data.inviteId && S.currentInvite.id === data.inviteId)
@@ -801,6 +802,7 @@ async function respondInvite(accept) {
   const phr2 = accept ? `Vas a aceptar invitación de baile. ¿Confirmas?` : `Vas a pasar la invitación de baile. ¿Confirmas?`
   const ok2 = await confirmAction(phr2)
   if (!ok2) return
+  stopInviteCountdown()
   const note = (q('invite-response') ? q('invite-response').value.trim().slice(0, 120) : '')
   await api('/api/invite/respond', { method: 'POST', body: JSON.stringify({ inviteId: id, action, note }) })
   S.notifications.invites = Math.max(0, (S.notifications.invites || 0) - 1)
@@ -1635,6 +1637,29 @@ async function loadPendingInvites() {
       showModal('Invitaciones pendientes', `Tienes ${count} invitación${count > 1 ? 'es' : ''} sin ver`, 'info')
     }
   } catch {}
+}
+function startInviteCountdown(expiresAt) {
+  try { if (S.timers && S.timers.inviteCountdown) { clearInterval(S.timers.inviteCountdown); S.timers.inviteCountdown = 0 } } catch {}
+  const target = Number(expiresAt || 0)
+  if (!target) { const el = q('invite-expire'); if (el) el.textContent = ''; return }
+  const el = q('invite-expire'); if (!el) return
+  const tick = () => {
+    const remMs = target - Date.now()
+    const rem = Math.max(0, Math.ceil(remMs / 1000))
+    if (rem <= 0) {
+      el.textContent = 'Expirada'
+      try { clearInterval(S.timers.inviteCountdown) } catch {}
+      S.timers.inviteCountdown = 0
+      return
+    }
+    el.textContent = `Expira en ${rem}s`
+  }
+  tick()
+  S.timers.inviteCountdown = setInterval(tick, 1000)
+}
+function stopInviteCountdown() {
+  try { if (S.timers && S.timers.inviteCountdown) { clearInterval(S.timers.inviteCountdown); S.timers.inviteCountdown = 0 } } catch {}
+  const el = q('invite-expire'); if (el) el.textContent = ''
 }
 async function loadUserInvitesHistory() {
   const r = await api(`/api/user/invites/history?userId=${encodeURIComponent(S.user.id)}`)
