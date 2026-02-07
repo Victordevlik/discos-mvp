@@ -1582,7 +1582,13 @@ async function loadUserOrders() {
   const container = q('user-orders')
   if (!container) return
   container.innerHTML = ''
-  for (const o of r.orders) {
+  const listAsc = (r.orders || []).slice().sort((a, b) => {
+    const ta = Number(a.createdAt || 0), tb = Number(b.createdAt || 0)
+    if (ta !== tb) return ta - tb
+    const ia = String(a.id || ''), ib = String(b.id || '')
+    return ia.localeCompare(ib)
+  })
+  for (const o of listAsc) {
     const div = document.createElement('div')
     div.className = 'card'
     const chip = document.createElement('span')
