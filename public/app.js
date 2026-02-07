@@ -32,7 +32,7 @@ function show(id) {
   if (nav) nav.style.display = isStaffView ? 'none' : ''
   if (fab) fab.style.display = isStaffView ? 'none' : ''
   if (fabLabel) fabLabel.style.display = isStaffView ? 'none' : ''
-  if (isStaffView) { renderVenueToolbarChip() }
+  if (id === 'screen-staff') { updateStaffTitleVenue() }
 }
 function goBack() {
   if (!S.nav || !S.nav.history.length) return
@@ -130,15 +130,14 @@ async function loadSessionInfo() {
     const pd = q('pin-display'); if (pd) pd.textContent = pin
     const qrImg = q('qr-session'); if (qrImg) qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`
     const share = q('share-url'); if (share) { share.href = url; share.textContent = url }
-    renderVenueToolbarChip()
   } catch {}
 }
 
-async function renderVenueToolbarChip() {
+async function updateStaffTitleVenue() {
   try {
     const sess = await api(`/api/session/active${S.venueId ? ('?venueId=' + encodeURIComponent(S.venueId)) : ''}`)
-    const el = q('venue-toolbar-chip')
-    if (el) el.textContent = `Local: ${sess.venueName || S.venueId || '-'}`
+    const el = q('staff-title')
+    if (el) el.textContent = `Panel de órdenes ${sess.venueName || S.venueId || ''}`
   } catch {}
 }
 async function api(path, opts = {}) {
@@ -1069,11 +1068,6 @@ function formatOrderProductFull(name) {
 }
 async function loadOrders(state = '') {
   const qs = state ? `&state=${encodeURIComponent(state)}` : ''
-  try {
-    const sess = await api(`/api/session/active${S.venueId ? ('?venueId=' + encodeURIComponent(S.venueId)) : ''}`)
-    const vnEl = q('staff-venue-name')
-    if (vnEl) vnEl.textContent = `Local: ${sess.venueName || S.venueId || '-'}`
-  } catch {}
   const r = await api(`/api/staff/orders?sessionId=${encodeURIComponent(S.sessionId)}${qs}`)
   const container = q('staff-orders-list') || q('orders')
   container.innerHTML = ''
