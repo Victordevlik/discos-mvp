@@ -785,6 +785,27 @@ const server = http.createServer(async (req, res) => {
       json(res, 200, { ok: true, venueId, pin })
       return
     }
+    if (pathname === '/api/admin/venues/pin/send' && req.method === 'POST') {
+      if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const body = await parseBody(req)
+      const venueId = String(body.venueId || '').trim()
+      if (!venueId) { json(res, 400, { error: 'bad_input' }); return }
+      const venues = await readVenues()
+      const v = venues[venueId]
+      if (!v) { json(res, 404, { error: 'venue_not_found' }); return }
+      const pin = String(v.pin || '')
+      const email = String(v.email || '')
+      if (!pin) { json(res, 400, { error: 'no_pin' }); return }
+      if (!email) { json(res, 400, { error: 'no_email' }); return }
+      const to = email
+      const subject = `PIN del local ${String(v.name || venueId)}`
+      const link = `${process.env.PUBLIC_BASE_URL || ''}/?venueId=${encodeURIComponent(venueId)}`
+      const text = `Hola,\n\nEste es el PIN del local "${String(v.name || venueId)}" (ID: ${venueId}).\nPIN del venue: ${pin}\nAcceso: ${link}\n\nSi no solicitaste este envío, por favor contáctanos.\n`
+      try { await sendEmail(to, subject, text) } catch {}
+      json(res, 200, { ok: true, venueId })
+      return
+    }
     if (pathname === '/api/admin/venues/email' && req.method === 'POST') {
       if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
       if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }

@@ -162,27 +162,26 @@ async function apiAdmin(path, secret, opts = {}) {
   }
   return data
 }
-async function loadVenuePinAdmin() {
+// Cambio de PIN del venue removido del staff
+async function saveVenueEmailAdmin() {
   try {
     const secret = q('admin-secret-staff')?.value.trim()
+    const email = q('venue-email')?.value.trim()
     if (!secret) { showError('Ingresa clave admin'); return }
-    const r = await apiAdmin('/api/admin/venues', secret)
-    const v = (r.venues || []).find(w => w.venueId === (S.venueId || 'default'))
-    const out = q('venue-pin-display')
-    if (out) out.textContent = v ? String(v.pin || '') : ''
-    if (!v) showError('Venue no encontrado')
-    else { showError(''); setTimeout(() => showError(''), 500) }
+    if (!email || !email.includes('@')) { showError('Ingresa un email válido'); return }
+    await apiAdmin('/api/admin/venues/email', secret, { method: 'POST', body: JSON.stringify({ venueId: S.venueId || 'default', email }) })
+    const outEmail = q('venue-email-display')
+    if (outEmail) outEmail.textContent = email
+    showError('Email guardado')
+    setTimeout(() => showError(''), 1000)
   } catch (e) { showError(String(e.message)) }
 }
-async function saveVenuePinAdmin() {
+async function sendVenuePinAdmin() {
   try {
     const secret = q('admin-secret-staff')?.value.trim()
-    const pin = q('venue-pin-new')?.value.trim()
     if (!secret) { showError('Ingresa clave admin'); return }
-    if (!pin) { showError('Ingresa un PIN'); return }
-    await apiAdmin('/api/admin/venues/pin', secret, { method: 'POST', body: JSON.stringify({ venueId: S.venueId || 'default', pin }) })
-    await loadVenuePinAdmin()
-    showError('PIN actualizado')
+    await apiAdmin('/api/admin/venues/pin/send', secret, { method: 'POST', body: JSON.stringify({ venueId: S.venueId || 'default' }) })
+    showError('PIN enviado al email')
     setTimeout(() => showError(''), 1000)
   } catch (e) { showError(String(e.message)) }
 }
@@ -1440,8 +1439,9 @@ function bind() {
       setTimeout(() => showError(''), 1000)
     } catch (e) { showError('No se pudo copiar') }
   }
-  const btnLoadVenuePin = q('btn-staff-venue-pin-load'); if (btnLoadVenuePin) btnLoadVenuePin.onclick = loadVenuePinAdmin
-  const btnSaveVenuePin = q('btn-staff-venue-pin-save'); if (btnSaveVenuePin) btnSaveVenuePin.onclick = saveVenuePinAdmin
+  // Botón de guardar PIN del venue removido del staff
+  const btnSaveVenueEmail = q('btn-staff-venue-email-save'); if (btnSaveVenueEmail) btnSaveVenueEmail.onclick = saveVenueEmailAdmin
+  const btnSendVenuePin = q('btn-staff-venue-pin-send'); if (btnSendVenuePin) btnSendVenuePin.onclick = sendVenuePinAdmin
   const savePB = q('btn-save-public-base')
   if (savePB) savePB.onclick = async () => {
     try {
