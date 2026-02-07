@@ -888,10 +888,13 @@ const server = http.createServer(async (req, res) => {
       const zoneQ = query.zone || ''
       const min = Number(query.ageMin || 0)
       const max = Number(query.ageMax || 200)
+      const excludeId = String(query.excludeUserId || '')
       const arr = []
       for (const u of state.users.values()) {
         if (u.sessionId !== sessionId || u.role !== 'user') continue
         if (only && !u.available) continue
+        if (excludeId && u.id === excludeId) continue
+        if (u.danceState && u.danceState !== 'idle') continue
         const ageOk = u.prefs && u.prefs.age ? (u.prefs.age >= min && u.prefs.age <= max) : true
         const tagsOk = tagsQ.length ? (Array.isArray(u.prefs.tags) && tagsQ.every(t => u.prefs.tags.includes(t))) : true
         const zoneOk = zoneQ ? (u.zone === zoneQ) : true

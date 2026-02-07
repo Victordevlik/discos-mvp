@@ -381,15 +381,17 @@ async function viewAvailable() {
     setTimeout(() => showError(''), 1500)
     return
   }
-  const r = await api(`/api/users/available?sessionId=${encodeURIComponent(S.sessionId)}&onlyAvailable=true`)
+  const r = await api(`/api/users/available?sessionId=${encodeURIComponent(S.sessionId)}&onlyAvailable=true&excludeUserId=${encodeURIComponent(S.user.id)}`)
   const container = q('available-list')
   container.innerHTML = ''
   for (const u of r.users) {
+    if (u.id === S.user.id) continue
+    if (u.danceState && u.danceState !== 'idle') continue
+    if (u.id === S.user.id) continue
     const div = document.createElement('div')
     div.className = 'item'
     const img = document.createElement('img')
     img.width = 48; img.height = 48
-    img.style.borderRadius = '50%'
     img.src = u.selfie || ''
     const alias = document.createElement('div')
     alias.className = 'alias'
@@ -432,16 +434,18 @@ async function viewAvailable() {
 }
 async function refreshAvailableList() {
   if (!S.user || !S.user.available) return
-  const r = await api(`/api/users/available?sessionId=${encodeURIComponent(S.sessionId)}&onlyAvailable=true`)
+  const r = await api(`/api/users/available?sessionId=${encodeURIComponent(S.sessionId)}&onlyAvailable=true&excludeUserId=${encodeURIComponent(S.user.id)}`)
   const container = q('available-list')
   if (!container) return
   container.innerHTML = ''
   for (const u of r.users) {
+    if (u.id === S.user.id) continue
+    if (u.danceState && u.danceState !== 'idle') continue
+    if (u.id === S.user.id) continue
     const div = document.createElement('div')
     div.className = 'item'
     const img = document.createElement('img')
     img.width = 48; img.height = 48
-    img.style.borderRadius = '50%'
     img.src = u.selfie || ''
     const alias = document.createElement('div')
     alias.className = 'alias'
@@ -488,8 +492,8 @@ async function viewAvailableByTable() {
     return
   }
   if (!S.user.tableId) { showError('Debes seleccionar tu mesa'); setTimeout(() => showError(''), 1200); openSelectTable(); return }
-  const r = await api(`/api/users/available?sessionId=${encodeURIComponent(S.sessionId)}&onlyAvailable=true`)
-  const list = (r.users || []).filter(u => u.tableId === S.user.tableId)
+  const r = await api(`/api/users/available?sessionId=${encodeURIComponent(S.sessionId)}&onlyAvailable=true&excludeUserId=${encodeURIComponent(S.user.id)}`)
+  const list = (r.users || []).filter(u => u.tableId === S.user.tableId && (u.danceState === 'idle' || !u.danceState))
   const container = q('available-list')
   container.innerHTML = ''
   for (const u of list) {
@@ -1409,7 +1413,7 @@ async function loadUserOrders() {
     const invChip = document.createElement('span')
     if (o.isInvitation) { invChip.className = 'chip'; invChip.textContent = 'Invitación' }
     const forEmitter = o.emitterId === S.user.id
-    const amountTxt = (forEmitter && o.isInvitation && o.status === 'pendiente_cobro') ? '' : ` • $${o.total || 0}`
+    const amountTxt = ` • $${o.total || 0}`
     const otherAlias = forEmitter ? (o.receiverAlias || o.receiverId) : (o.emitterAlias || o.emitterId)
     div.textContent = `${o.product} x${o.quantity || 1}${amountTxt} • ${forEmitter ? 'Enviado a' : 'Recibido de'} ${otherAlias}`
     div.append(chip)
