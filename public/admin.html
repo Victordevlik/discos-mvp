@@ -79,7 +79,7 @@
         const row = document.createElement('div')
         row.className = 'row'
         const info = document.createElement('div')
-        info.textContent = `${v.name} (${v.venueId}) • créditos: ${v.credits} • activo: ${v.active ? 'sí' : 'no'} • PIN: ${v.pin ? v.pin : '-'}`
+        info.textContent = `${v.name} (${v.venueId}) • créditos: ${v.credits} • activo: ${v.active ? 'sí' : 'no'} • PIN: ${v.pin ? v.pin : '-'} • Email: ${v.email ? v.email : '-'}`
         const url = `${location.origin}/?venueId=${encodeURIComponent(v.venueId)}`
         const link = document.createElement('a')
         link.href = url
@@ -116,11 +116,30 @@
             await loadVenues()
           } catch (e) { showError(String(e.message)) }
         }
+        const emailInput = document.createElement('input')
+        emailInput.type = 'email'
+        emailInput.placeholder = 'Email del venue'
+        const emailBtn = document.createElement('button')
+        emailBtn.textContent = 'Guardar email'
+        emailBtn.onclick = async () => {
+          try {
+            const email = emailInput.value.trim()
+            if (!email) { showError('Ingresa un email'); return }
+            await api('/api/admin/venues/email', {
+              method: 'POST',
+              headers: { 'X-Admin-Secret': secret },
+              body: JSON.stringify({ venueId: v.venueId, email })
+            })
+            await loadVenues()
+          } catch (e) { showError(String(e.message)) }
+        }
         const col = document.createElement('div')
         col.appendChild(info)
         col.appendChild(link)
         col.appendChild(pinInput)
         col.appendChild(pinBtn)
+        col.appendChild(emailInput)
+        col.appendChild(emailBtn)
         row.appendChild(col)
         row.appendChild(btn)
         container.appendChild(row)

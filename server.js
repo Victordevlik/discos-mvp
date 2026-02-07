@@ -31,8 +31,12 @@ const state = {
 
 const dataDir = path.join(__dirname, 'data')
 if (!fs.existsSync(dataDir)) { try { fs.mkdirSync(dataDir) } catch {} }
-const GLOBAL_STAFF_PIN = String(process.env.STAFF_PIN || '0101')
+const GLOBAL_STAFF_PIN = String(process.env.STAFF_PIN || '')
+const ALLOW_GLOBAL_STAFF_PIN = String(process.env.ALLOW_GLOBAL_STAFF_PIN || 'false') === 'true'
 const ADMIN_SECRET = String(process.env.ADMIN_SECRET || '')
+const RESEND_API_KEY = String(process.env.RESEND_API_KEY || '')
+const SENDGRID_API_KEY = String(process.env.SENDGRID_API_KEY || '')
+const EMAIL_FROM = String(process.env.EMAIL_FROM || '')
 
 // Créditos por venue: persistidos en /data/venues.json
 const venuesPath = path.join(dataDir, 'venues.json')
@@ -58,8 +62,9 @@ try {
 } catch {}
 async function initDB() {
   if (!db || dbReady) return !!db
-  await db.query('CREATE TABLE IF NOT EXISTS venues (venue_id TEXT PRIMARY KEY, name TEXT NOT NULL, credits INTEGER NOT NULL, active BOOLEAN NOT NULL, pin TEXT)')
+  await db.query('CREATE TABLE IF NOT EXISTS venues (venue_id TEXT PRIMARY KEY, name TEXT NOT NULL, credits INTEGER NOT NULL, active BOOLEAN NOT NULL, pin TEXT, email TEXT)')
   await db.query('ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS pin TEXT')
+  await db.query('ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS email TEXT')
   await db.query('CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, role TEXT NOT NULL, alias TEXT, selfie TEXT, selfie_approved BOOLEAN, available BOOLEAN, prefs_json TEXT, zone TEXT, muted BOOLEAN, receive_mode TEXT, table_id TEXT, visibility TEXT, paused_until BIGINT, silenced BOOLEAN)')
   await db.query('CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, emitter_id TEXT NOT NULL, receiver_id TEXT NOT NULL, product TEXT NOT NULL, quantity INTEGER NOT NULL, price INTEGER NOT NULL, total INTEGER NOT NULL, status TEXT NOT NULL, created_at BIGINT NOT NULL, expires_at BIGINT NOT NULL, emitter_table TEXT, receiver_table TEXT, mesa_entrega TEXT, is_invitation BOOLEAN)')
   await db.query('CREATE TABLE IF NOT EXISTS table_closures (session_id TEXT NOT NULL, table_id TEXT NOT NULL, closed BOOLEAN NOT NULL, PRIMARY KEY (session_id, table_id))')
@@ -67,6 +72,37 @@ async function initDB() {
   await db.query('CREATE TABLE IF NOT EXISTS catalog_items (session_id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, PRIMARY KEY (session_id, name))')
   dbReady = true
   return true
+}
+async function sendEmail(to, subject, text) {
+  try {
+    if (RESEND_API_KEY) {
+      const r = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + RESEND_API_KEY },
+        body: JSON.stringify({ from: EMAIL_FROM || 'no-reply@discos.app', to, subject, text })
+      })
+      return r.ok
+    } else if (SENDGRID_API_KEY) {
+      const body = {
+        personalizations: [{ to: [{ email: to }] }],
+        from: { email: EMAIL_FROM || 'no-reply@discos.app' },
+        subject,
+        content: [{ type: 'text/plain', value: text }]
+      }
+      const r = await fetch('https://api.sendgrid.com/v3/mail/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SENDGRID_API_KEY },
+        body: JSON.stringify(body)
+      })
+      return r.status === 202
+    } else {
+      console.log('[email] no provider configured', { to, subject })
+      return false
+    }
+  } catch (e) {
+    console.log('[email] error', String(e && e.message || e))
+    return false
+  }
 }
 async function isDBConnected() {
   if (!db) return false
@@ -82,9 +118,9 @@ async function readVenues() {
   if (db) {
     try {
       await initDB()
-      const r = await db.query('SELECT venue_id, name, credits, active, pin FROM venues')
+      const r = await db.query('SELECT venue_id, name, credits, active, pin, email FROM venues')
       const obj = {}
-      for (const row of r.rows) obj[row.venue_id] = { name: row.name, credits: Number(row.credits || 0), active: !!row.active, pin: row.pin || '' }
+      for (const row of r.rows) obj[row.venue_id] = { name: row.name, credits: Number(row.credits || 0), active: !!row.active, pin: row.pin || '', email: row.email || '' }
       return obj
     } catch {}
   }
@@ -102,8 +138,8 @@ async function writeVenues(obj) {
       const entries = Object.entries(obj)
       for (const [id, v] of entries) {
         await db.query(
-          'INSERT INTO venues (venue_id, name, credits, active, pin) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (venue_id) DO UPDATE SET name=EXCLUDED.name, credits=EXCLUDED.credits, active=EXCLUDED.active, pin=EXCLUDED.pin',
-          [String(id), String(v.name || id), Number(v.credits || 0), v.active !== false, String(v.pin || '')]
+          'INSERT INTO venues (venue_id, name, credits, active, pin, email) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (venue_id) DO UPDATE SET name=EXCLUDED.name, credits=EXCLUDED.credits, active=EXCLUDED.active, pin=EXCLUDED.pin, email=EXCLUDED.email',
+          [String(id), String(v.name || id), Number(v.credits || 0), v.active !== false, String(v.pin || ''), String(v.email || '')]
         )
       }
       return
@@ -580,7 +616,7 @@ const server = http.createServer(async (req, res) => {
       if (role === 'staff') {
         const pinStr = String(body.pin || '')
         const okSessionPin = pinStr === String(s.pin)
-        const okGlobalPin = (GLOBAL_STAFF_PIN && pinStr === GLOBAL_STAFF_PIN)
+        const okGlobalPin = (ALLOW_GLOBAL_STAFF_PIN && GLOBAL_STAFF_PIN && pinStr === GLOBAL_STAFF_PIN)
         let okVenuePin = false
         try {
           const venues = await readVenues()
@@ -642,7 +678,7 @@ const server = http.createServer(async (req, res) => {
       const list = []
       for (const id of Object.keys(venues)) {
         const v = venues[id] || {}
-        list.push({ venueId: id, name: String(v.name || id), credits: Number(v.credits || 0), active: v.active !== false, pin: String(v.pin || '') })
+        list.push({ venueId: id, name: String(v.name || id), credits: Number(v.credits || 0), active: v.active !== false, pin: String(v.pin || ''), email: String(v.email || '') })
       }
       json(res, 200, { venues: list })
       return
@@ -656,10 +692,22 @@ const server = http.createServer(async (req, res) => {
       const amount = Number(body.amount || 0)
       if (!venueId || !Number.isFinite(amount)) { json(res, 400, { error: 'bad_input' }); return }
       const venues = await readVenues()
-      const prev = venues[venueId] || { name: venueId, credits: 0, active: true }
+      const existed = !!venues[venueId]
+      const prev = venues[venueId] || { name: venueId, credits: 0, active: true, pin: '', email: '' }
       const nextCredits = Number(prev.credits || 0) + amount
-      venues[venueId] = { name: String(prev.name || venueId), credits: Math.max(0, nextCredits), active: prev.active !== false, pin: String(prev.pin || '') }
+      let pin = String(prev.pin || '')
+      if (!existed && !pin) {
+        pin = String(Math.floor(1000 + Math.random() * 9000))
+      }
+      venues[venueId] = { name: String(prev.name || venueId), credits: Math.max(0, nextCredits), active: prev.active !== false, pin, email: String(prev.email || '') }
       await writeVenues(venues)
+      if (!existed && String(venues[venueId].email || '')) {
+        const to = String(venues[venueId].email)
+        const subject = `PIN del local ${venues[venueId].name}`
+        const link = `${process.env.PUBLIC_BASE_URL || ''}/?venueId=${encodeURIComponent(venueId)}`
+        const text = `Hola,\n\nSe creó el local "${venues[venueId].name}" (ID: ${venueId}).\nPIN del venue: ${pin}\nAcceso: ${link}\n\nSi lo deseas, puedes cambiar el PIN desde el Panel Admin.\n`
+        try { await sendEmail(to, subject, text) } catch {}
+      }
       json(res, 200, { ok: true, venueId, credits: venues[venueId].credits })
       return
     }
@@ -671,10 +719,30 @@ const server = http.createServer(async (req, res) => {
       const pin = String(body.pin || '').trim()
       if (!venueId || !pin) { json(res, 400, { error: 'bad_input' }); return }
       const venues = await readVenues()
-      const prev = venues[venueId] || { name: venueId, credits: 0, active: true }
-      venues[venueId] = { name: String(prev.name || venueId), credits: Number(prev.credits || 0), active: prev.active !== false, pin }
+      const prev = venues[venueId] || { name: venueId, credits: 0, active: true, email: '' }
+      venues[venueId] = { name: String(prev.name || venueId), credits: Number(prev.credits || 0), active: prev.active !== false, pin, email: String(prev.email || '') }
       await writeVenues(venues)
+      if (String(venues[venueId].email || '')) {
+        const to = String(venues[venueId].email)
+        const subject = `PIN actualizado para ${venues[venueId].name}`
+        const text = `Hola,\n\nEl PIN del local "${venues[venueId].name}" (ID: ${venueId}) fue actualizado.\nNuevo PIN: ${pin}\n\nSi no solicitaste este cambio, por favor contáctanos.\n`
+        try { await sendEmail(to, subject, text) } catch {}
+      }
       json(res, 200, { ok: true, venueId, pin })
+      return
+    }
+    if (pathname === '/api/admin/venues/email' && req.method === 'POST') {
+      if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const body = await parseBody(req)
+      const venueId = String(body.venueId || '').trim()
+      const email = String(body.email || '').trim()
+      if (!venueId || !email || !email.includes('@')) { json(res, 400, { error: 'bad_input' }); return }
+      const venues = await readVenues()
+      const prev = venues[venueId] || { name: venueId, credits: 0, active: true, pin: '' }
+      venues[venueId] = { name: String(prev.name || venueId), credits: Number(prev.credits || 0), active: prev.active !== false, pin: String(prev.pin || ''), email }
+      await writeVenues(venues)
+      json(res, 200, { ok: true, venueId, email })
       return
     }
     if (pathname === '/api/admin/db-status' && req.method === 'GET') {
