@@ -1456,10 +1456,21 @@ function saveLocalUser() {
 }
 async function restoreLocalUser() {
   try {
+    let sidParam = ''
+    let ajParam = ''
+    try {
+      const u = new URL(location.href)
+      sidParam = u.searchParams.get('sessionId') || u.searchParams.get('s') || ''
+      ajParam = u.searchParams.get('aj') || ''
+    } catch {}
     const raw = localStorage.getItem('discos_user')
     if (!raw) return false
     const d = JSON.parse(raw)
     if (!d.sessionId || !d.userId || !d.role) return false
+    if (sidParam && ajParam === '1' && sidParam !== d.sessionId) {
+      try { localStorage.removeItem('discos_user') } catch {}
+      return false
+    }
     if (d.venueId) S.venueId = d.venueId
     const r = await api(`/api/user/get?userId=${encodeURIComponent(d.userId)}`).catch(() => null)
     if (!r || !r.user) return false
