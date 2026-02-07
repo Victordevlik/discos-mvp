@@ -2069,7 +2069,9 @@ async function viewStaffTableHistory() {
     const div = document.createElement('div')
     div.className = 'card'
     const info = document.createElement('div')
-    info.textContent = `${o.product} x${o.quantity || 1} • $${o.total || 0} • ${o.emitterAlias || o.emitterId}→${o.receiverAlias || o.receiverId}`
+    await ensureCatalogIndex()
+    const label = formatOrderProductFull(o.product)
+    info.textContent = `${label} x${o.quantity || 1} • $${o.total || 0} • ${o.emitterAlias || o.emitterId}→${o.receiverAlias || o.receiverId}`
     const chip = document.createElement('span')
     chip.className = 'chip ' + (o.status === 'pendiente_cobro' ? 'pending' : o.status)
     chip.textContent = o.status.replace('_', ' ')
@@ -2090,7 +2092,9 @@ async function viewStaffTableHistory2() {
     const div = document.createElement('div')
     div.className = 'card'
     const info = document.createElement('div')
-    info.textContent = `${o.product} x${o.quantity || 1} • $${o.total || 0} • ${o.emitterAlias || o.emitterId}→${o.receiverAlias || o.receiverId}`
+    await ensureCatalogIndex()
+    const label = formatOrderProductFull(o.product)
+    info.textContent = `${label} x${o.quantity || 1} • $${o.total || 0} • ${o.emitterAlias || o.emitterId}→${o.receiverAlias || o.receiverId}`
     const chip = document.createElement('span')
     chip.className = 'chip ' + (o.status === 'pendiente_cobro' ? 'pending' : o.status)
     chip.textContent = o.status.replace('_', ' ')
