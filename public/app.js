@@ -1091,6 +1091,16 @@ function formatOrderProductFull(name) {
   return it.name
 }
 async function loadOrders(state = '') {
+function formatTimeShort(ms) {
+  const t = Number(ms || 0)
+  if (!t || Number.isNaN(t)) return ''
+  const d = new Date(t)
+  const pad = (n) => String(n).padStart(2, '0')
+  const hh = pad(d.getHours()), mm = pad(d.getMinutes())
+  const dd = pad(d.getDate()), mo = pad(d.getMonth() + 1)
+  return `${hh}:${mm} · ${dd}/${mo}`
+}
+async function loadOrders(state = '') {
   const qs = state ? `&state=${encodeURIComponent(state)}` : ''
   const r = await api(`/api/staff/orders?sessionId=${encodeURIComponent(S.sessionId)}${qs}`)
   const container = q('staff-orders-list') || q('orders')
@@ -1114,7 +1124,8 @@ async function loadOrders(state = '') {
     const amountTxt = ` • $${o.total || 0}`
     await ensureCatalogIndex()
     const label = formatOrderProductFull(o.product)
-    info.textContent = `${label} x${o.quantity || 1}${amountTxt} • Emisor ${emAlias} → Receptor ${reAlias}${mesaInfo} `
+    const timeTxt = o.createdAt ? ` • ${formatTimeShort(o.createdAt)}` : ''
+    info.textContent = `${label} x${o.quantity || 1}${amountTxt} • Emisor ${emAlias} → Receptor ${reAlias}${mesaInfo}${timeTxt}`
     info.append(chip)
     if (o.isInvitation) {
       const invChip = document.createElement('span')
@@ -1601,7 +1612,8 @@ async function loadUserOrders() {
     const otherAlias = forEmitter ? (o.receiverAlias || o.receiverId) : (o.emitterAlias || o.emitterId)
     await ensureCatalogIndex()
     const label = formatOrderProductFull(o.product)
-    div.textContent = `${label} x${o.quantity || 1}${amountTxt} • ${forEmitter ? 'Enviado a' : 'Recibido de'} ${otherAlias}`
+    const timeTxt = o.createdAt ? ` • ${formatTimeShort(o.createdAt)}` : ''
+    div.textContent = `${label} x${o.quantity || 1}${amountTxt} • ${forEmitter ? 'Enviado a' : 'Recibido de'} ${otherAlias}${timeTxt}`
     div.append(chip)
     if (o.isInvitation) div.append(invChip)
     container.append(div)
@@ -2134,7 +2146,8 @@ async function viewStaffTableHistory() {
     const info = document.createElement('div')
     await ensureCatalogIndex()
     const label = formatOrderProductFull(o.product)
-    info.textContent = `${label} x${o.quantity || 1} • $${o.total || 0} • ${o.emitterAlias || o.emitterId}→${o.receiverAlias || o.receiverId}`
+    const timeTxt = o.createdAt ? ` • ${formatTimeShort(o.createdAt)}` : ''
+    info.textContent = `${label} x${o.quantity || 1} • $${o.total || 0} • ${o.emitterAlias || o.emitterId}→${o.receiverAlias || o.receiverId}${timeTxt}`
     const chip = document.createElement('span')
     chip.className = 'chip ' + (o.status === 'pendiente_cobro' ? 'pending' : o.status)
     chip.textContent = o.status.replace('_', ' ')
@@ -2163,7 +2176,8 @@ async function viewStaffTableHistory2() {
     const info = document.createElement('div')
     await ensureCatalogIndex()
     const label = formatOrderProductFull(o.product)
-    info.textContent = `${label} x${o.quantity || 1} • $${o.total || 0} • ${o.emitterAlias || o.emitterId}→${o.receiverAlias || o.receiverId}`
+    const timeTxt = o.createdAt ? ` • ${formatTimeShort(o.createdAt)}` : ''
+    info.textContent = `${label} x${o.quantity || 1} • $${o.total || 0} • ${o.emitterAlias || o.emitterId}→${o.receiverAlias || o.receiverId}${timeTxt}`
     const chip = document.createElement('span')
     chip.className = 'chip ' + (o.status === 'pendiente_cobro' ? 'pending' : o.status)
     chip.textContent = o.status.replace('_', ' ')
