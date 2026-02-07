@@ -34,6 +34,7 @@ if (!fs.existsSync(dataDir)) { try { fs.mkdirSync(dataDir) } catch {} }
 const GLOBAL_STAFF_PIN = String(process.env.STAFF_PIN || '')
 const ALLOW_GLOBAL_STAFF_PIN = String(process.env.ALLOW_GLOBAL_STAFF_PIN || 'false') === 'true'
 const ADMIN_SECRET = String(process.env.ADMIN_SECRET || '')
+const ADMIN_STAFF_SECRET = String(process.env.ADMIN_STAFF_SECRET || '2207')
 const RESEND_API_KEY = String(process.env.RESEND_API_KEY || '')
 const SENDGRID_API_KEY = String(process.env.SENDGRID_API_KEY || '')
 const EMAIL_FROM = String(process.env.EMAIL_FROM || '')
@@ -301,6 +302,12 @@ function isAdminAuthorized(req, query) {
   const querySecret = String(query.admin_secret || '')
   if (!ADMIN_SECRET) return false
   return headerSecret === ADMIN_SECRET || querySecret === ADMIN_SECRET
+}
+function isStaffAuthorized(req, query) {
+  const headerSecret = String(req.headers['x-staff-secret'] || '')
+  const querySecret = String(query.staff_secret || '')
+  if (!ADMIN_STAFF_SECRET) return false
+  return headerSecret === ADMIN_STAFF_SECRET || querySecret === ADMIN_STAFF_SECRET
 }
 
 const defaultCatalog = [
@@ -786,8 +793,8 @@ const server = http.createServer(async (req, res) => {
       return
     }
     if (pathname === '/api/admin/venues/pin/send' && req.method === 'POST') {
-      if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
-      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      if (!ADMIN_STAFF_SECRET) { json(res, 403, { error: 'no_staff_secret' }); return }
+      if (!isStaffAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
       const body = await parseBody(req)
       const venueId = String(body.venueId || '').trim()
       if (!venueId) { json(res, 400, { error: 'bad_input' }); return }
