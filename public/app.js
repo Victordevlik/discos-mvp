@@ -150,6 +150,7 @@ function showModal(title, msg, type = 'info') {
   m.classList.remove('type-error', 'type-success', 'type-info')
   m.classList.add('type-' + type)
   tt.textContent = title || ''
+  tt.style.display = title ? '' : 'none'
   t.textContent = msg || ''
   m.classList.add('show')
   S.modalShownAt = Date.now()
@@ -167,7 +168,7 @@ function showError(msg) {
     }
     const m = q('modal'); if (m) m.classList.remove('show'); return
   }
-  showModal('Error', msg || '', 'error')
+  showModal('', msg || '', 'error')
 }
 function showInfo(msg) { showModal('Info', msg || '', 'info') }
 function showSuccess(msg) { showModal('Listo', msg || '', 'success') }
