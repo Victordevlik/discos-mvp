@@ -1090,7 +1090,6 @@ function formatOrderProductFull(name) {
   if (cat) return `${cat} • ${it.name}`
   return it.name
 }
-async function loadOrders(state = '') {
 function formatTimeShort(ms) {
   const t = Number(ms || 0)
   if (!t || Number.isNaN(t)) return ''
