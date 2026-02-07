@@ -168,7 +168,7 @@ async function apiStaff(path, secret, opts = {}) {
   let data = null
   try { data = await res.json() } catch {}
   if (!res.ok) {
-    const msg = data && data.error ? data.error : 'api_staff'
+    const msg = data && data.error ? (data.provider ? `${data.error}:${data.provider}` : data.error) : 'api_staff'
     throw new Error(msg)
   }
   return data

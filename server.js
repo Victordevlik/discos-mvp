@@ -794,8 +794,8 @@ const server = http.createServer(async (req, res) => {
       return
     }
     if (pathname === '/api/admin/venues/pin/send' && req.method === 'POST') {
-      if (!ADMIN_STAFF_SECRET) { json(res, 403, { error: 'no_staff_secret' }); return }
-      if (!isStaffAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      if (!ADMIN_STAFF_SECRET && !ADMIN_SECRET) { json(res, 403, { error: 'no_staff_secret' }); return }
+      if (!isStaffAuthorized(req, query) && !isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
       const body = await parseBody(req)
       const venueId = String(body.venueId || '').trim()
       if (!venueId) { json(res, 400, { error: 'bad_input' }); return }
@@ -811,7 +811,11 @@ const server = http.createServer(async (req, res) => {
       const link = `${process.env.PUBLIC_BASE_URL || ''}/?venueId=${encodeURIComponent(venueId)}`
       const text = `Hola,\n\nEste es el PIN del local "${String(v.name || venueId)}" (ID: ${venueId}).\nPIN del venue: ${pin}\nAcceso: ${link}\n\nSi no solicitaste este envío, por favor contáctanos.\n`
       const ok = await sendEmail(to, subject, text)
-      if (!ok) { json(res, 502, { error: 'email_failed' }); return }
+      if (!ok) { 
+        const provider = RESEND_API_KEY ? 'resend' : (SENDGRID_API_KEY ? 'sendgrid' : 'none')
+        json(res, 502, { error: 'email_failed', provider }); 
+        return 
+      }
       json(res, 200, { ok: true, venueId })
       return
     }
