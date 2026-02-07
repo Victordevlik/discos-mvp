@@ -1720,6 +1720,8 @@ async function restoreLocalUser() {
     } else if (S.role === 'user') {
       startEvents()
       show('screen-user-home')
+      const swAvail = q('switch-available')
+      if (swAvail) swAvail.checked = !!(S.user && S.user.available)
       const rc = q('restore-chip')
       if (rc) {
         rc.textContent = 'Sesión restaurada'
