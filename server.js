@@ -624,9 +624,12 @@ const server = http.createServer(async (req, res) => {
           if (v && String(v.pin || '') && pinStr === String(v.pin)) okVenuePin = true
         } catch {}
         if (!pinStr || (!okSessionPin && !okGlobalPin && !okVenuePin)) { json(res, 403, { error: 'bad_pin' }); return }
+      } else {
+        const alias = String(body.alias || '').trim().slice(0, 32)
+        if (!alias) { json(res, 400, { error: 'alias_required' }); return }
       }
       const id = genId(role === 'staff' ? 'staff' : 'user')
-      const user = { id, sessionId: body.sessionId, role, alias: '', selfie: '', selfieApproved: false, available: false, prefs: { tags: [] }, zone: '', muted: false, receiveMode: 'all', allowedSenders: new Set(), tableId: '', visibility: 'visible', pausedUntil: 0, silenced: false, danceState: 'idle', dancePartnerId: '', meetingId: '' }
+      const user = { id, sessionId: body.sessionId, role, alias: role === 'user' ? String(body.alias || '').trim().slice(0, 32) : '', selfie: '', selfieApproved: false, available: false, prefs: { tags: [] }, zone: '', muted: false, receiveMode: 'all', allowedSenders: new Set(), tableId: '', visibility: 'visible', pausedUntil: 0, silenced: false, danceState: 'idle', dancePartnerId: '', meetingId: '' }
       state.users.set(id, user)
       try { await dbUpsertUser(user) } catch {}
       json(res, 200, { user })
@@ -1214,6 +1217,7 @@ const server = http.createServer(async (req, res) => {
             emitterTable: r.emitter_table || '',
             receiverTable: r.receiver_table || '',
             mesaEntrega: r.mesa_entrega || '',
+            isInvitation: !!r.is_invitation
           })
         }
         json(res, 200, { orders: out })
@@ -1222,7 +1226,22 @@ const server = http.createServer(async (req, res) => {
         for (const o of state.orders.values()) {
           if (o.sessionId !== sessionId) continue
           if (stateFilter && o.status !== stateFilter) continue
-          list.push(o)
+          list.push({
+            id: o.id,
+            product: o.product,
+            quantity: Number(o.quantity || 1),
+            price: Number(o.price || 0),
+            total: Number(o.total || 0),
+            status: o.status,
+            createdAt: Number(o.createdAt || 0),
+            expiresAt: Number(o.expiresAt || 0),
+            emitterId: o.emitterId,
+            receiverId: o.receiverId,
+            emitterTable: o.emitterTable || '',
+            receiverTable: o.receiverTable || '',
+            mesaEntrega: o.mesaEntrega || '',
+            isInvitation: !!o.isInvitation
+          })
         }
         json(res, 200, { orders: list })
       }

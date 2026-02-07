@@ -234,17 +234,26 @@ async function join(role, codeOverride = '', pinOverride = '') {
     const pin = pinOverride || (q('join-pin') ? q('join-pin').value.trim() : '')
     if (!code) { showError('Ingresa el código de sesión'); return }
     if (role === 'staff' && !pin) { showError('Ingresa el PIN de sesión'); return }
+    let alias = ''
+    if (role === 'user') {
+      alias = (q('alias') ? q('alias').value.trim() : '')
+      if (!alias) {
+        try { alias = (window.prompt && prompt('Ingresa tu alias')) || '' } catch {}
+        alias = String(alias || '').trim()
+      }
+      if (!alias) { showError('Ingresa tu alias'); return }
+    }
     S.sessionId = code
     let r = null
     try {
-      r = await api('/api/join', { method: 'POST', body: JSON.stringify({ sessionId: code, role, pin }) })
+      r = await api('/api/join', { method: 'POST', body: JSON.stringify({ sessionId: code, role, pin, alias }) })
     } catch (e) {
       if (role === 'user' && String(e.message) === 'no_session') {
         let active = null
         try { active = await api(`/api/session/active${S.venueId ? ('?venueId=' + encodeURIComponent(S.venueId)) : ''}`) } catch {}
         if (active && active.sessionId) {
           S.sessionId = active.sessionId
-          r = await api('/api/join', { method: 'POST', body: JSON.stringify({ sessionId: active.sessionId, role, pin: '' }) })
+          r = await api('/api/join', { method: 'POST', body: JSON.stringify({ sessionId: active.sessionId, role, pin: '', alias }) })
         } else {
           showError('Sin sesión activa para este local'); return
         }
@@ -256,6 +265,7 @@ async function join(role, codeOverride = '', pinOverride = '') {
     S.role = role
     try { saveLocalUser() } catch {}
     if (role === 'user') {
+      const aliasInput = q('alias'); if (aliasInput) aliasInput.value = S.user.alias || alias
       show('screen-profile')
     } else {
       show('screen-staff')
@@ -949,8 +959,15 @@ async function loadOrders(state = '') {
     const mesaInfo = (o.mesaEntrega || o.receiverTable || o.emitterTable) ? ` • Mesa entrega ${o.mesaEntrega || o.receiverTable}` : ''
     const emAlias = (S.usersIndex && S.usersIndex[o.emitterId] ? S.usersIndex[o.emitterId].alias : o.emitterId)
     const reAlias = (S.usersIndex && S.usersIndex[o.receiverId] ? S.usersIndex[o.receiverId].alias : o.receiverId)
-    info.textContent = `${o.product} x${o.quantity || 1} • $${o.total || 0} • Emisor ${emAlias} → Receptor ${reAlias}${mesaInfo} `
+    const amountTxt = (o.isInvitation && o.status === 'pendiente_cobro') ? ' • Invitación' : ` • $${o.total || 0}`
+    info.textContent = `${o.product} x${o.quantity || 1}${amountTxt} • Emisor ${emAlias} → Receptor ${reAlias}${mesaInfo} `
     info.append(chip)
+    if (o.isInvitation) {
+      const invChip = document.createElement('span')
+      invChip.className = 'chip'
+      invChip.textContent = 'Invitación'
+      info.append(invChip)
+    }
     const row = document.createElement('div')
     row.className = 'row'
     const b1 = document.createElement('button'); b1.textContent = 'Cobrado'; b1.onclick = () => updateOrder(o.id, 'cobrado')
@@ -1504,8 +1521,6 @@ async function restoreLocalUser() {
     const d = JSON.parse(raw)
     if (!d.sessionId || !d.userId || !d.role) return false
     if (sidParam && ajParam === '1' && sidParam !== d.sessionId) {
-      try { localStorage.removeItem('discos_user') } catch {}
-      return false
     }
     if (d.venueId) S.venueId = d.venueId
     const r = await api(`/api/user/get?userId=${encodeURIComponent(d.userId)}`).catch(() => null)
