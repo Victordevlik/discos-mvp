@@ -1213,19 +1213,30 @@ function bind() {
   const btnStaffCatalogAdd = q('btn-staff-catalog-add'); if (btnStaffCatalogAdd) btnStaffCatalogAdd.onclick = () => {
     const name = q('staff-catalog-add-name')?.value.trim()
     const price = Number(q('staff-catalog-add-price')?.value || 0)
+    const catVal = (q('staff-catalog-add-category')?.value || 'otros').toLowerCase()
     const container = q('staff-catalog-list')
     if (!container || !name) return
     const row = document.createElement('div')
     row.className = 'row'
     const nameInput = document.createElement('input'); nameInput.type = 'text'; nameInput.placeholder = 'Nombre'; nameInput.value = name
     const priceInput = document.createElement('input'); priceInput.type = 'number'; priceInput.min = '0'; priceInput.value = price
+    const category = document.createElement('select')
+    for (const opt of ['cervezas','botellas','cocteles','sodas','otros']) {
+      const o = document.createElement('option')
+      o.value = opt
+      o.textContent = opt.charAt(0).toUpperCase() + opt.slice(1)
+      category.append(o)
+    }
+    category.value = catVal
     nameInput.oninput = scheduleCatalogSave
     priceInput.oninput = scheduleCatalogSave
+    category.oninput = scheduleCatalogSave
     const del = document.createElement('button'); del.textContent = 'Eliminar'; del.onclick = () => { try { row.remove(); scheduleCatalogSave() } catch {} }
-    row.append(nameInput, priceInput, del)
+    row.append(nameInput, priceInput, category, del)
     container.append(row)
     const inpName = q('staff-catalog-add-name'); if (inpName) inpName.value = ''
     const inpPrice = q('staff-catalog-add-price'); if (inpPrice) inpPrice.value = ''
+    const inpCat = q('staff-catalog-add-category'); if (inpCat) inpCat.value = 'otros'
     saveStaffCatalog()
   }
   const anUsers = q('an-users'); if (anUsers) anUsers.onclick = () => { showStaffTab('users'); loadUsers() }
@@ -1791,17 +1802,38 @@ async function loadCatalog() {
     const container = q('catalog-list')
     if (!container) return
     container.innerHTML = ''
+    const groups = {}
     for (const it of r.items || []) {
-      const div = document.createElement('div')
-      div.className = 'card'
-      const name = document.createElement('div')
-      name.textContent = it.name
-      const price = document.createElement('span')
-      price.className = 'chip'
-      price.textContent = formatPriceShort(it.price)
-      div.onclick = () => { q('product').value = it.name }
-      div.append(name, price)
-      container.append(div)
+      const cat = (it.category || 'otros').toLowerCase()
+      if (!groups[cat]) groups[cat] = []
+      groups[cat].push(it)
+    }
+    const order = ['cervezas','botellas','cocteles','sodas','otros']
+    const labels = {
+      cervezas: 'Cervezas',
+      botellas: 'Botellas',
+      cocteles: 'Cocteles',
+      sodas: 'Sodas y sin alcohol',
+      otros: 'Otros'
+    }
+    for (const cat of order) {
+      const items = groups[cat]
+      if (!items || !items.length) continue
+      const title = document.createElement('h3')
+      title.textContent = labels[cat] || cat
+      container.append(title)
+      for (const it of items) {
+        const div = document.createElement('div')
+        div.className = 'card'
+        const name = document.createElement('div')
+        name.textContent = it.name
+        const price = document.createElement('span')
+        price.className = 'chip'
+        price.textContent = formatPriceShort(it.price)
+        div.onclick = () => { q('product').value = it.name }
+        div.append(name, price)
+        container.append(div)
+      }
     }
   } catch {}
 }
@@ -1848,10 +1880,19 @@ async function loadStaffCatalogEditor() {
       price.type = 'number'
       price.min = '0'
       price.value = Number(it.price || 0)
+      const category = document.createElement('select')
+      for (const opt of ['cervezas','botellas','cocteles','sodas','otros']) {
+        const o = document.createElement('option')
+        o.value = opt
+        o.textContent = opt.charAt(0).toUpperCase() + opt.slice(1)
+        category.append(o)
+      }
+      category.value = (it.category || 'otros').toLowerCase()
       name.oninput = scheduleCatalogSave
       price.oninput = scheduleCatalogSave
+      category.oninput = scheduleCatalogSave
       const del = document.createElement('button'); del.textContent = 'Eliminar'; del.onclick = () => { try { row.remove(); scheduleCatalogSave() } catch {} }
-      row.append(name, price, del)
+      row.append(name, price, category, del)
       container.append(row)
     }
   } catch {}
@@ -1864,10 +1905,12 @@ async function saveStaffCatalog() {
     for (const row of list.children) {
       const nameInput = row.querySelector('input[type="text"]')
       const priceInput = row.querySelector('input[type="number"]')
-      if (!nameInput || !priceInput) continue
+      const catSelect = row.querySelector('select')
+      if (!nameInput || !priceInput || !catSelect) continue
       const name = nameInput.value.trim()
       const price = Number(priceInput.value || 0)
-      items.push({ name, price })
+      const category = (catSelect.value || 'otros').toLowerCase()
+      items.push({ name, price, category })
     }
     await api('/api/staff/catalog', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, items }) })
     showError('Carta guardada')

@@ -69,7 +69,8 @@ async function initDB() {
   await db.query('CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, emitter_id TEXT NOT NULL, receiver_id TEXT NOT NULL, product TEXT NOT NULL, quantity INTEGER NOT NULL, price INTEGER NOT NULL, total INTEGER NOT NULL, status TEXT NOT NULL, created_at BIGINT NOT NULL, expires_at BIGINT NOT NULL, emitter_table TEXT, receiver_table TEXT, mesa_entrega TEXT, is_invitation BOOLEAN)')
   await db.query('CREATE TABLE IF NOT EXISTS table_closures (session_id TEXT NOT NULL, table_id TEXT NOT NULL, closed BOOLEAN NOT NULL, PRIMARY KEY (session_id, table_id))')
   await db.query('CREATE TABLE IF NOT EXISTS waiter_calls (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, user_id TEXT NOT NULL, table_id TEXT, reason TEXT, status TEXT, ts BIGINT NOT NULL)')
-  await db.query('CREATE TABLE IF NOT EXISTS catalog_items (session_id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, PRIMARY KEY (session_id, name))')
+  await db.query('CREATE TABLE IF NOT EXISTS catalog_items (session_id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, category TEXT, PRIMARY KEY (session_id, name))')
+  await db.query('ALTER TABLE IF EXISTS catalog_items ADD COLUMN IF NOT EXISTS category TEXT')
   dbReady = true
   return true
 }
@@ -150,29 +151,29 @@ async function writeVenues(obj) {
 async function dbReadGlobalCatalog() {
   if (!db) return []
   await initDB()
-  const r = await db.query('SELECT name, price FROM catalog_items WHERE session_id=$1 ORDER BY name', ['global'])
-  return r.rows.map(w => ({ name: w.name, price: Number(w.price || 0) }))
+  const r = await db.query('SELECT name, price, category FROM catalog_items WHERE session_id=$1 ORDER BY name', ['global'])
+  return r.rows.map(w => ({ name: w.name, price: Number(w.price || 0), category: String(w.category || 'otros') }))
 }
 async function dbWriteGlobalCatalog(items) {
   if (!db) return
   await initDB()
   await db.query('DELETE FROM catalog_items WHERE session_id=$1', ['global'])
   for (const it of Array.isArray(items) ? items : []) {
-    await db.query('INSERT INTO catalog_items (session_id, name, price) VALUES ($1,$2,$3)', ['global', String(it.name || ''), Number(it.price || 0)])
+    await db.query('INSERT INTO catalog_items (session_id, name, price, category) VALUES ($1,$2,$3,$4)', ['global', String(it.name || ''), Number(it.price || 0), String(it.category || 'otros')])
   }
 }
 async function dbReadSessionCatalog(sessionId) {
   if (!db) return []
   await initDB()
-  const r = await db.query('SELECT name, price FROM catalog_items WHERE session_id=$1 ORDER BY name', [String(sessionId)])
-  return r.rows.map(w => ({ name: w.name, price: Number(w.price || 0) }))
+  const r = await db.query('SELECT name, price, category FROM catalog_items WHERE session_id=$1 ORDER BY name', [String(sessionId)])
+  return r.rows.map(w => ({ name: w.name, price: Number(w.price || 0), category: String(w.category || 'otros') }))
 }
 async function dbWriteSessionCatalog(sessionId, items) {
   if (!db) return
   await initDB()
   await db.query('DELETE FROM catalog_items WHERE session_id=$1', [String(sessionId)])
   for (const it of Array.isArray(items) ? items : []) {
-    await db.query('INSERT INTO catalog_items (session_id, name, price) VALUES ($1,$2,$3)', [String(sessionId), String(it.name || ''), Number(it.price || 0)])
+    await db.query('INSERT INTO catalog_items (session_id, name, price, category) VALUES ($1,$2,$3,$4)', [String(sessionId), String(it.name || ''), Number(it.price || 0), String(it.category || 'otros')])
   }
 }
 async function dbUpsertUser(u) {
@@ -294,15 +295,20 @@ function isAdminAuthorized(req, query) {
 }
 
 const defaultCatalog = [
-  { name: 'Cerveza', price: 10000 },
-  { name: 'Mojito', price: 20000 },
-  { name: 'Gin Tonic', price: 18000 },
-  { name: 'Agua', price: 5000 },
-  { name: 'Tequila Shot', price: 15000 },
-  { name: 'Vodka Shot', price: 12000 },
+  { name: 'Cerveza', price: 10000, category: 'cervezas' },
+  { name: 'Mojito', price: 20000, category: 'cocteles' },
+  { name: 'Gin Tonic', price: 18000, category: 'cocteles' },
+  { name: 'Agua', price: 5000, category: 'sodas' },
+  { name: 'Tequila Shot', price: 15000, category: 'cocteles' },
+  { name: 'Vodka Shot', price: 12000, category: 'cocteles' },
 ]
+const allowedCategories = ['cervezas','botellas','cocteles','sodas','otros']
 function sanitizeItem(it) {
-  return { name: String(it.name || '').slice(0, 60), price: Number(it.price || 0) }
+  const name = String(it.name || '').slice(0, 60)
+  const price = Number(it.price || 0)
+  const rawCat = String(it.category || '').toLowerCase().slice(0, 24)
+  const category = allowedCategories.includes(rawCat) ? rawCat : 'otros'
+  return { name, price, category }
 }
 function readGlobalCatalog() {
   try {
@@ -1613,8 +1619,10 @@ const server = http.createServer(async (req, res) => {
       for (const it of items) {
         const name = String(it.name || '').slice(0, 60)
         const price = Number(it.price || 0)
+        const rawCat = String(it.category || '').toLowerCase().slice(0, 24)
+        const category = allowedCategories.includes(rawCat) ? rawCat : 'otros'
         if (!name) continue
-        clean.push({ name, price })
+        clean.push({ name, price, category })
       }
       if (s) s.catalog = clean
       if (db) {
