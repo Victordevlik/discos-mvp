@@ -151,6 +151,41 @@ async function api(path, opts = {}) {
   }
   return data
 }
+async function apiAdmin(path, secret, opts = {}) {
+  const headers = { 'Content-Type': 'application/json', 'X-Admin-Secret': String(secret || '') }
+  const res = await fetch(path, { method: 'GET', ...opts, headers })
+  let data = null
+  try { data = await res.json() } catch {}
+  if (!res.ok) {
+    const msg = data && data.error ? data.error : 'api_admin'
+    throw new Error(msg)
+  }
+  return data
+}
+async function loadVenuePinAdmin() {
+  try {
+    const secret = q('admin-secret-staff')?.value.trim()
+    if (!secret) { showError('Ingresa clave admin'); return }
+    const r = await apiAdmin('/api/admin/venues', secret)
+    const v = (r.venues || []).find(w => w.venueId === (S.venueId || 'default'))
+    const out = q('venue-pin-display')
+    if (out) out.textContent = v ? String(v.pin || '') : ''
+    if (!v) showError('Venue no encontrado')
+    else { showError(''); setTimeout(() => showError(''), 500) }
+  } catch (e) { showError(String(e.message)) }
+}
+async function saveVenuePinAdmin() {
+  try {
+    const secret = q('admin-secret-staff')?.value.trim()
+    const pin = q('venue-pin-new')?.value.trim()
+    if (!secret) { showError('Ingresa clave admin'); return }
+    if (!pin) { showError('Ingresa un PIN'); return }
+    await apiAdmin('/api/admin/venues/pin', secret, { method: 'POST', body: JSON.stringify({ venueId: S.venueId || 'default', pin }) })
+    await loadVenuePinAdmin()
+    showError('PIN actualizado')
+    setTimeout(() => showError(''), 1000)
+  } catch (e) { showError(String(e.message)) }
+}
 
 function showModal(title, msg, type = 'info') {
   const m = q('modal')
@@ -1405,6 +1440,8 @@ function bind() {
       setTimeout(() => showError(''), 1000)
     } catch (e) { showError('No se pudo copiar') }
   }
+  const btnLoadVenuePin = q('btn-staff-venue-pin-load'); if (btnLoadVenuePin) btnLoadVenuePin.onclick = loadVenuePinAdmin
+  const btnSaveVenuePin = q('btn-staff-venue-pin-save'); if (btnSaveVenuePin) btnSaveVenuePin.onclick = saveVenuePinAdmin
   const savePB = q('btn-save-public-base')
   if (savePB) savePB.onclick = async () => {
     try {
