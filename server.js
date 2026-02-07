@@ -58,7 +58,8 @@ try {
 } catch {}
 async function initDB() {
   if (!db || dbReady) return !!db
-  await db.query('CREATE TABLE IF NOT EXISTS venues (venue_id TEXT PRIMARY KEY, name TEXT NOT NULL, credits INTEGER NOT NULL, active BOOLEAN NOT NULL)')
+  await db.query('CREATE TABLE IF NOT EXISTS venues (venue_id TEXT PRIMARY KEY, name TEXT NOT NULL, credits INTEGER NOT NULL, active BOOLEAN NOT NULL, pin TEXT)')
+  await db.query('ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS pin TEXT')
   await db.query('CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, role TEXT NOT NULL, alias TEXT, selfie TEXT, selfie_approved BOOLEAN, available BOOLEAN, prefs_json TEXT, zone TEXT, muted BOOLEAN, receive_mode TEXT, table_id TEXT, visibility TEXT, paused_until BIGINT, silenced BOOLEAN)')
   await db.query('CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, emitter_id TEXT NOT NULL, receiver_id TEXT NOT NULL, product TEXT NOT NULL, quantity INTEGER NOT NULL, price INTEGER NOT NULL, total INTEGER NOT NULL, status TEXT NOT NULL, created_at BIGINT NOT NULL, expires_at BIGINT NOT NULL, emitter_table TEXT, receiver_table TEXT, mesa_entrega TEXT, is_invitation BOOLEAN)')
   await db.query('CREATE TABLE IF NOT EXISTS table_closures (session_id TEXT NOT NULL, table_id TEXT NOT NULL, closed BOOLEAN NOT NULL, PRIMARY KEY (session_id, table_id))')
@@ -81,9 +82,9 @@ async function readVenues() {
   if (db) {
     try {
       await initDB()
-      const r = await db.query('SELECT venue_id, name, credits, active FROM venues')
+      const r = await db.query('SELECT venue_id, name, credits, active, pin FROM venues')
       const obj = {}
-      for (const row of r.rows) obj[row.venue_id] = { name: row.name, credits: Number(row.credits || 0), active: !!row.active }
+      for (const row of r.rows) obj[row.venue_id] = { name: row.name, credits: Number(row.credits || 0), active: !!row.active, pin: row.pin || '' }
       return obj
     } catch {}
   }
@@ -101,8 +102,8 @@ async function writeVenues(obj) {
       const entries = Object.entries(obj)
       for (const [id, v] of entries) {
         await db.query(
-          'INSERT INTO venues (venue_id, name, credits, active) VALUES ($1,$2,$3,$4) ON CONFLICT (venue_id) DO UPDATE SET name=EXCLUDED.name, credits=EXCLUDED.credits, active=EXCLUDED.active',
-          [String(id), String(v.name || id), Number(v.credits || 0), v.active !== false]
+          'INSERT INTO venues (venue_id, name, credits, active, pin) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (venue_id) DO UPDATE SET name=EXCLUDED.name, credits=EXCLUDED.credits, active=EXCLUDED.active, pin=EXCLUDED.pin',
+          [String(id), String(v.name || id), Number(v.credits || 0), v.active !== false, String(v.pin || '')]
         )
       }
       return
@@ -580,7 +581,13 @@ const server = http.createServer(async (req, res) => {
         const pinStr = String(body.pin || '')
         const okSessionPin = pinStr === String(s.pin)
         const okGlobalPin = (GLOBAL_STAFF_PIN && pinStr === GLOBAL_STAFF_PIN)
-        if (!pinStr || (!okSessionPin && !okGlobalPin)) { json(res, 403, { error: 'bad_pin' }); return }
+        let okVenuePin = false
+        try {
+          const venues = await readVenues()
+          const v = venues[s.venueId]
+          if (v && String(v.pin || '') && pinStr === String(v.pin)) okVenuePin = true
+        } catch {}
+        if (!pinStr || (!okSessionPin && !okGlobalPin && !okVenuePin)) { json(res, 403, { error: 'bad_pin' }); return }
       }
       const id = genId(role === 'staff' ? 'staff' : 'user')
       const user = { id, sessionId: body.sessionId, role, alias: '', selfie: '', selfieApproved: false, available: false, prefs: { tags: [] }, zone: '', muted: false, receiveMode: 'all', allowedSenders: new Set(), tableId: '', visibility: 'visible', pausedUntil: 0, silenced: false }
@@ -635,7 +642,7 @@ const server = http.createServer(async (req, res) => {
       const list = []
       for (const id of Object.keys(venues)) {
         const v = venues[id] || {}
-        list.push({ venueId: id, name: String(v.name || id), credits: Number(v.credits || 0), active: v.active !== false })
+        list.push({ venueId: id, name: String(v.name || id), credits: Number(v.credits || 0), active: v.active !== false, pin: String(v.pin || '') })
       }
       json(res, 200, { venues: list })
       return
@@ -651,9 +658,23 @@ const server = http.createServer(async (req, res) => {
       const venues = await readVenues()
       const prev = venues[venueId] || { name: venueId, credits: 0, active: true }
       const nextCredits = Number(prev.credits || 0) + amount
-      venues[venueId] = { name: String(prev.name || venueId), credits: Math.max(0, nextCredits), active: prev.active !== false }
+      venues[venueId] = { name: String(prev.name || venueId), credits: Math.max(0, nextCredits), active: prev.active !== false, pin: String(prev.pin || '') }
       await writeVenues(venues)
       json(res, 200, { ok: true, venueId, credits: venues[venueId].credits })
+      return
+    }
+    if (pathname === '/api/admin/venues/pin' && req.method === 'POST') {
+      if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const body = await parseBody(req)
+      const venueId = String(body.venueId || '').trim()
+      const pin = String(body.pin || '').trim()
+      if (!venueId || !pin) { json(res, 400, { error: 'bad_input' }); return }
+      const venues = await readVenues()
+      const prev = venues[venueId] || { name: venueId, credits: 0, active: true }
+      venues[venueId] = { name: String(prev.name || venueId), credits: Number(prev.credits || 0), active: prev.active !== false, pin }
+      await writeVenues(venues)
+      json(res, 200, { ok: true, venueId, pin })
       return
     }
     if (pathname === '/api/admin/db-status' && req.method === 'GET') {
