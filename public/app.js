@@ -1,5 +1,5 @@
 // Añadimos venueId para operar en modo SaaS multi-venue
-let S = { sessionId: '', venueId: '', user: null, staff: null, role: '', sse: null, staffSSE: null, currentInvite: null, meeting: null, consumptionReq: null, nav: { history: [], current: '' }, notifications: { invites: 0 }, timers: { userPoll: 0, staffPoll: 0, userReconnect: 0, staffReconnect: 0, catalogSave: 0, modalHide: 0 }, staffTab: '', cart: [], messageTTL: 4000, modalShownAt: 0, isMeetingReceiver: false, meetingPlan: '', sched: {}, loading: {}, catalogGroups: {}, catalogCat: '', catalogSubcat: '' }
+let S = { sessionId: '', venueId: '', user: null, staff: null, role: '', sse: null, staffSSE: null, currentInvite: null, meeting: null, consumptionReq: null, nav: { history: [], current: '' }, notifications: { invites: 0 }, timers: { userPoll: 0, staffPoll: 0, userReconnect: 0, staffReconnect: 0, catalogSave: 0, modalHide: 0 }, staffTab: '', cart: [], messageTTL: 4000, modalShownAt: 0, isMeetingReceiver: false, meetingPlan: '', sched: {}, loading: {}, catalogGroups: {}, catalogCat: '', catalogSubcat: '', waiterReason: '' }
 
 function q(id) { return document.getElementById(id) }
 function show(id) {
@@ -1192,20 +1192,23 @@ async function loadWaiterCalls() {
   const r = await api(`/api/staff/waiter?sessionId=${encodeURIComponent(S.sessionId)}`)
   const container = q('waiter-calls')
   container.innerHTML = ''
-  for (const c of r.calls) {
+  const list = (r.calls || []).slice().sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0))
+  for (const c of list) {
     const div = document.createElement('div')
     div.className = 'card'
     const info = document.createElement('div')
-    info.textContent = `Mesa ${c.tableId || '-'} • ${c.userAlias ? c.userAlias : c.userId} • ${c.reason} • ${c.status}`
+    info.textContent = `Mesa ${c.tableId || '-'} • ${c.userAlias ? c.userAlias : c.userId} • ${c.reason} • ${c.status} • ${formatTimeShort(c.ts)}`
     const row = document.createElement('div')
     row.className = 'row'
-    const btn = document.createElement('button'); btn.textContent = 'Atendido'; btn.onclick = async () => { await api(`/api/staff/waiter/${c.id}`, { method: 'POST', body: JSON.stringify({ status: 'atendido' }) }); loadWaiterCalls() }
-    row.append(btn)
+    const b1 = document.createElement('button'); b1.textContent = 'En camino'; b1.onclick = async () => { await api(`/api/staff/waiter/${c.id}`, { method: 'POST', body: JSON.stringify({ status: 'en_camino' }) }); loadWaiterCalls() }
+    const b2 = document.createElement('button'); b2.textContent = 'Atendido'; b2.onclick = async () => { await api(`/api/staff/waiter/${c.id}`, { method: 'POST', body: JSON.stringify({ status: 'atendido' }) }); loadWaiterCalls() }
+    const b3 = document.createElement('button'); b3.textContent = 'Cancelar'; b3.onclick = async () => { await api(`/api/staff/waiter/${c.id}`, { method: 'POST', body: JSON.stringify({ status: 'cancelado' }) }); loadWaiterCalls() }
+    row.append(b1, b2, b3)
     div.append(info, row)
     container.append(div)
   }
   const bWaiter = q('badge-tab-waiter')
-  if (bWaiter) { const v = (r.calls || []).filter(x => x.status === 'pendiente').length; bWaiter.classList.toggle('show', v > 0); bWaiter.textContent = v > 9 ? '9+' : String(v) }
+  if (bWaiter) { const v = (r.calls || []).filter(x => x.status !== 'atendido' && x.status !== 'cancelado').length; bWaiter.classList.toggle('show', v > 0); bWaiter.textContent = v > 9 ? '9+' : String(v) }
 }
 async function approveSelfie(userId) {
   await api('/api/moderation/approve-selfie', { method: 'POST', body: JSON.stringify({ staffId: S.user.id, userId }) })
@@ -1247,6 +1250,8 @@ function bind() {
   q('btn-consumption-send').onclick = sendConsumption
   const btnAddCart = q('btn-add-to-cart'); if (btnAddCart) btnAddCart.onclick = addToCart
   const btnWaiterOrder = q('btn-waiter-order'); if (btnWaiterOrder) btnWaiterOrder.onclick = callWaiterOrder
+  for (const b of document.querySelectorAll('.btn-waiter-reason')) b.onclick = chooseWaiterReason
+  const btnWaiterOther = q('btn-waiter-other'); if (btnWaiterOther) btnWaiterOther.onclick = () => { S.waiterReason = 'otro'; const other = q('waiter-other'); if (other) other.style.display = ''; for (const b of document.querySelectorAll('.btn-waiter-reason')) b.classList.remove('active') }
   const btnBack = q('btn-back'); if (btnBack) btnBack.onclick = goBack
   const nc = q('nav-carta'), nd = q('nav-disponibles'), nm = q('nav-mesas'), no = q('nav-orders'), nf = q('nav-perfil')
   if (nc) nc.onclick = () => { setActiveNav('carta'); openMenu() }
@@ -1519,12 +1524,21 @@ async function saveEditProfile() {
  
 
 function openCallWaiter() {
-  callWaiterQuick()
+  S.waiterReason = ''
+  const other = q('waiter-other'); if (other) { other.value = ''; other.style.display = 'none' }
+  for (const b of document.querySelectorAll('.btn-waiter-reason')) { b.classList.remove('active') }
+  show('screen-call-waiter')
 }
 
 async function sendWaiterCall() {
-  const reason = q('waiter-reason') ? q('waiter-reason').value.trim() : ''
-  const ok = await confirmAction(`Vas a llamar al mesero. ¿Confirmas?`)
+  let reason = ''
+  if (S.waiterReason === 'hielo') reason = 'Me puedes traer hielo'
+  else if (S.waiterReason === 'pasabocas') reason = 'Me puedes traer pasabocas'
+  else if (S.waiterReason === 'limpieza') reason = '¿Puedes limpiar la mesa?'
+  else if (S.waiterReason === 'otro') { reason = q('waiter-other') ? q('waiter-other').value.trim() : '' }
+  else { reason = 'Atención' }
+  const phr = reason ? `Vas a llamar al mesero: ${reason}. ¿Confirmas?` : `Vas a llamar al mesero. ¿Confirmas?`
+  const ok = await confirmAction(phr)
   if (!ok) return
   if (!S.user.tableId) { showError('Debes seleccionar tu mesa'); setTimeout(() => showError(''), 1200); openSelectTable(); return }
   await api('/api/waiter/call', { method: 'POST', body: JSON.stringify({ userId: S.user.id, reason: (reason || 'Atención') }) })
@@ -1548,6 +1562,14 @@ async function callWaiterOrder() {
   await api('/api/waiter/call', { method: 'POST', body: JSON.stringify({ userId: S.user.id, reason: 'Tomar orden en mesa' }) })
   showError('Mesero pedido para tomar orden')
   setTimeout(() => showError(''), 1200)
+}
+function chooseWaiterReason(e) {
+  const el = e.currentTarget
+  const val = el && el.getAttribute('data-reason') || ''
+  S.waiterReason = val
+  for (const b of document.querySelectorAll('.btn-waiter-reason')) b.classList.remove('active')
+  el.classList.add('active')
+  const other = q('waiter-other'); if (other) other.style.display = val === 'otro' ? '' : 'none'
 }
 
 async function viewPromos() {

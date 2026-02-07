@@ -298,8 +298,15 @@
   <div id="screen-call-waiter" class="screen">
     <h2>Llamar mesero</h2>
     <div class="card">
-      <label>Motivo</label>
-      <input id="waiter-reason" placeholder="Ej. Necesitamos la cuenta">
+      <div class="row">
+        <button class="btn-waiter-reason" data-reason="hielo">Traer hielo</button>
+        <button class="btn-waiter-reason" data-reason="pasabocas">Traer pasabocas</button>
+        <button class="btn-waiter-reason" data-reason="limpieza">Limpiar la mesa</button>
+        <button id="btn-waiter-other">Necesito algo diferente</button>
+      </div>
+      <div class="row">
+        <input id="waiter-other" placeholder="Describe lo que necesitas" style="display:none">
+      </div>
       <button id="btn-waiter-send">Llamar</button>
     </div>
   </div>
