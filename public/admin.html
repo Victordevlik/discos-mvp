@@ -61,11 +61,20 @@
     <div id="venues-list" class="grid"></div>
   </div>
   <div class="card">
-    <h3>Agregar crédito</h3>
+    <h3>Créditos</h3>
     <div class="row">
       <input id="venue-new-id" type="text" placeholder="venueId">
       <input id="venue-new-amount" type="number" min="1" value="1" placeholder="cantidad">
       <button id="btn-add-credit">Agregar crédito</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input id="venue-del-id" type="text" placeholder="venueId">
+      <input id="venue-del-amount" type="number" min="1" value="1" placeholder="cantidad">
+      <button id="btn-del-credit">Eliminar crédito</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input id="venue-reset-id" type="text" placeholder="venueId">
+      <button id="btn-reset-credit">Reset créditos</button>
     </div>
   </div>
   <script>
@@ -185,6 +194,27 @@
             await loadVenues()
           } catch (e) { showError(String(e.message)) }
         }
+        const subBtn = document.createElement('button')
+        subBtn.textContent = '-1 noche'
+        subBtn.onclick = async () => {
+          try {
+            const secret = document.getElementById('admin-secret').value.trim()
+            if (!secret) { showError('Ingresa clave admin'); return }
+            await api('/api/admin/venues/credit', { method: 'POST', headers: { 'X-Admin-Secret': secret }, body: JSON.stringify({ venueId: v.venueId, amount: -1 }) })
+            await loadVenues()
+          } catch (e) { showError(String(e.message)) }
+        }
+        const resetBtn = document.createElement('button')
+        resetBtn.textContent = 'Reset créditos'
+        resetBtn.onclick = async () => {
+          try {
+            const secret = document.getElementById('admin-secret').value.trim()
+            if (!secret) { showError('Ingresa clave admin'); return }
+            const amount = -Number(v.credits || 0)
+            await api('/api/admin/venues/credit', { method: 'POST', headers: { 'X-Admin-Secret': secret }, body: JSON.stringify({ venueId: v.venueId, amount }) })
+            await loadVenues()
+          } catch (e) { showError(String(e.message)) }
+        }
         const actBtn = document.createElement('button')
         actBtn.textContent = v.active ? 'Desactivar' : 'Activar'
         actBtn.onclick = async () => {
@@ -208,6 +238,8 @@
           } catch (e) { showError(String(e.message)) }
         }
         actions.appendChild(addBtn)
+        actions.appendChild(subBtn)
+        actions.appendChild(resetBtn)
         actions.appendChild(actBtn)
         actions.appendChild(delBtn)
         card.appendChild(head)
@@ -251,6 +283,41 @@
       if (!secret) { showError('Ingresa clave admin'); return }
       if (!venueId) { showError('Ingresa un venueId'); return }
       try {
+        await api('/api/admin/venues/credit', {
+          method: 'POST',
+          headers: { 'X-Admin-Secret': secret },
+          body: JSON.stringify({ venueId, amount })
+        })
+        await loadVenues()
+      } catch (e) { showError(String(e.message)) }
+    }
+    document.getElementById('btn-del-credit').onclick = async () => {
+      showError('')
+      const secret = document.getElementById('admin-secret').value.trim()
+      const venueId = document.getElementById('venue-del-id').value.trim()
+      const amountStr = document.getElementById('venue-del-amount').value
+      const amount = Math.max(1, Number(amountStr || 1))
+      if (!secret) { showError('Ingresa clave admin'); return }
+      if (!venueId) { showError('Ingresa un venueId'); return }
+      try {
+        await api('/api/admin/venues/credit', {
+          method: 'POST',
+          headers: { 'X-Admin-Secret': secret },
+          body: JSON.stringify({ venueId, amount: -amount })
+        })
+        await loadVenues()
+      } catch (e) { showError(String(e.message)) }
+    }
+    document.getElementById('btn-reset-credit').onclick = async () => {
+      showError('')
+      const secret = document.getElementById('admin-secret').value.trim()
+      const venueId = document.getElementById('venue-reset-id').value.trim()
+      if (!secret) { showError('Ingresa clave admin'); return }
+      if (!venueId) { showError('Ingresa un venueId'); return }
+      const target = VENUES_CACHE.find(v => v.venueId === venueId)
+      if (!target) { showError('Venue no encontrado. Cárgalo y revisa el ID.'); return }
+      try {
+        const amount = -Number(target.credits || 0)
         await api('/api/admin/venues/credit', {
           method: 'POST',
           headers: { 'X-Admin-Secret': secret },
