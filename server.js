@@ -1723,10 +1723,10 @@ const server = http.createServer(async (req, res) => {
       }
       if (s) s.catalog = clean
       if (db) {
-        try { await dbWriteSessionCatalog(s ? s.id : 'global', clean) } catch {}
-        try { await dbWriteGlobalCatalog(clean) } catch {}
+        if (s) { try { await dbWriteSessionCatalog(s.id, clean) } catch {} }
+        else { try { await dbWriteGlobalCatalog(clean) } catch {} }
       } else {
-        writeGlobalCatalog(clean)
+        if (!s) writeGlobalCatalog(clean)
       }
       if (s) sendToStaff(s.id, 'catalog_update', { items: s.catalog })
       json(res, 200, { ok: true })
@@ -1736,22 +1736,27 @@ const server = http.createServer(async (req, res) => {
       const sessionId = query.sessionId
       if (db) {
         let items = []
+        let source = ''
         if (sessionId) {
           try { items = await dbReadSessionCatalog(sessionId) } catch {}
+          if (items && items.length) source = 'session'
         }
         if (!items || !items.length) {
           try { items = await dbReadGlobalCatalog() } catch {}
+          if (items && items.length && !source) source = 'global'
         }
         if (!items || !items.length) {
           try { items = readGlobalCatalog() } catch {}
+          if (!source) source = 'file'
         }
-        json(res, 200, { items })
+        json(res, 200, { items, source })
         return
       }
       const s = sessionId ? ensureSession(sessionId) : null
       const base = readGlobalCatalog()
-      const items = (s && Array.isArray(s.catalog) && s.catalog.length) ? s.catalog : base
-      json(res, 200, { items })
+      const useSession = !!(s && Array.isArray(s.catalog) && s.catalog.length)
+      const items = useSession ? s.catalog : base
+      json(res, 200, { items, source: useSession ? 'session' : 'file' })
       return
     }
     if (pathname === '/api/survey/submit' && req.method === 'POST') {

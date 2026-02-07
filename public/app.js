@@ -1356,6 +1356,8 @@ function bind() {
   const btnStaff2TableView = q('btn-staff2-table-view'); if (btnStaff2TableView) btnStaff2TableView.onclick = viewStaffTableHistory2
   const btnStaff2TableClose = q('btn-staff2-table-close'); if (btnStaff2TableClose) btnStaff2TableClose.onclick = closeStaffTable2
   const btnStaffCatalogSave = q('btn-staff-catalog-save'); if (btnStaffCatalogSave) btnStaffCatalogSave.onclick = saveStaffCatalog
+  const btnStaffCatalogUseGlobal = q('btn-staff-catalog-use-global'); if (btnStaffCatalogUseGlobal) btnStaffCatalogUseGlobal.onclick = useGlobalCatalog
+  const btnStaffCatalogCopyGlobal = q('btn-staff-catalog-copy-global'); if (btnStaffCatalogCopyGlobal) btnStaffCatalogCopyGlobal.onclick = copyGlobalToSession
   const btnStaffCatalogAdd = q('btn-staff-catalog-add'); if (btnStaffCatalogAdd) btnStaffCatalogAdd.onclick = () => {
     const name = q('staff-catalog-add-name')?.value.trim()
     const price = Number(q('staff-catalog-add-price')?.value || 0)
@@ -2295,6 +2297,11 @@ function addToCart() {
 async function loadStaffCatalogEditor() {
   try {
     const r = await api(`/api/catalog${S.sessionId ? ('?sessionId=' + encodeURIComponent(S.sessionId)) : ''}`)
+    const srcEl = q('staff-catalog-source')
+    if (srcEl) {
+      const map = { session: 'Fuente: Carta del venue (sesión)', global: 'Fuente: Carta global', file: 'Fuente: Carta global (archivo)' }
+      srcEl.textContent = map[r.source] || 'Fuente: Carta'
+    }
     const container = q('staff-catalog-list')
     if (!container) return
     container.innerHTML = ''
@@ -2351,6 +2358,20 @@ async function saveStaffCatalog() {
     await api('/api/staff/catalog', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, items }) })
     showError('Carta guardada')
     setTimeout(() => showError(''), 1000)
+    await loadStaffCatalogEditor()
+  } catch (e) { showError(String(e.message)) }
+}
+async function useGlobalCatalog() {
+  try {
+    await api('/api/staff/catalog', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, items: [] }) })
+    await loadStaffCatalogEditor()
+  } catch (e) { showError(String(e.message)) }
+}
+async function copyGlobalToSession() {
+  try {
+    const r = await api('/api/catalog')
+    const items = r.items || []
+    await api('/api/staff/catalog', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, items }) })
     await loadStaffCatalogEditor()
   } catch (e) { showError(String(e.message)) }
 }
