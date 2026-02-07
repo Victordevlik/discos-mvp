@@ -57,7 +57,7 @@ try {
   const conn = candidates[0] || ''
   if (conn) {
       db = new Pool({ connectionString: conn, ssl: { require: true, rejectUnauthorized: false } })
-    ;(async () => { try { await initDB() } catch {} })()
+    ;(async () => { try { await initDB(); await ensureGlobalCatalogSeed() } catch {} })()
   }
 } catch {}
 async function initDB() {
@@ -162,6 +162,14 @@ async function dbWriteGlobalCatalog(items) {
   for (const it of Array.isArray(items) ? items : []) {
     await db.query('INSERT INTO catalog_items (session_id, name, price, category, subcategory) VALUES ($1,$2,$3,$4,$5)', ['global', String(it.name || ''), Number(it.price || 0), String(it.category || 'otros'), String(it.subcategory || '')])
   }
+}
+async function ensureGlobalCatalogSeed() {
+  if (!db) return
+  await initDB()
+  try {
+    const items = readGlobalCatalog()
+    await dbWriteGlobalCatalog(items)
+  } catch {}
 }
 async function dbReadSessionCatalog(sessionId) {
   if (!db) return []
@@ -1733,6 +1741,9 @@ const server = http.createServer(async (req, res) => {
         }
         if (!items || !items.length) {
           try { items = await dbReadGlobalCatalog() } catch {}
+        }
+        if (!items || !items.length) {
+          try { items = readGlobalCatalog() } catch {}
         }
         json(res, 200, { items })
         return
