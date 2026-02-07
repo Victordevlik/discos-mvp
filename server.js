@@ -295,12 +295,34 @@ function isAdminAuthorized(req, query) {
 }
 
 const defaultCatalog = [
-  { name: 'Cerveza', price: 10000, category: 'cervezas' },
+  // Cervezas
+  { name: 'Cerveza Lager', price: 10000, category: 'cervezas' },
+  { name: 'Cerveza IPA', price: 12000, category: 'cervezas' },
+  { name: 'Cerveza Stout', price: 12000, category: 'cervezas' },
+  { name: 'Cerveza Pilsner', price: 10000, category: 'cervezas' },
+  { name: 'Cerveza Wheat', price: 11000, category: 'cervezas' },
+  // Botellas
+  { name: 'Botella de Ron', price: 120000, category: 'botellas' },
+  { name: 'Botella de Aguardiente', price: 100000, category: 'botellas' },
+  { name: 'Botella de Whisky', price: 220000, category: 'botellas' },
+  { name: 'Botella de Tequila', price: 180000, category: 'botellas' },
+  { name: 'Botella de Vodka', price: 160000, category: 'botellas' },
+  { name: 'Botella de Gin', price: 160000, category: 'botellas' },
+  // Cocteles
   { name: 'Mojito', price: 20000, category: 'cocteles' },
   { name: 'Gin Tonic', price: 18000, category: 'cocteles' },
+  { name: 'Margarita', price: 22000, category: 'cocteles' },
+  { name: 'Piña Colada', price: 22000, category: 'cocteles' },
+  { name: 'Cuba Libre', price: 18000, category: 'cocteles' },
+  { name: 'Negroni', price: 24000, category: 'cocteles' },
+  // Sodas y sin alcohol
   { name: 'Agua', price: 5000, category: 'sodas' },
-  { name: 'Tequila Shot', price: 15000, category: 'cocteles' },
-  { name: 'Vodka Shot', price: 12000, category: 'cocteles' },
+  { name: 'Agua con gas', price: 6000, category: 'sodas' },
+  { name: 'Soda', price: 6000, category: 'sodas' },
+  { name: 'Tónica', price: 7000, category: 'sodas' },
+  { name: 'Coca Cola', price: 7000, category: 'sodas' },
+  { name: 'Sprite', price: 7000, category: 'sodas' },
+  { name: 'Jugo natural', price: 12000, category: 'sodas' },
 ]
 const allowedCategories = ['cervezas','botellas','cocteles','sodas','otros']
 function sanitizeItem(it) {
