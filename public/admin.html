@@ -5,15 +5,36 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Panel Admin</title>
   <link rel="stylesheet" href="/styles.css">
+  <style>
+    body { max-width: 960px; margin: 0 auto; }
+    .toolbar { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center }
+    .info.ok { color: #0a7 }
+    .info.warn { color: #c50 }
+    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px }
+    .venue-card { padding: 12px; border: 1px solid #333; border-radius: 8px }
+    .venue-head { display: flex; justify-content: space-between; align-items: baseline }
+    .badge { padding: 2px 8px; border-radius: 12px; font-size: 12px }
+    .badge.active { background: #0a7; color: #fff }
+    .badge.inactive { background: #999; color: #fff }
+    .actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-top: 8px }
+    .row.compact { gap: 6px }
+    #venues-list { margin-top: 8px }
+    #summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px }
+    .kpi { padding: 10px; border: 1px solid #333; border-radius: 8px; text-align: center }
+    .kpi .num { font-size: 20px; font-weight: 600 }
+    .filter { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; margin-top: 8px }
+  </style>
 </head>
 <body>
   <div class="card">
     <h2>Panel Admin</h2>
-    <!-- Clave ADMIN_SECRET requerida para todas las acciones -->
-    <div class="row">
-      <label>Clave admin</label>
-      <input id="admin-secret" type="password" placeholder="ADMIN_SECRET">
-      <button id="btn-load">Cargar venues</button>
+    <div class="toolbar">
+      <div class="row compact">
+        <label>Clave admin</label>
+        <input id="admin-secret" type="password" placeholder="ADMIN_SECRET">
+      </div>
+      <button id="btn-load">Cargar</button>
+      <button id="btn-refresh">Refrescar</button>
     </div>
     <div id="db-status" class="info"></div>
     <div id="error" class="error"></div>
@@ -28,8 +49,16 @@
   </div>
   <div class="card">
     <h3>Locales</h3>
-    <!-- Lista simple de venues con botón +1 noche -->
-    <div id="venues-list"></div>
+    <div id="summary">
+      <div class="kpi"><div>Total</div><div class="num" id="sum-total">0</div></div>
+      <div class="kpi"><div>Activos</div><div class="num" id="sum-active">0</div></div>
+      <div class="kpi"><div>Créditos</div><div class="num" id="sum-credits">0</div></div>
+    </div>
+    <div class="filter">
+      <input id="filter-text" type="text" placeholder="Buscar por nombre o ID">
+      <button id="btn-clear-filter" class="secondary">Limpiar</button>
+    </div>
+    <div id="venues-list" class="grid"></div>
   </div>
   <div class="card">
     <h3>Agregar crédito</h3>
@@ -40,7 +69,6 @@
     </div>
   </div>
   <script>
-    // Fetch con manejo de JSON
     async function api(path, { method = 'GET', headers = {}, body } = {}) {
       const res = await fetch(path, {
         method,
@@ -65,6 +93,104 @@
       t.textContent = msg || ''
       m.classList.add('show')
     }
+    let VENUES_CACHE = []
+    function renderSummary(list) {
+      const total = list.length
+      const active = list.filter(v => v.active).length
+      const credits = list.reduce((a, v) => a + Number(v.credits || 0), 0)
+      const st = document.getElementById('sum-total'); if (st) st.textContent = String(total)
+      const sa = document.getElementById('sum-active'); if (sa) sa.textContent = String(active)
+      const sc = document.getElementById('sum-credits'); if (sc) sc.textContent = String(credits)
+    }
+    function renderVenues(list) {
+      const container = document.getElementById('venues-list')
+      container.innerHTML = ''
+      if (!list.length) { container.textContent = 'No hay locales'; return }
+      for (const v of list) {
+        const card = document.createElement('div')
+        card.className = 'venue-card'
+        const head = document.createElement('div')
+        head.className = 'venue-head'
+        const title = document.createElement('div')
+        title.textContent = `${v.name} (${v.venueId})`
+        const badge = document.createElement('span')
+        badge.className = 'badge ' + (v.active ? 'active' : 'inactive')
+        badge.textContent = v.active ? 'Activo' : 'Inactivo'
+        head.appendChild(title)
+        head.appendChild(badge)
+        const info = document.createElement('div')
+        const url = `${location.origin}/?venueId=${encodeURIComponent(v.venueId)}`
+        info.textContent = `Créditos: ${v.credits} • PIN: ${v.pin ? v.pin : '-'} • Email: ${v.email ? v.email : '-'}`
+        const link = document.createElement('a')
+        link.href = url; link.target = '_blank'; link.rel = 'noopener'; link.textContent = url
+        const inputs = document.createElement('div')
+        inputs.className = 'row compact'
+        const pinInput = document.createElement('input')
+        pinInput.type = 'password'; pinInput.placeholder = 'PIN (4 dígitos)'
+        const pinBtn = document.createElement('button')
+        pinBtn.textContent = 'Guardar PIN'
+        pinBtn.onclick = async () => {
+          try {
+            const secret = document.getElementById('admin-secret').value.trim()
+            const pin = pinInput.value.trim()
+            if (!secret) { showError('Ingresa clave admin'); return }
+            if (!pin) { showError('Ingresa un PIN'); return }
+            await api('/api/admin/venues/pin', { method: 'POST', headers: { 'X-Admin-Secret': secret }, body: JSON.stringify({ venueId: v.venueId, pin }) })
+            await loadVenues()
+          } catch (e) { showError(String(e.message)) }
+        }
+        const emailInput = document.createElement('input')
+        emailInput.type = 'email'; emailInput.placeholder = 'Email del venue'
+        const emailBtn = document.createElement('button')
+        emailBtn.textContent = 'Guardar email'
+        emailBtn.onclick = async () => {
+          try {
+            const secret = document.getElementById('admin-secret').value.trim()
+            const email = emailInput.value.trim()
+            if (!secret) { showError('Ingresa clave admin'); return }
+            if (!email) { showError('Ingresa un email'); return }
+            await api('/api/admin/venues/email', { method: 'POST', headers: { 'X-Admin-Secret': secret }, body: JSON.stringify({ venueId: v.venueId, email }) })
+            await loadVenues()
+          } catch (e) { showError(String(e.message)) }
+        }
+        inputs.appendChild(pinInput)
+        inputs.appendChild(pinBtn)
+        inputs.appendChild(emailInput)
+        inputs.appendChild(emailBtn)
+        const actions = document.createElement('div')
+        actions.className = 'actions'
+        const addBtn = document.createElement('button')
+        addBtn.textContent = '+1 noche'
+        addBtn.onclick = async () => {
+          try {
+            const secret = document.getElementById('admin-secret').value.trim()
+            if (!secret) { showError('Ingresa clave admin'); return }
+            await api('/api/admin/venues/credit', { method: 'POST', headers: { 'X-Admin-Secret': secret }, body: JSON.stringify({ venueId: v.venueId, amount: 1 }) })
+            await loadVenues()
+          } catch (e) { showError(String(e.message)) }
+        }
+        const delBtn = document.createElement('button')
+        delBtn.textContent = 'Eliminar'
+        delBtn.onclick = async () => {
+          try {
+            const secret = document.getElementById('admin-secret').value.trim()
+            if (!secret) { showError('Ingresa clave admin'); return }
+            const ok = confirm(`¿Eliminar el local "${v.name}" (${v.venueId})?`)
+            if (!ok) return
+            await api('/api/admin/venues/delete', { method: 'POST', headers: { 'X-Admin-Secret': secret }, body: JSON.stringify({ venueId: v.venueId }) })
+            await loadVenues()
+          } catch (e) { showError(String(e.message)) }
+        }
+        actions.appendChild(addBtn)
+        actions.appendChild(delBtn)
+        card.appendChild(head)
+        card.appendChild(info)
+        card.appendChild(link)
+        card.appendChild(inputs)
+        card.appendChild(actions)
+        container.appendChild(card)
+      }
+    }
     async function loadVenues() {
       showError('')
       const secret = document.getElementById('admin-secret').value.trim()
@@ -77,99 +203,16 @@
           el.className = 'info ' + (st.connected ? 'ok' : 'warn')
         }
       } catch {}
-      // La clave se envía por query o header; aquí usamos query para GET
       const r = await api('/api/admin/venues?admin_secret=' + encodeURIComponent(secret))
-      const container = document.getElementById('venues-list')
-      container.innerHTML = ''
-      if (!r.venues || !r.venues.length) {
-        container.textContent = 'No hay locales. Usa “Agregar crédito” para crear uno.'
-      }
-      for (const v of r.venues || []) {
-        const row = document.createElement('div')
-        row.className = 'row'
-        const info = document.createElement('div')
-        info.textContent = `${v.name} (${v.venueId}) • créditos: ${v.credits} • activo: ${v.active ? 'sí' : 'no'} • PIN: ${v.pin ? v.pin : '-'} • Email: ${v.email ? v.email : '-'}`
-        const url = `${location.origin}/?venueId=${encodeURIComponent(v.venueId)}`
-        const link = document.createElement('a')
-        link.href = url
-        link.target = '_blank'
-        link.rel = 'noopener'
-        link.textContent = url
-        const btn = document.createElement('button')
-        btn.textContent = '+1 noche'
-        btn.onclick = async () => {
-          try {
-            // Para POST enviamos la clave por header
-            await api('/api/admin/venues/credit', {
-              method: 'POST',
-              headers: { 'X-Admin-Secret': secret },
-              body: JSON.stringify({ venueId: v.venueId, amount: 1 })
-            })
-            await loadVenues()
-          } catch (e) { showError(String(e.message)) }
-        }
-        const pinInput = document.createElement('input')
-        pinInput.type = 'password'
-        pinInput.placeholder = 'PIN (4 dígitos)'
-        const pinBtn = document.createElement('button')
-        pinBtn.textContent = 'Guardar PIN'
-        pinBtn.onclick = async () => {
-          try {
-            const pin = pinInput.value.trim()
-            if (!pin) { showError('Ingresa un PIN'); return }
-            await api('/api/admin/venues/pin', {
-              method: 'POST',
-              headers: { 'X-Admin-Secret': secret },
-              body: JSON.stringify({ venueId: v.venueId, pin })
-            })
-            await loadVenues()
-          } catch (e) { showError(String(e.message)) }
-        }
-        const emailInput = document.createElement('input')
-        emailInput.type = 'email'
-        emailInput.placeholder = 'Email del venue'
-        const emailBtn = document.createElement('button')
-        emailBtn.textContent = 'Guardar email'
-        emailBtn.onclick = async () => {
-          try {
-            const email = emailInput.value.trim()
-            if (!email) { showError('Ingresa un email'); return }
-            await api('/api/admin/venues/email', {
-              method: 'POST',
-              headers: { 'X-Admin-Secret': secret },
-              body: JSON.stringify({ venueId: v.venueId, email })
-            })
-            await loadVenues()
-          } catch (e) { showError(String(e.message)) }
-        }
-        const delBtn = document.createElement('button')
-        delBtn.textContent = 'Eliminar'
-        delBtn.onclick = async () => {
-          try {
-            const ok = confirm(`¿Eliminar el local "${v.name}" (${v.venueId})?`)
-            if (!ok) return
-            await api('/api/admin/venues/delete', {
-              method: 'POST',
-              headers: { 'X-Admin-Secret': secret },
-              body: JSON.stringify({ venueId: v.venueId })
-            })
-            await loadVenues()
-          } catch (e) { showError(String(e.message)) }
-        }
-        const col = document.createElement('div')
-        col.appendChild(info)
-        col.appendChild(link)
-        col.appendChild(pinInput)
-        col.appendChild(pinBtn)
-        col.appendChild(emailInput)
-        col.appendChild(emailBtn)
-        col.appendChild(delBtn)
-        row.appendChild(col)
-        row.appendChild(btn)
-        container.appendChild(row)
-      }
+      VENUES_CACHE = r.venues || []
+      renderSummary(VENUES_CACHE)
+      const f = document.getElementById('filter-text')
+      const q = f ? f.value.trim().toLowerCase() : ''
+      const filtered = q ? VENUES_CACHE.filter(v => (String(v.name || '').toLowerCase().includes(q) || String(v.venueId || '').toLowerCase().includes(q))) : VENUES_CACHE
+      renderVenues(filtered)
     }
     document.getElementById('btn-load').onclick = () => loadVenues().catch(e => showError(String(e.message)))
+    document.getElementById('btn-refresh').onclick = () => loadVenues().catch(e => showError(String(e.message)))
     document.getElementById('modal-close').onclick = () => { const m = document.getElementById('modal'); if (m) m.classList.remove('show') }
     document.getElementById('modal').onclick = (e) => { if (e.target && e.target.id === 'modal') { const m = document.getElementById('modal'); if (m) m.classList.remove('show') } }
     document.getElementById('btn-add-credit').onclick = async () => {
@@ -189,6 +232,14 @@
         await loadVenues()
       } catch (e) { showError(String(e.message)) }
     }
+    const ft = document.getElementById('filter-text')
+    if (ft) ft.oninput = () => {
+      const q = ft.value.trim().toLowerCase()
+      const filtered = q ? VENUES_CACHE.filter(v => (String(v.name || '').toLowerCase().includes(q) || String(v.venueId || '').toLowerCase().includes(q))) : VENUES_CACHE
+      renderVenues(filtered)
+    }
+    const cf = document.getElementById('btn-clear-filter')
+    if (cf) cf.onclick = () => { const f = document.getElementById('filter-text'); if (f) f.value = ''; renderVenues(VENUES_CACHE) }
   </script>
 </body>
 </html>
