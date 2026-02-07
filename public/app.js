@@ -1573,11 +1573,16 @@ async function restoreLocalUser() {
   try {
     let sidParam = ''
     let ajParam = ''
+    let venueParam = ''
+    let staffParam = ''
     try {
       const u = new URL(location.href)
       sidParam = u.searchParams.get('sessionId') || u.searchParams.get('s') || ''
       ajParam = u.searchParams.get('aj') || ''
+      venueParam = u.searchParams.get('venueId') || ''
+      staffParam = u.searchParams.get('staff') || ''
     } catch {}
+    if (venueParam && !sidParam && staffParam !== '1') return false
     const raw = localStorage.getItem('discos_user')
     if (!raw) return false
     const d = JSON.parse(raw)
