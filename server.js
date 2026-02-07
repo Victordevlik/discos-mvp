@@ -353,7 +353,8 @@ function ensureSession(sessionId) { return state.sessions.get(sessionId) }
 function sendToUser(userId, event, data) {
   const clients = state.sseUsers.get(userId)
   if (!clients) return
-  const payload = `event: ${event}\n` + `data: ${JSON.stringify(data)}\n\n`
+  const eid = String(now())
+  const payload = `id: ${eid}\n` + `event: ${event}\n` + `data: ${JSON.stringify(data)}\n\n`
   for (const res of clients) {
     try { res.write(payload) } catch {}
     const meta = state.sseUserMeta.get(res) || { startedAt: now(), lastWrite: now() }
@@ -365,7 +366,8 @@ function sendToUser(userId, event, data) {
 function sendToStaff(sessionId, event, data) {
   const clients = state.sseStaff.get(sessionId)
   if (!clients) return
-  const payload = `event: ${event}\n` + `data: ${JSON.stringify(data)}\n\n`
+  const eid = String(now())
+  const payload = `id: ${eid}\n` + `event: ${event}\n` + `data: ${JSON.stringify(data)}\n\n`
   for (const res of clients) {
     try { res.write(payload) } catch {}
     const meta = state.sseStaffMeta.get(res) || { startedAt: now(), lastWrite: now() }

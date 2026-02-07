@@ -1,5 +1,5 @@
 // Añadimos venueId para operar en modo SaaS multi-venue
-let S = { sessionId: '', venueId: '', user: null, staff: null, role: '', sse: null, staffSSE: null, currentInvite: null, meeting: null, consumptionReq: null, nav: { history: [], current: '' }, notifications: { invites: 0 }, timers: { userPoll: 0, staffPoll: 0, userReconnect: 0, staffReconnect: 0, catalogSave: 0, modalHide: 0 }, staffTab: '', cart: [], messageTTL: 4000, modalShownAt: 0, isMeetingReceiver: false, meetingPlan: '' }
+let S = { sessionId: '', venueId: '', user: null, staff: null, role: '', sse: null, staffSSE: null, currentInvite: null, meeting: null, consumptionReq: null, nav: { history: [], current: '' }, notifications: { invites: 0 }, timers: { userPoll: 0, staffPoll: 0, userReconnect: 0, staffReconnect: 0, catalogSave: 0, modalHide: 0 }, staffTab: '', cart: [], messageTTL: 4000, modalShownAt: 0, isMeetingReceiver: false, meetingPlan: '', sched: {}, loading: {} }
 
 function q(id) { return document.getElementById(id) }
 function show(id) {
@@ -256,18 +256,39 @@ function scheduleCatalogSave() {
   if (S.timers.catalogSave) { try { clearTimeout(S.timers.catalogSave) } catch {} }
   S.timers.catalogSave = setTimeout(async () => { S.timers.catalogSave = 0; try { await saveStaffCatalog() } catch {} }, 800)
 }
+function scheduleLater(key, fn, wait = 500) {
+  S.sched = S.sched || {}
+  if (S.sched[key]) { try { clearTimeout(S.sched[key]) } catch {} }
+  S.sched[key] = setTimeout(async () => {
+    S.sched[key] = 0
+    const lk = `_${key}_loading`
+    S.loading = S.loading || {}
+    if (S.loading[lk]) { scheduleLater(key, fn, wait); return }
+    S.loading[lk] = true
+    try { await fn() } catch {}
+    S.loading[lk] = false
+  }, wait)
+}
+function scheduleStaffOrdersUpdate() { scheduleLater('staff_orders', async () => { await loadOrders(); await loadAnalytics() }, 500) }
+function scheduleStaffUsersUpdate() { scheduleLater('staff_users', async () => { await loadUsers() }, 500) }
+function scheduleStaffWaiterUpdate() { scheduleLater('staff_waiter', async () => { await loadWaiterCalls(); await loadAnalytics() }, 500) }
+function scheduleStaffReportsUpdate() { scheduleLater('staff_reports', async () => { await loadReports(); await loadAnalytics() }, 500) }
+function scheduleStaffAnalyticsUpdate() { scheduleLater('staff_analytics', async () => { await loadAnalytics() }, 500) }
+function scheduleUserOrdersUpdate() { scheduleLater('user_orders', async () => { await loadUserOrders() }, 400) }
+function scheduleRenderUserHeader() { scheduleLater('user_header', async () => { renderUserHeader() }, 300) }
+function scheduleRefreshAvailableList() { scheduleLater('user_avail', async () => { await refreshAvailableList() }, 500) }
 function startUserPolls() {
   if (S.timers.userPoll) { try { clearInterval(S.timers.userPoll) } catch {} }
   S.timers.userPoll = setInterval(() => {
-    if (S.user && S.user.available && S.nav.current === 'screen-disponibles') refreshAvailableList()
-    if (S.nav.current === 'screen-orders-user') loadUserOrders()
-    if (S.nav.current === 'screen-user-home') renderUserHeader()
+    if (S.user && S.user.available && S.nav.current === 'screen-disponibles') scheduleRefreshAvailableList()
+    if (S.nav.current === 'screen-orders-user') scheduleUserOrdersUpdate()
+    if (S.nav.current === 'screen-user-home') scheduleRenderUserHeader()
   }, 8000)
 }
 function startStaffPolls() {
   if (S.timers.staffPoll) { try { clearInterval(S.timers.staffPoll) } catch {} }
   S.timers.staffPoll = setInterval(() => {
-    if (S.nav.current === 'screen-staff') { loadUsers(); loadOrders(); loadWaiterCalls(); loadReports(); loadAnalytics() }
+    if (S.nav.current === 'screen-staff') { scheduleStaffUsersUpdate(); scheduleStaffOrdersUpdate(); scheduleStaffWaiterUpdate(); scheduleStaffReportsUpdate(); scheduleStaffAnalyticsUpdate() }
   }, 8000)
 }
 
@@ -642,7 +663,7 @@ function startEvents() {
     S.user.danceState = data.state || 'idle'
     S.user.partnerAlias = data.partner ? (data.partner.alias || data.partner.id || '') : S.user.partnerAlias
     if (data.meeting && data.meeting.id) { S.meeting = data.meeting }
-    renderUserHeader()
+    scheduleRenderUserHeader()
   })
   S.sse.addEventListener('invite_result', e => {
     const data = JSON.parse(e.data)
@@ -683,7 +704,7 @@ function startEvents() {
   })
   S.sse.addEventListener('order_update', e => {
     const data = JSON.parse(e.data)
-    loadUserOrders()
+    scheduleUserOrdersUpdate()
   })
   S.sse.addEventListener('waiter_update', e => {
     const data = JSON.parse(e.data)
@@ -956,35 +977,30 @@ function startStaffEvents() {
   S.staffSSE.onopen = () => { if (S.timers.staffReconnect) { try { clearTimeout(S.timers.staffReconnect) } catch {}; S.timers.staffReconnect = 0 } }
   S.staffSSE.onerror = () => { scheduleStaffSSEReconnect() }
   S.staffSSE.addEventListener('order_new', e => {
-    loadOrders()
-    loadAnalytics()
+    scheduleStaffOrdersUpdate()
   })
   S.staffSSE.addEventListener('order_update', e => {
-    loadOrders()
-    loadAnalytics()
+    scheduleStaffOrdersUpdate()
   })
   S.staffSSE.addEventListener('report', e => {
-    loadReports()
-    loadAnalytics()
+    scheduleStaffReportsUpdate()
   })
   S.staffSSE.addEventListener('waiter_call', e => {
     const data = JSON.parse(e.data)
-    loadWaiterCalls()
-    loadAnalytics()
+    scheduleStaffWaiterUpdate()
     if (S.staffTab !== 'waiter') { showError(`Llamado de mesero: Mesa ${data.call.tableId || '-'}`); setTimeout(() => showError(''), 1500) }
   })
   S.staffSSE.addEventListener('waiter_update', e => {
     const data = JSON.parse(e.data)
-    loadWaiterCalls()
-    loadAnalytics()
+    scheduleStaffWaiterUpdate()
     if (S.staffTab !== 'waiter') { showError(`Llamado actualizado: ${data.call.status}`); setTimeout(() => showError(''), 1200) }
   })
   S.staffSSE.addEventListener('table_closed', e => {
-    loadAnalytics()
+    scheduleStaffAnalyticsUpdate()
     viewStaffTableHistory()
   })
   S.staffSSE.addEventListener('catalog_update', e => {
-    loadStaffCatalogEditor()
+    scheduleLater('staff_catalog', async () => { await loadStaffCatalogEditor() }, 500)
   })
   startStaffPolls()
 }
