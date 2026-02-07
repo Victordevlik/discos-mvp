@@ -1525,6 +1525,24 @@ const server = http.createServer(async (req, res) => {
       }
       return
     }
+    if (pathname === '/api/user/invites' && req.method === 'GET') {
+      const userId = query.userId
+      const TTL = 15 * 60 * 1000
+      const invites = []
+      for (const inv of state.invites.values()) {
+        if (inv.toId === userId && inv.status === 'pendiente' && within(TTL, inv.createdAt)) {
+          const from = state.users.get(inv.fromId)
+          invites.push({
+            id: inv.id,
+            msg: inv.msg,
+            createdAt: inv.createdAt,
+            from: { id: inv.fromId, alias: from ? (from.alias || '') : '', selfie: from ? (from.selfie || '') : '', tableId: from ? (from.tableId || '') : '', zone: from ? (from.zone || '') : '' }
+          })
+        }
+      }
+      json(res, 200, { invites })
+      return
+    }
     if (pathname === '/api/dance/finish' && req.method === 'POST') {
       const body = await parseBody(req)
       const u = state.users.get(body.userId)

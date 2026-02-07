@@ -743,6 +743,7 @@ function startEvents() {
     showSuccess(`Mensaje de ${data.from.alias}: ${data.message}`)
   })
   startUserPolls()
+  loadPendingInvites()
 }
 
 function renderMeeting() {
@@ -1617,6 +1618,18 @@ async function loadUserOrders() {
     if (o.isInvitation) div.append(invChip)
     container.append(div)
   }
+}
+async function loadPendingInvites() {
+  try {
+    if (!S.user || !S.user.id) return
+    const r = await api(`/api/user/invites?userId=${encodeURIComponent(S.user.id)}`)
+    const count = Array.isArray(r.invites) ? r.invites.length : 0
+    if (count > 0) {
+      S.notifications.invites = (S.notifications.invites || 0) + count
+      setBadgeNav('disponibles', S.notifications.invites)
+      showModal('Invitaciones pendientes', `Tienes ${count} invitación${count > 1 ? 'es' : ''} sin ver`, 'info')
+    }
+  } catch {}
 }
 async function finishDance() {
   const st = S.user?.danceState || 'idle'
