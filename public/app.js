@@ -959,7 +959,10 @@ async function loadOrders(state = '') {
     const mesaInfo = (o.mesaEntrega || o.receiverTable || o.emitterTable) ? ` • Mesa entrega ${o.mesaEntrega || o.receiverTable}` : ''
     const emAlias = (S.usersIndex && S.usersIndex[o.emitterId] ? S.usersIndex[o.emitterId].alias : o.emitterId)
     const reAlias = (S.usersIndex && S.usersIndex[o.receiverId] ? S.usersIndex[o.receiverId].alias : o.receiverId)
-    const amountTxt = (o.isInvitation && o.status === 'pendiente_cobro') ? ' • Invitación' : ` • $${o.total || 0}`
+    let amountTxt = ` • $${o.total || 0}`
+    if (o.isInvitation) {
+      amountTxt = (o.status === 'cobrado' || o.status === 'entregado') ? ` • $${o.total || 0}` : ' • Invitación'
+    }
     info.textContent = `${o.product} x${o.quantity || 1}${amountTxt} • Emisor ${emAlias} → Receptor ${reAlias}${mesaInfo} `
     info.append(chip)
     if (o.isInvitation) {
