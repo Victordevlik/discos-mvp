@@ -1007,10 +1007,14 @@ function startStaffEvents() {
 
 async function ensureSessionActiveOffer() {
   try {
-    const qs = S.venueId ? (`?venueId=${encodeURIComponent(S.venueId)}`) : ''
-    const r = await api(`/api/session/active${qs}`).catch(() => null)
-    if (r && r.sessionId) return true
-    showModalAction('Sin sesión activa', 'Inicia una sesión para este local', 'Iniciar sesión', () => { show('screen-staff-welcome') }, 'info')
+    let v = S.venueId
+    if (!v) {
+      try { const u = new URL(location.href); v = u.searchParams.get('venueId') || '' } catch {}
+    }
+    if (!v) v = 'default'
+    const r = await api(`/api/session/active?venueId=${encodeURIComponent(v)}`).catch(() => null)
+    if (r && r.sessionId && r.venueId === v) return true
+    show('screen-staff-welcome')
     return false
   } catch { return false }
 }
@@ -1143,7 +1147,7 @@ function bind() {
   if (nf) nf.onclick = () => { setActiveNav('perfil'); renderUserHeader(); show('screen-user-home') }
   const ua = q('user-alias'); if (ua) { ua.style.cursor = 'pointer'; ua.onclick = () => openEditProfileFocus('alias') }
   const ut = q('user-table'); if (ut) { ut.style.cursor = 'pointer'; ut.onclick = () => openEditProfileFocus('table') }
-  const linkStaff = q('link-staff'); if (linkStaff) linkStaff.onclick = async (e) => { e.preventDefault(); await ensureSessionActiveOffer() }
+  const linkStaff = q('link-staff'); if (linkStaff) linkStaff.onclick = (e) => { e.preventDefault(); show('screen-staff-welcome') }
   const fab = q('fab-call'); if (fab) fab.onclick = openCallWaiter
   const bAT = q('btn-avail-by-table'); if (bAT) bAT.onclick = exploreMesas
   const bAA = q('btn-avail-all'); if (bAA) bAA.onclick = viewAvailable
