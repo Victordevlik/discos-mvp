@@ -1,5 +1,5 @@
 // Añadimos venueId para operar en modo SaaS multi-venue
-let S = { sessionId: '', venueId: '', user: null, staff: null, role: '', sse: null, staffSSE: null, currentInvite: null, meeting: null, consumptionReq: null, nav: { history: [], current: '' }, notifications: { invites: 0 }, timers: { userPoll: 0, staffPoll: 0, userReconnect: 0, staffReconnect: 0, catalogSave: 0, modalHide: 0 }, staffTab: '', cart: [], messageTTL: 4000, modalShownAt: 0, isMeetingReceiver: false, meetingPlan: '', sched: {}, loading: {}, catalogGroups: {}, catalogCat: '', catalogSubcat: '', waiterReason: '' }
+let S = { sessionId: '', venueId: '', user: null, staff: null, role: '', sse: null, staffSSE: null, currentInvite: null, meeting: null, consumptionReq: null, nav: { history: [], current: '' }, notifications: { invites: 0 }, timers: { userPoll: 0, staffPoll: 0, userReconnect: 0, staffReconnect: 0, catalogSave: 0, modalHide: 0 }, staffTab: '', cart: [], messageTTL: 4000, modalShownAt: 0, isMeetingReceiver: false, meetingPlan: '', sched: {}, loading: {}, catalogGroups: {}, catalogCat: '', catalogSubcat: '', waiterReason: '', invitesQueue: [], inInviteFlow: false, missed: [] }
 
 function q(id) { return document.getElementById(id) }
 function show(id) {
@@ -653,16 +653,14 @@ function startEvents() {
   S.sse.onerror = () => { scheduleUserSSEReconnect() }
   S.sse.addEventListener('dance_invite', e => {
     const data = JSON.parse(e.data)
-    S.currentInvite = { id: data.invite.id, from: data.invite.from, expiresAt: Number(data.invite.expiresAt || 0) }
-    const mesaTxt = data.invite.from.tableId ? ` • Mesa ${data.invite.from.tableId}` : ''
-    const zoneTxt = data.invite.from.zone ? ` • Zona ${data.invite.from.zone}` : ''
-    q('invite-received-info').textContent = `${data.invite.from.alias} te invita${mesaTxt}${zoneTxt}`
-    const img = q('invite-from-selfie')
-    if (img) img.src = data.invite.from.selfie || ''
+    S.invitesQueue.push({ type: 'dance', id: data.invite.id, invite: data.invite })
     S.notifications.invites = (S.notifications.invites || 0) + 1
     setBadgeNav('disponibles', S.notifications.invites)
-    show('screen-invite-received')
-    startInviteCountdown(S.currentInvite.expiresAt)
+    if (document.hidden) {
+      const msg = `Invitación de baile de ${data.invite.from.alias}`
+      S.missed.push(msg)
+    }
+    if (!S.inInviteFlow) { showNextInvite() }
   })
   S.sse.addEventListener('match', e => {
     const data = JSON.parse(e.data)
@@ -680,6 +678,16 @@ function startEvents() {
   S.sse.addEventListener('invite_result', e => {
     const data = JSON.parse(e.data)
     stopInviteCountdown()
+    const invId = String(data.inviteId || '')
+    if (invId) {
+      const before = S.invitesQueue.length
+      S.invitesQueue = S.invitesQueue.filter(x => !(x.type === 'dance' && String(x.id || '') === invId))
+      const removed = before - S.invitesQueue.length
+      if (removed > 0) {
+        S.notifications.invites = Math.max(0, (S.notifications.invites || 0) - removed)
+        setBadgeNav('disponibles', S.notifications.invites)
+      }
+    }
     if (data.status === 'aceptado') {
       S.meeting = data.meeting
       S.isMeetingReceiver = !!(S.currentInvite && data.inviteId && S.currentInvite.id === data.inviteId)
@@ -687,12 +695,19 @@ function startEvents() {
       if (data.note) { const noteEl = q('meeting-note'); if (noteEl) noteEl.textContent = `Respuesta: ${data.note}`; showError(`Respuesta: ${data.note}`); setTimeout(() => showError(''), 1500) }
       renderMeeting()
     } else if (data.status === 'pasado') {
-      if (data.note) { showError(`Respuesta: ${data.note}`); setTimeout(() => showError(''), 1500) }
+      if (data.note) {
+        const msg = `Respuesta: ${data.note}`
+        if (document.hidden) { S.missed.push(msg) } else { showError(msg); setTimeout(() => showError(''), 1500) }
+      }
       show('screen-user-home')
+      S.inInviteFlow = false
+      showNextInvite()
     } else if (data.status === 'expirado') {
-      showError('Invitación expirada (30s)')
-      setTimeout(() => showError(''), 1500)
+      const msg = 'Invitación expirada (30s)'
+      if (document.hidden) { S.missed.push(msg) } else { showError(msg); setTimeout(() => showError(''), 1500) }
       show('screen-user-home')
+      S.inInviteFlow = false
+      showNextInvite()
     }
   })
   S.sse.addEventListener('meeting_plan', e => {
@@ -712,37 +727,52 @@ function startEvents() {
   })
   S.sse.addEventListener('consumption_invite', e => {
     const data = JSON.parse(e.data)
-    S.consumptionReq = data
-    const msg = data.note ? ` • Mensaje: ${data.note}` : ''
-    const mesaTxt = data.from.tableId ? ` • Mesa ${data.from.tableId}` : ''
-    q('invite-received-info').textContent = `${data.from.alias} te invita ${data.product}${mesaTxt}${msg}`
-    show('screen-invite-received')
+    S.invitesQueue.push({ type: 'consumption', data })
+    S.notifications.invites = (S.notifications.invites || 0) + 1
+    setBadgeNav('disponibles', S.notifications.invites)
+    if (document.hidden) {
+      const msg = `Invitación de consumo de ${data.from.alias}: ${data.product}`
+      S.missed.push(msg)
+    }
+    if (!S.inInviteFlow) { showNextInvite() }
   })
   S.sse.addEventListener('consumption_invite_bulk', e => {
     const data = JSON.parse(e.data)
-    S.consumptionReq = data
-    const msg = data.note ? ` • Mensaje: ${data.note}` : ''
-    const mesaTxt = data.from.tableId ? ` • Mesa ${data.from.tableId}` : ''
-    const listTxt = (Array.isArray(data.items) ? data.items.map(it => `${it.quantity} x ${it.product}`).join(', ') : '')
-    q('invite-received-info').textContent = `${data.from.alias} te invita ${listTxt}${mesaTxt}${msg}`
-    show('screen-invite-received')
+    S.invitesQueue.push({ type: 'consumption', data })
+    S.notifications.invites = (S.notifications.invites || 0) + 1
+    setBadgeNav('disponibles', S.notifications.invites)
+    if (document.hidden) {
+      const listTxt = (Array.isArray(data.items) ? data.items.map(it => `${it.quantity} x ${it.product}`).join(', ') : '')
+      const msg = `Invitación de consumo de ${data.from.alias}: ${listTxt}`
+      S.missed.push(msg)
+    }
+    if (!S.inInviteFlow) { showNextInvite() }
   })
   S.sse.addEventListener('consumption_accepted', e => {
     const data = JSON.parse(e.data)
-    showSuccess(`${data.from.alias} aceptó tu invitación: ${data.quantity} x ${data.product}`)
+    const msg = `${data.from.alias} aceptó tu invitación: ${data.quantity} x ${data.product}`
+    if (document.hidden) { S.missed.push(msg) } else { showSuccess(msg) }
+  })
+  S.sse.addEventListener('consumption_passed', e => {
+    const data = JSON.parse(e.data)
+    const listTxt = (Array.isArray(data.items) ? data.items.map(it => `${it.quantity} x ${it.product}`).join(', ') : data.product)
+    const msg = `${data.to.alias} pasó tu invitación: ${listTxt}`
+    if (document.hidden) { S.missed.push(msg) } else { showError(msg); setTimeout(() => showError(''), 1500) }
   })
   S.sse.addEventListener('order_update', e => {
     const data = JSON.parse(e.data)
-    scheduleUserOrdersUpdate()
+    if (document.hidden) { S.missed.push('Se actualizó tu orden') } else { scheduleUserOrdersUpdate() }
   })
   S.sse.addEventListener('waiter_update', e => {
     const data = JSON.parse(e.data)
-    showError(`Estado de tu llamado: ${data.call.status}`)
-    setTimeout(() => showError(''), 1200)
+    const msg = `Estado de tu llamado: ${data.call.status}`
+    if (document.hidden) { S.missed.push(msg) } else { showError(msg); setTimeout(() => showError(''), 1200) }
   })
   S.sse.addEventListener('meeting_expired', e => {
     S.meeting = null
     show('screen-user-home')
+    S.inInviteFlow = false
+    showNextInvite()
   })
   S.sse.addEventListener('thanks', e => {
     const data = JSON.parse(e.data)
@@ -794,6 +824,8 @@ async function respondInvite(accept) {
     }
     S.consumptionReq = null
     show('screen-user-home')
+    S.inInviteFlow = false
+    showNextInvite()
     return
   }
   if (!S.currentInvite) return
@@ -808,6 +840,7 @@ async function respondInvite(accept) {
   S.notifications.invites = Math.max(0, (S.notifications.invites || 0) - 1)
   setBadgeNav('disponibles', S.notifications.invites)
   if (!accept) show('screen-user-home')
+  if (!accept) { S.inInviteFlow = false; showNextInvite() }
 }
 
 function openThanks(toId, context) {
@@ -836,6 +869,8 @@ async function cancelMeeting() {
   await api('/api/meeting/cancel', { method: 'POST', body: JSON.stringify({ meetingId: S.meeting.id }) })
   S.meeting = null
   show('screen-user-home')
+  S.inInviteFlow = false
+  showNextInvite()
 }
 
 async function confirmMeeting() {
@@ -1258,6 +1293,14 @@ function bind() {
   if (nd) nd.onclick = () => { setActiveNav('disponibles'); showAvailableChoice() }
   if (nm) nm.onclick = () => { setActiveNav('mesas'); exploreMesas() }
   if (no) no.onclick = () => { setActiveNav('orders'); loadUserOrders(); show('screen-orders-user') }
+  const btnShowAllInv = q('btn-invite-show-all'); if (btnShowAllInv) btnShowAllInv.onclick = openInvitesInbox
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && Array.isArray(S.missed) && S.missed.length) {
+      const msg = S.missed.join('\n')
+      showModal('Notificaciones', msg, 'info')
+      S.missed = []
+    }
+  })
   if (nf) nf.onclick = () => { setActiveNav('perfil'); renderUserHeader(); show('screen-user-home') }
   const ua = q('user-alias'); if (ua) { ua.style.cursor = 'pointer'; ua.onclick = () => openEditProfileFocus('alias') }
   const ut = q('user-table'); if (ut) { ut.style.cursor = 'pointer'; ut.onclick = () => openEditProfileFocus('table') }
@@ -1652,13 +1695,70 @@ async function loadPendingInvites() {
   try {
     if (!S.user || !S.user.id) return
     const r = await api(`/api/user/invites?userId=${encodeURIComponent(S.user.id)}`)
-    const count = Array.isArray(r.invites) ? r.invites.length : 0
-    if (count > 0) {
-      S.notifications.invites = (S.notifications.invites || 0) + count
-      setBadgeNav('disponibles', S.notifications.invites)
-      showModal('Invitaciones pendientes', `Tienes ${count} invitación${count > 1 ? 'es' : ''} sin ver`, 'info')
+    const list = Array.isArray(r.invites) ? r.invites : []
+    for (const inv of list) {
+      S.invitesQueue.push({ type: 'dance', id: inv.id, invite: { id: inv.id, from: inv.from, expiresAt: Number(inv.expiresAt || 0) } })
+      S.notifications.invites = (S.notifications.invites || 0) + 1
     }
+    setBadgeNav('disponibles', S.notifications.invites)
+    if (list.length > 0 && !S.inInviteFlow) { showNextInvite() }
   } catch {}
+}
+function showNextInvite() {
+  if (S.inInviteFlow) return
+  const next = S.invitesQueue.shift()
+  if (!next) return
+  S.inInviteFlow = true
+  if (next.type === 'dance') {
+    S.currentInvite = { id: next.invite.id, from: next.invite.from, expiresAt: Number(next.invite.expiresAt || 0) }
+    const mesaTxt = S.currentInvite.from.tableId ? ` • Mesa ${S.currentInvite.from.tableId}` : ''
+    const zoneTxt = S.currentInvite.from.zone ? ` • Zona ${S.currentInvite.from.zone}` : ''
+    const info = q('invite-received-info'); if (info) info.textContent = `${S.currentInvite.from.alias} te invita${mesaTxt}${zoneTxt}`
+    const img = q('invite-from-selfie'); if (img) img.src = S.currentInvite.from.selfie || ''
+    startInviteCountdown(S.currentInvite.expiresAt)
+    show('screen-invite-received')
+  } else if (next.type === 'consumption') {
+    S.consumptionReq = next.data
+    const msg = S.consumptionReq.note ? ` • Mensaje: ${S.consumptionReq.note}` : ''
+    const mesaTxt = S.consumptionReq.from.tableId ? ` • Mesa ${S.consumptionReq.from.tableId}` : ''
+    const listTxt = (Array.isArray(S.consumptionReq.items) ? S.consumptionReq.items.map(it => `${it.quantity} x ${it.product}`).join(', ') : S.consumptionReq.product)
+    const info = q('invite-received-info'); if (info) info.textContent = `${S.consumptionReq.from.alias} te invita ${listTxt}${mesaTxt}${msg}`
+    stopInviteCountdown()
+    show('screen-invite-received')
+  }
+  S.notifications.invites = Math.max(0, (S.notifications.invites || 0) - 1)
+  setBadgeNav('disponibles', S.notifications.invites)
+}
+function openInvitesInbox() {
+  const container = q('invites-inbox'); if (!container) return
+  container.innerHTML = ''
+  const snapshot = []
+  if (S.currentInvite) snapshot.push({ type: 'dance', id: S.currentInvite.id, invite: { id: S.currentInvite.id, from: S.currentInvite.from, expiresAt: S.currentInvite.expiresAt } })
+  if (S.consumptionReq) snapshot.push({ type: 'consumption', data: S.consumptionReq })
+  const list = [...snapshot, ...S.invitesQueue]
+  for (const item of list) {
+    const div = document.createElement('div')
+    div.className = 'card'
+    if (item.type === 'dance') {
+      const from = item.invite.from || {}
+      const ttl = item.invite.expiresAt ? ` • expira ${formatTimeShort(item.invite.expiresAt)}` : ''
+      div.textContent = `Baile de ${from.alias || from.id}${ttl}`
+      const row = document.createElement('div'); row.className = 'row'
+      const bA = document.createElement('button'); bA.textContent = 'Aceptar'; bA.onclick = async () => { await api('/api/invite/respond', { method: 'POST', body: JSON.stringify({ inviteId: item.id, action: 'accept', note: '' }) }); show('screen-user-home') }
+      const bP = document.createElement('button'); bP.textContent = 'Pasar'; bP.onclick = async () => { await api('/api/invite/respond', { method: 'POST', body: JSON.stringify({ inviteId: item.id, action: 'pass', note: '' }) }); S.invitesQueue = S.invitesQueue.filter(x => !(x.type === 'dance' && String(x.id || '') === String(item.id || ''))); openInvitesInbox() }
+      row.append(bA, bP); div.append(row)
+    } else if (item.type === 'consumption') {
+      const data = item.data
+      const listTxt = (Array.isArray(data.items) ? data.items.map(it => `${it.quantity} x ${it.product}`).join(', ') : `${data.quantity || 1} x ${data.product}`)
+      div.textContent = `Consumo de ${data.from.alias}: ${listTxt}`
+      const row = document.createElement('div'); row.className = 'row'
+      const bA = document.createElement('button'); bA.textContent = 'Aceptar'; bA.onclick = async () => { if (Array.isArray(data.items) && data.items.length) { await api('/api/consumption/respond/bulk', { method: 'POST', body: JSON.stringify({ fromId: data.from.id, toId: S.user.id, items: data.items, action: 'accept', requestId: data.requestId || '' }) }) } else { await api('/api/consumption/respond', { method: 'POST', body: JSON.stringify({ fromId: data.from.id, toId: S.user.id, product: data.product, action: 'accept', requestId: data.requestId || '' }) }) } show('screen-user-home') }
+      const bP = document.createElement('button'); bP.textContent = 'Pasar'; bP.onclick = async () => { if (Array.isArray(data.items) && data.items.length) { await api('/api/consumption/respond/bulk', { method: 'POST', body: JSON.stringify({ fromId: data.from.id, toId: S.user.id, items: data.items, action: 'pass', requestId: data.requestId || '' }) }) } else { await api('/api/consumption/respond', { method: 'POST', body: JSON.stringify({ fromId: data.from.id, toId: S.user.id, product: data.product, action: 'pass', requestId: data.requestId || '' }) }) } S.invitesQueue = S.invitesQueue.filter(x => !(x.type === 'consumption' && x.data && x.data.requestId === data.requestId)); openInvitesInbox() }
+      row.append(bA, bP); div.append(row)
+    }
+    container.append(div)
+  }
+  show('screen-invites-inbox')
 }
 function startInviteCountdown(expiresAt) {
   try { if (S.timers && S.timers.inviteCountdown) { clearInterval(S.timers.inviteCountdown); S.timers.inviteCountdown = 0 } } catch {}

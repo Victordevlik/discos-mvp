@@ -1133,9 +1133,16 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/api/consumption/respond' && req.method === 'POST') {
       const body = await parseBody(req)
-      if (body.action !== 'accept') { json(res, 200, { ok: true }); return }
       const from = state.users.get(body.fromId)
       const to = state.users.get(body.toId)
+      if (body.action !== 'accept') {
+        if (from && to) {
+          const itemName = String(body.product || '')
+          try { sendToUser(from.id, 'consumption_passed', { to: { id: to.id, alias: to.alias }, product: itemName }) } catch {}
+        }
+        json(res, 200, { ok: true })
+        return
+      }
       if (!from || !to) { json(res, 404, { error: 'no_user' }); return }
       const s = ensureSession(from.sessionId)
       const base = db ? await dbReadGlobalCatalog() : readGlobalCatalog()
@@ -1158,9 +1165,17 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/api/consumption/respond/bulk' && req.method === 'POST') {
       const body = await parseBody(req)
-      if (body.action !== 'accept') { json(res, 200, { ok: true }); return }
       const from = state.users.get(body.fromId)
       const to = state.users.get(body.toId)
+      if (body.action !== 'accept') {
+        if (from && to) {
+          const items = Array.isArray(body.items) ? body.items.map(it => ({ product: String(it.product || ''), quantity: Math.max(1, Number(it.quantity || 1)) })) : []
+          const filtered = items.filter(it => it.product)
+          try { sendToUser(from.id, 'consumption_passed', { to: { id: to.id, alias: to.alias }, items: filtered }) } catch {}
+        }
+        json(res, 200, { ok: true })
+        return
+      }
       if (!from || !to) { json(res, 404, { error: 'no_user' }); return }
       const s = ensureSession(from.sessionId)
       const base = db ? await dbReadGlobalCatalog() : readGlobalCatalog()
