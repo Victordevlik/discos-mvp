@@ -79,10 +79,11 @@ async function initDB() {
 async function sendEmail(to, subject, text) {
   try {
     if (RESEND_API_KEY) {
+      const from = EMAIL_FROM || 'onboarding@resend.dev'
       const r = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + RESEND_API_KEY },
-        body: JSON.stringify({ from: EMAIL_FROM || 'no-reply@discos.app', to, subject, text })
+        body: JSON.stringify({ from, to, subject, text })
       })
       return r.ok
     } else if (SENDGRID_API_KEY) {
@@ -809,7 +810,8 @@ const server = http.createServer(async (req, res) => {
       const subject = `PIN del local ${String(v.name || venueId)}`
       const link = `${process.env.PUBLIC_BASE_URL || ''}/?venueId=${encodeURIComponent(venueId)}`
       const text = `Hola,\n\nEste es el PIN del local "${String(v.name || venueId)}" (ID: ${venueId}).\nPIN del venue: ${pin}\nAcceso: ${link}\n\nSi no solicitaste este envío, por favor contáctanos.\n`
-      try { await sendEmail(to, subject, text) } catch {}
+      const ok = await sendEmail(to, subject, text)
+      if (!ok) { json(res, 502, { error: 'email_failed' }); return }
       json(res, 200, { ok: true, venueId })
       return
     }
