@@ -15,6 +15,7 @@
       <input id="admin-secret" type="password" placeholder="ADMIN_SECRET">
       <button id="btn-load">Cargar venues</button>
     </div>
+    <div id="db-status" class="info"></div>
     <div id="error" class="error"></div>
     <div id="modal" class="modal">
       <div class="modal-inner">
@@ -68,6 +69,14 @@
       showError('')
       const secret = document.getElementById('admin-secret').value.trim()
       if (!secret) { showError('Ingresa clave admin'); return }
+      try {
+        const st = await api('/api/admin/db-status?admin_secret=' + encodeURIComponent(secret))
+        const el = document.getElementById('db-status')
+        if (el) {
+          el.textContent = st.connected ? 'DB conectada: los cambios persisten entre reinicios y deploys' : 'Sin DB: los cambios se guardan en archivo y pueden perderse en reinicios/deploys'
+          el.className = 'info ' + (st.connected ? 'ok' : 'warn')
+        }
+      } catch {}
       // La clave se envía por query o header; aquí usamos query para GET
       const r = await api('/api/admin/venues?admin_secret=' + encodeURIComponent(secret))
       const container = document.getElementById('venues-list')
