@@ -1633,7 +1633,6 @@ async function restoreLocalUser() {
       venueParam = u.searchParams.get('venueId') || ''
       staffParam = u.searchParams.get('staff') || ''
     } catch {}
-    if (venueParam && !sidParam && staffParam !== '1') return false
     const m = getLocalUsers()
     const lastVenue = (() => { try { return localStorage.getItem('discos_last_venue') || '' } catch { return '' } })()
     const key = venueParam || lastVenue
