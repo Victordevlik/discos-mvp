@@ -234,7 +234,23 @@ async function join(role, codeOverride = '', pinOverride = '') {
     if (!code) { showError('Ingresa el código de sesión'); return }
     if (role === 'staff' && !pin) { showError('Ingresa el PIN de sesión'); return }
     S.sessionId = code
-    const r = await api('/api/join', { method: 'POST', body: JSON.stringify({ sessionId: code, role, pin }) })
+    let r = null
+    try {
+      r = await api('/api/join', { method: 'POST', body: JSON.stringify({ sessionId: code, role, pin }) })
+    } catch (e) {
+      if (role === 'user' && String(e.message) === 'no_session') {
+        let active = null
+        try { active = await api(`/api/session/active${S.venueId ? ('?venueId=' + encodeURIComponent(S.venueId)) : ''}`) } catch {}
+        if (active && active.sessionId) {
+          S.sessionId = active.sessionId
+          r = await api('/api/join', { method: 'POST', body: JSON.stringify({ sessionId: active.sessionId, role, pin: '' }) })
+        } else {
+          showError('Sin sesión activa para este local'); return
+        }
+      } else {
+        throw e
+      }
+    }
     S.user = r.user
     S.role = role
     try { saveLocalUser() } catch {}

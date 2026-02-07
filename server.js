@@ -769,6 +769,34 @@ const server = http.createServer(async (req, res) => {
       json(res, 200, { ok: true, venueId })
       return
     }
+    if (pathname === '/api/admin/venues/active' && req.method === 'POST') {
+      if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const body = await parseBody(req)
+      const venueId = String(body.venueId || '').trim()
+      const active = !!body.active
+      if (!venueId) { json(res, 400, { error: 'bad_input' }); return }
+      const venues = await readVenues()
+      const prev = venues[venueId] || { name: venueId, credits: 0, active: true, pin: '', email: '' }
+      venues[venueId] = { name: String(prev.name || venueId), credits: Number(prev.credits || 0), active, pin: String(prev.pin || ''), email: String(prev.email || '') }
+      await writeVenues(venues)
+      json(res, 200, { ok: true, venueId, active })
+      return
+    }
+    if (pathname === '/api/admin/venues/name' && req.method === 'POST') {
+      if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const body = await parseBody(req)
+      const venueId = String(body.venueId || '').trim()
+      const name = String(body.name || '').trim()
+      if (!venueId || !name) { json(res, 400, { error: 'bad_input' }); return }
+      const venues = await readVenues()
+      const prev = venues[venueId] || { credits: 0, active: true, pin: '', email: '' }
+      venues[venueId] = { name, credits: Number(prev.credits || 0), active: prev.active !== false, pin: String(prev.pin || ''), email: String(prev.email || '') }
+      await writeVenues(venues)
+      json(res, 200, { ok: true, venueId, name })
+      return
+    }
     if (pathname === '/api/admin/db-status' && req.method === 'GET') {
       if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
       if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
