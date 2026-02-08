@@ -1039,25 +1039,6 @@ async function sendConsumption() {
   show('screen-user-home')
 }
 
-async function orderSelf() {
-  const product = q('product').value
-  const qty = Math.max(1, Number(q('quantity').value || 1))
-  const items = (S.cart && S.cart.length) ? S.cart.slice() : (product ? [{ product, quantity: qty }] : [])
-  if (!items.length) { showError('Selecciona producto(s)'); return }
-  const listTxt = items.map(it => `${it.quantity} x ${it.product}`).join(', ')
-  const ok = await confirmAction(`Vas a ordenar: ${listTxt} para ti. ¿Confirmas?`)
-  if (!ok) return
-  for (const it of items) {
-    await api('/api/order/new', { method: 'POST', body: JSON.stringify({ userId: S.user.id, product: it.product, quantity: it.quantity, for: 'self' }) })
-  }
-  S.cart = []
-  renderCart()
-  const inp = q('product'); if (inp) inp.value = ''
-  const qn = q('quantity'); if (qn) qn.value = '1'
-  showError('Pedido creado')
-  setTimeout(() => showError(''), 1000)
-  showConfetti()
-}
 async function orderTable() {
   const product = q('product').value
   const qty = Math.max(1, Number(q('quantity').value || 1))
@@ -1409,7 +1390,6 @@ function bind() {
   const fab = q('fab-call'); if (fab) fab.onclick = openCallWaiter
   const bAT = q('btn-avail-by-table'); if (bAT) bAT.onclick = exploreMesas
   const bAA = q('btn-avail-all'); if (bAA) bAA.onclick = viewAvailable
-  const btnOrderSelf = q('btn-order-self'); if (btnOrderSelf) btnOrderSelf.onclick = orderSelf
   const btnOrderTable = q('btn-order-table'); if (btnOrderTable) btnOrderTable.onclick = orderTable
   q('btn-block').onclick = blockUser
   q('btn-report').onclick = reportUser
