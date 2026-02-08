@@ -1209,8 +1209,10 @@ async function endStaffSession() {
   if (!S.sessionId) return
   const ok = await confirmAction('¿Cerrar sesión de la noche y borrar datos?')
   if (!ok) return
+  const pin = await promptInput('Confirma con PIN', 'Ingresa el PIN de sesión')
+  if (!pin) { showError('Ingresa el PIN'); setTimeout(() => showError(''), 1200); return }
   try { await saveStaffCatalog() } catch {}
-  await api('/api/session/end', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, pin: S.sessionPin || '' }) })
+  await api('/api/session/end', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, pin }) })
   try { if (S.sse) S.sse.close() } catch {}
   try { if (S.staffSSE) S.staffSSE.close() } catch {}
   S.sessionId = ''; S.user = null; S.role = ''; S.sse = null; S.staffSSE = null
@@ -1224,7 +1226,9 @@ async function restartStaffSession() {
     const ok = await confirmAction('¿Destruir sesión actual y crear una nueva?')
     if (!ok) return
     try { await saveStaffCatalog() } catch {}
-    try { await api('/api/session/end', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, pin: S.sessionPin || '' }) }) } catch {}
+    const pin = await promptInput('Confirma con PIN', 'Ingresa el PIN de sesión')
+    if (!pin) return
+    try { await api('/api/session/end', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, pin }) }) } catch {}
     try { if (S.sse) S.sse.close() } catch {}
     try { if (S.staffSSE) S.staffSSE.close() } catch {}
     S.sessionId = ''; S.user = null; S.role = ''; S.sse = null; S.staffSSE = null
