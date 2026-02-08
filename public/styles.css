@@ -182,6 +182,12 @@ body[data-theme="light"] .party-hero { background: linear-gradient(135deg, rgba(
 .tab-item .badge { position:absolute; top:-4px; right:-4px }
 body[data-theme="light"] .tab-item { background:#f3f5fd; border-color:#dbe1f3; color:#1b1f2b }
 body[data-theme="light"] .tab-item.active { background:#eaf0ff; border-color:#cdd9ff; color:#3747ff }
+/* Staff menu */
+.menu { display:flex; flex-direction: column; gap:10px; margin: 6px 0 12px 0 }
+.menu .menu-item { text-align: left; padding: 10px 12px; border-radius: 12px; border:1px solid #2b2c44; background: rgba(20,21,32,0.6); color: var(--muted); font-weight: 600 }
+.menu .menu-item.active { color: var(--primary2); border-color: #3a3b5c; background: rgba(27,28,44,0.75) }
+body[data-theme="light"] .menu .menu-item { background:#f3f5fd; border-color:#dbe1f3; color:#1b1f2b }
+body[data-theme="light"] .menu .menu-item.active { background:#eaf0ff; border-color:#cdd9ff; color:#3747ff }
 button.icon { display:flex; align-items:center; gap:8px }
 button.icon svg { width:18px; height:18px }
 #available-list .item { background: rgba(27,28,44,0.65) }
@@ -231,6 +237,8 @@ body[data-theme="light"] #user-header.party { background: linear-gradient(135deg
   .grid { grid-template-columns: repeat(auto-fill,minmax(150px,1fr)) }
   .hero h1 { font-size: 26px }
   h2 { font-size: 22px }
+  #staff-tabs { display: none }
+  #staff-menu { display: block }
   #screen-disponibles .party-title,
   #screen-user-invite .party-title,
   #screen-invite-received .party-title,
