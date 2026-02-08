@@ -276,11 +276,11 @@ function openInviteModal(expiresAt) {
   wrap.append(txt)
   t.append(wrap)
   const bA = document.createElement('button')
-  bA.id = 'btn-invite-accept'
+  bA.id = 'modal-btn-invite-accept'
   bA.textContent = 'Aceptar'
   bA.onclick = () => { try { const m = q('modal'); if (m) m.classList.remove('show') } catch {}; respondInvite(true) }
   const bP = document.createElement('button')
-  bP.id = 'btn-invite-pass'
+  bP.id = 'modal-btn-invite-pass'
   bP.textContent = 'Pasar'
   bP.onclick = () => { try { const m = q('modal'); if (m) m.classList.remove('show') } catch {}; respondInvite(false) }
   row.append(bA, bP)
