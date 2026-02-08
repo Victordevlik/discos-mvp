@@ -38,6 +38,11 @@ const ADMIN_STAFF_SECRET = String(process.env.ADMIN_STAFF_SECRET || '2207')
 const RESEND_API_KEY = String(process.env.RESEND_API_KEY || '')
 const SENDGRID_API_KEY = String(process.env.SENDGRID_API_KEY || '')
 const EMAIL_FROM = String(process.env.EMAIL_FROM || '')
+const GMAIL_SMTP_USER = String(process.env.GMAIL_SMTP_USER || '')
+const GMAIL_SMTP_PASS = String(process.env.GMAIL_SMTP_PASS || '')
+const GMAIL_SMTP_HOST = String(process.env.GMAIL_SMTP_HOST || 'smtp.gmail.com')
+const GMAIL_SMTP_PORT = Number(process.env.GMAIL_SMTP_PORT || 465)
+const GMAIL_SMTP_SECURE = String(process.env.GMAIL_SMTP_SECURE || 'true') === 'true'
 
 // Créditos por venue: persistidos en /data/venues.json
 const venuesPath = path.join(dataDir, 'venues.json')
@@ -78,40 +83,30 @@ async function initDB() {
 }
 async function sendEmail(to, subject, text) {
   try {
-    if (RESEND_API_KEY) {
-      const from = EMAIL_FROM || 'onboarding@resend.dev'
-      const r = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + RESEND_API_KEY },
-        body: JSON.stringify({ from, to, subject, text })
+    if (GMAIL_SMTP_USER && GMAIL_SMTP_PASS) {
+      const nodemailer = require('nodemailer')
+      const transporter = nodemailer.createTransport({
+        host: GMAIL_SMTP_HOST,
+        port: GMAIL_SMTP_PORT,
+        secure: GMAIL_SMTP_SECURE,
+        auth: { user: GMAIL_SMTP_USER, pass: GMAIL_SMTP_PASS }
       })
-      if (r.ok) return { ok: true, provider: 'resend' }
-      let err = ''
-      try { const j = await r.json(); err = String(j?.error?.message || j?.message || '') } catch {}
-      return { ok: false, provider: 'resend', status: r.status, error: err }
-    } else if (SENDGRID_API_KEY) {
-      const body = {
-        personalizations: [{ to: [{ email: to }] }],
-        from: { email: EMAIL_FROM || 'no-reply@discos.app' },
-        subject,
-        content: [{ type: 'text/plain', value: text }]
-      }
-      const r = await fetch('https://api.sendgrid.com/v3/mail/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SENDGRID_API_KEY },
-        body: JSON.stringify(body)
-      })
-      if (r.status === 202) return { ok: true, provider: 'sendgrid' }
-      let err = ''
-      try { const j = await r.json(); err = String(j?.errors?.[0]?.message || '') } catch {}
-      return { ok: false, provider: 'sendgrid', status: r.status, error: err }
-    } else {
-      console.log('[email] no provider configured', { to, subject })
-      return { ok: false, provider: 'none', status: 0, error: 'no_provider' }
+      const from = EMAIL_FROM || GMAIL_SMTP_USER
+      const info = await transporter.sendMail({ from, to, subject, text })
+      const resp = String(info && info.response || '')
+      const status = /(\d{3})/.test(resp) ? Number(RegExp.$1) : 250
+      return { ok: true, provider: 'smtp', status }
     }
+    return { ok: false, provider: 'none', status: 0, error: 'no_provider_smtp' }
   } catch (e) {
-    console.log('[email] error', String(e && e.message || e))
-    return { ok: false, provider: RESEND_API_KEY ? 'resend' : (SENDGRID_API_KEY ? 'sendgrid' : 'none'), status: -1, error: String(e && e.message || e) }
+    const msg = String(e && e.message || e)
+    let status = 0
+    if (/535/i.test(msg)) status = 535
+    else if (/530|534|535|550|553|554/i.test(msg)) {
+      const m = msg.match(/(\d{3})/)
+      status = m ? Number(m[1]) : 0
+    }
+    return { ok: false, provider: 'smtp', status, error: msg }
   }
 }
 async function isDBConnected() {
