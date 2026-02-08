@@ -308,3 +308,11 @@ body[data-theme="light"] .modal-inner { background: #fff; border-color: #dbe1f3 
 body[data-theme="light"] #modal #invite-ring-modal-txt { color: #111; text-shadow: none }
 #modal .row #modal-btn-invite-accept { background: linear-gradient(180deg, #38d49c, #2cab83); color:#fff; border:0 }
 #modal .row #modal-btn-invite-pass { background: linear-gradient(180deg, #ffb84b, #e0a33d); color:#111; border:0 }
+.modal .ticket { background: rgba(27,28,44,0.70); border: 1px dashed #2f3150; border-radius: 12px; padding: 12px; margin: 8px 0 }
+body[data-theme="light"] .modal .ticket { background:#f3f5fd; border-color:#dbe1f3 }
+.modal .ticket-head { font-weight: 600; color: var(--primary2); margin-bottom: 6px }
+#modal #consume-exp-text { text-align:center; font-size: 14px; font-weight: 700; margin: 4px 0 2px 0; color: var(--muted) }
+body[data-theme="light"] #modal #consume-exp-text { color:#1b1f2b }
+.modal .ticket-items { display: grid; grid-template-columns: 1fr; gap: 6px; margin-top: 8px }
+.modal .ticket-item { padding: 10px; border: 1px solid #2b2c44; border-radius: 10px; background: rgba(23,24,38,0.65) }
+body[data-theme="light"] .modal .ticket-item { border-color:#dbe1f3; background:#fff }

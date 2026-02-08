@@ -266,41 +266,87 @@ function showImageModal(url) {
   t.append(img)
 }
 function openInviteModal(expiresAt) {
-  showModal('', '', 'info')
+  const isConsumption = !!S.consumptionReq
+  showModal(isConsumption ? 'Invitación de consumo' : '', '', 'info')
   const t = q('modal-text')
   const row = document.querySelector('#modal .row')
   if (!t || !row) return
   try { t.innerHTML = '' } catch {}
   try { row.innerHTML = '' } catch {}
-  const wrap = document.createElement('div')
-  wrap.className = 'ring-wrap'
-  const selfie = (S.currentInvite && S.currentInvite.from && S.currentInvite.from.selfie) ? S.currentInvite.from.selfie
-               : (S.consumptionReq && S.consumptionReq.from && S.consumptionReq.from.selfie) ? S.consumptionReq.from.selfie
-               : ''
-  if (selfie) {
-    const pic = document.createElement('img')
-    pic.id = 'invite-ring-selfie'
-    pic.src = selfie
-    wrap.append(pic)
+  if (isConsumption) {
+    const data = S.consumptionReq || {}
+    const box = document.createElement('div')
+    box.className = 'ticket'
+    const head = document.createElement('div')
+    head.className = 'ticket-head'
+    const alias = (data.from && (data.from.alias || data.from.id)) ? (data.from.alias || data.from.id) : ''
+    const mesaTxt = (data.from && data.from.tableId) ? ` • Mesa ${data.from.tableId}` : ''
+    head.textContent = alias ? `De ${alias}${mesaTxt}` : ''
+    const exp = document.createElement('div')
+    exp.id = 'consume-exp-text'
+    const tgt = Number(expiresAt || data.expiresAt || 0)
+    exp.textContent = tgt ? '' : ''
+    box.append(head)
+    box.append(exp)
+    const list = document.createElement('div')
+    list.className = 'ticket-items'
+    if (Array.isArray(data.items) && data.items.length) {
+      for (const it of data.items) {
+        const li = document.createElement('div')
+        li.className = 'ticket-item'
+        li.textContent = `${it.quantity} x ${it.product}`
+        list.append(li)
+      }
+    } else {
+      const qty = Math.max(1, Number(data.quantity || 1))
+      const li = document.createElement('div')
+      li.className = 'ticket-item'
+      li.textContent = `${qty} x ${data.product || ''}`
+      list.append(li)
+    }
+    t.append(box)
+    t.append(list)
+    const bA = document.createElement('button')
+    bA.id = 'modal-btn-invite-accept'
+    bA.textContent = 'Aceptar'
+    bA.onclick = () => { try { const m = q('modal'); if (m) m.classList.remove('show') } catch {}; respondInvite(true) }
+    const bP = document.createElement('button')
+    bP.id = 'modal-btn-invite-pass'
+    bP.textContent = 'Pasar'
+    bP.onclick = () => { try { const m = q('modal'); if (m) m.classList.remove('show') } catch {}; respondInvite(false) }
+    row.append(bA, bP)
+    startInviteCountdown(tgt)
+  } else {
+    const wrap = document.createElement('div')
+    wrap.className = 'ring-wrap'
+    const selfie = (S.currentInvite && S.currentInvite.from && S.currentInvite.from.selfie) ? S.currentInvite.from.selfie
+                 : (S.consumptionReq && S.consumptionReq.from && S.consumptionReq.from.selfie) ? S.consumptionReq.from.selfie
+                 : ''
+    if (selfie) {
+      const pic = document.createElement('img')
+      pic.id = 'invite-ring-selfie'
+      pic.src = selfie
+      wrap.append(pic)
+    }
+    const ring = document.createElement('div')
+    ring.id = 'invite-ring-modal'
+    ring.className = 'ring-overlay'
+    const txt = document.createElement('span')
+    txt.id = 'invite-ring-modal-txt'
+    wrap.append(ring)
+    wrap.append(txt)
+    t.append(wrap)
+    const bA = document.createElement('button')
+    bA.id = 'modal-btn-invite-accept'
+    bA.textContent = 'Aceptar'
+    bA.onclick = () => { try { const m = q('modal'); if (m) m.classList.remove('show') } catch {}; respondInvite(true) }
+    const bP = document.createElement('button')
+    bP.id = 'modal-btn-invite-pass'
+    bP.textContent = 'Pasar'
+    bP.onclick = () => { try { const m = q('modal'); if (m) m.classList.remove('show') } catch {}; respondInvite(false) }
+    row.append(bA, bP)
+    startInviteCountdown(expiresAt)
   }
-  const ring = document.createElement('div')
-  ring.id = 'invite-ring-modal'
-  ring.className = 'ring-overlay'
-  const txt = document.createElement('span')
-  txt.id = 'invite-ring-modal-txt'
-  wrap.append(ring)
-  wrap.append(txt)
-  t.append(wrap)
-  const bA = document.createElement('button')
-  bA.id = 'modal-btn-invite-accept'
-  bA.textContent = 'Aceptar'
-  bA.onclick = () => { try { const m = q('modal'); if (m) m.classList.remove('show') } catch {}; respondInvite(true) }
-  const bP = document.createElement('button')
-  bP.id = 'modal-btn-invite-pass'
-  bP.textContent = 'Pasar'
-  bP.onclick = () => { try { const m = q('modal'); if (m) m.classList.remove('show') } catch {}; respondInvite(false) }
-  row.append(bA, bP)
-  startInviteCountdown(expiresAt)
 }
 function toggleAnalytics() {
   const cur = S.staffTab || 'panel'
@@ -1875,7 +1921,7 @@ function showNextInvite() {
     stopInviteCountdown()
     show('screen-invite-received')
     S.skipConfirmInvite = true
-    openInviteModal(0)
+    openInviteModal(Number(S.consumptionReq.expiresAt || 0))
   }
   S.notifications.invites = Math.max(0, (S.notifications.invites || 0) - 1)
   setBadgeNav('disponibles', S.notifications.invites)
@@ -1949,28 +1995,41 @@ async function passAllConsumptionInvites() {
 function startInviteCountdown(expiresAt) {
   try { if (S.timers && S.timers.inviteCountdown) { clearInterval(S.timers.inviteCountdown); S.timers.inviteCountdown = 0 } } catch {}
   const target = Number(expiresAt || 0)
-  if (!target) { const txt = q('invite-ring-modal-txt') || q('invite-ring-txt'); if (txt) txt.textContent = ''; const el = q('invite-ring-modal') || q('invite-ring'); if (el) el.style.setProperty('--deg','0deg'); return }
-  const el = q('invite-ring-modal') || q('invite-ring')
-  const txt = q('invite-ring-modal-txt') || q('invite-ring-txt')
-  if (!el || !txt) return
+  if (!target) {
+    const txtRing = q('invite-ring-modal-txt') || q('invite-ring-txt')
+    const elRing = q('invite-ring-modal') || q('invite-ring')
+    const txtCons = q('consume-exp-text')
+    if (txtRing) txtRing.textContent = ''
+    if (elRing) elRing.style.setProperty('--deg','0deg')
+    if (txtCons) txtCons.textContent = ''
+    return
+  }
+  const elRing = q('invite-ring-modal') || q('invite-ring')
+  const txtRing = q('invite-ring-modal-txt') || q('invite-ring-txt')
+  const txtCons = q('consume-exp-text')
+  if (!elRing && !txtRing && !txtCons) return
   S.inviteTTL = (((target - Date.now() + 999) / 1000) | 0); if (S.inviteTTL < 1) S.inviteTTL = 1
   const tick = () => {
     const remMs = target - Date.now()
     let remSec = ((remMs + 999) / 1000) | 0
     if (remSec < 0) remSec = 0
     if (remSec <= 0) {
-      txt.textContent = '00:00'
-      el.style.setProperty('--deg', '360deg')
+      const mmss = '00:00'
+      if (txtRing) txtRing.textContent = mmss
+      if (txtCons) txtCons.textContent = mmss
+      if (elRing) elRing.style.setProperty('--deg', '360deg')
       try { clearInterval(S.timers.inviteCountdown) } catch {}
       S.timers.inviteCountdown = 0
       return
     }
     const mm = String((remSec / 60) | 0).padStart(2, '0')
     const ss = String(remSec % 60).padStart(2, '0')
-    txt.textContent = `${mm}:${ss}`
+    const mmss = `${mm}:${ss}`
+    if (txtRing) txtRing.textContent = mmss
+    if (txtCons) txtCons.textContent = mmss
     const base = S.inviteTTL > 0 ? S.inviteTTL : 1
     const deg = ((remSec * 360) / base) | 0
-    el.style.setProperty('--deg', `${deg}deg`)
+    if (elRing) elRing.style.setProperty('--deg', `${deg}deg`)
   }
   tick()
   S.timers.inviteCountdown = setInterval(tick, 1000)
@@ -1979,6 +2038,7 @@ function stopInviteCountdown() {
   try { if (S.timers && S.timers.inviteCountdown) { clearInterval(S.timers.inviteCountdown); S.timers.inviteCountdown = 0 } } catch {}
   const el = q('invite-ring-modal') || q('invite-ring'); if (el) el.style.setProperty('--deg', '0deg')
   const txt = q('invite-ring-modal-txt') || q('invite-ring-txt'); if (txt) txt.textContent = ''
+  const txt2 = q('consume-exp-text'); if (txt2) txt2.textContent = ''
 }
 async function loadUserInvitesHistory() {
   const r = await api(`/api/user/invites/history?userId=${encodeURIComponent(S.user.id)}`)
