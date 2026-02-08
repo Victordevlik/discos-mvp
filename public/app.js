@@ -1312,8 +1312,8 @@ function bind() {
   const swAvail = q('switch-available'); if (swAvail) swAvail.onchange = setAvailable
   const receiveModeEl = q('receive-mode'); if (receiveModeEl) receiveModeEl.onchange = setAvailable
   const zoneEl = q('zone'); if (zoneEl) zoneEl.oninput = setAvailable
-  const btnViewAvail = q('btn-view-available'); if (btnViewAvail) btnViewAvail.onclick = showAvailableChoice
-  const btnViewMenu = q('btn-view-menu'); if (btnViewMenu) btnViewMenu.onclick = openMenu
+  const btnViewAvail = q('btn-view-available'); if (btnViewAvail) btnViewAvail.onclick = () => { setActiveNav('disponibles'); showAvailableChoice() }
+  const btnViewMenu = q('btn-view-menu'); if (btnViewMenu) btnViewMenu.onclick = () => { setActiveNav('carta'); openMenu() }
   for (const b of document.querySelectorAll('.btn-invite-msg')) b.onclick = chooseMsg
   const btnInviteSend = q('btn-invite-send'); if (btnInviteSend) btnInviteSend.onclick = sendInvite
   const btnInviteAccept = q('btn-invite-accept'); if (btnInviteAccept) btnInviteAccept.onclick = () => respondInvite(true)
@@ -1326,9 +1326,7 @@ function bind() {
   const btnQtyDec = q('btn-qty-dec'); if (btnQtyDec) btnQtyDec.onclick = () => { const qn = q('quantity'); if (!qn) return; const v = Math.max(1, Number(qn.value || 1) - 1); qn.value = String(v) }
   const btnQtyInc = q('btn-qty-inc'); if (btnQtyInc) btnQtyInc.onclick = () => { const qn = q('quantity'); if (!qn) return; const v = Math.max(1, Number(qn.value || 1) + 1); qn.value = String(v) }
   const btnCartClear = q('btn-cart-clear'); if (btnCartClear) btnCartClear.onclick = () => { S.cart = []; renderCart() }
-  const btnViewMenu = q('btn-view-menu'); if (btnViewMenu) btnViewMenu.onclick = openMenu
-  const btnViewAvailable = q('btn-view-available'); if (btnViewAvailable) btnViewAvailable.onclick = () => { setActiveNav('disponibles'); showAvailableChoice() }
-  const btnViewOrders = q('btn-view-orders'); if (btnViewOrders) btnViewOrders.onclick = () => { setActiveNav('orders'); loadUserOrders(); show('screen-orders-user') }
+  const btnViewOrders = q('btn-view-orders'); if (btnViewOrders) btnViewOrders.onclick = () => { setActiveNav('orders'); loadUserOrders(); loadUserInvitesHistory(); show('screen-orders-user') }
   const btnWaiterOrder = q('btn-waiter-order'); if (btnWaiterOrder) btnWaiterOrder.onclick = callWaiterOrder
   for (const b of document.querySelectorAll('.btn-waiter-reason')) b.onclick = chooseWaiterReason
   const btnWaiterOther = q('btn-waiter-other'); if (btnWaiterOther) btnWaiterOther.onclick = () => { S.waiterReason = 'otro'; const other = q('waiter-other'); if (other) other.style.display = ''; for (const b of document.querySelectorAll('.btn-waiter-reason')) b.classList.remove('active') }
@@ -1388,7 +1386,6 @@ function bind() {
   q('mesa-only-available').onchange = () => loadMesaPeople(S.currentTableId)
   q('btn-select-table').onclick = openSelectTable
   q('btn-select-table-save').onclick = saveSelectTable
-  const btnViewOrders = q('btn-view-orders'); if (btnViewOrders) btnViewOrders.onclick = () => { loadUserOrders(); loadUserInvitesHistory(); show('screen-orders-user') }
   q('btn-invite-block').onclick = blockFromInvite
   q('btn-invite-report').onclick = reportFromInvite
   q('btn-meeting-confirm').onclick = confirmMeeting
