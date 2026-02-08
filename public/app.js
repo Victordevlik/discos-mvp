@@ -2510,3 +2510,188 @@ async function closeStaffTable2() {
   setTimeout(() => showError(''), 1000)
   viewStaffTableHistory2()
 }
+
+// ==================== SISTEMA DE PARTÍCULAS CYBERPUNK ====================
+class CyberParticleSystem {
+  constructor() {
+    this.canvas = null
+    this.ctx = null
+    this.particles = []
+    this.animationId = null
+    this.resizeObserver = null
+    this.init()
+  }
+
+  init() {
+    this.createCanvas()
+    this.setupResizeObserver()
+    this.createParticles()
+    this.animate()
+  }
+
+  createCanvas() {
+    this.canvas = document.createElement('canvas')
+    this.canvas.className = 'cyber-particle-canvas'
+    this.canvas.style.position = 'fixed'
+    this.canvas.style.top = '0'
+    this.canvas.style.left = '0'
+    this.canvas.style.width = '100vw'
+    this.canvas.style.height = '100vh'
+    this.canvas.style.zIndex = '-1'
+    this.canvas.style.pointerEvents = 'none'
+    document.body.appendChild(this.canvas)
+    this.ctx = this.canvas.getContext('2d')
+    this.resizeCanvas()
+  }
+
+  resizeCanvas() {
+    this.canvas.width = window.innerWidth
+    this.canvas.height = window.innerHeight
+  }
+
+  setupResizeObserver() {
+    this.resizeObserver = new ResizeObserver(() => {
+      this.resizeCanvas()
+      this.adjustParticleDensity()
+    })
+    this.resizeObserver.observe(document.body)
+  }
+
+  createParticles() {
+    const particleCount = Math.floor((window.innerWidth * window.innerHeight) / 8000)
+    this.particles = []
+    
+    const colors = [
+      '#00f0ff', // neon cyan
+      '#ff00ff', // neon magenta  
+      '#ff0080', // neon pink
+      '#00ff80', // neon green
+      '#8000ff'  // neon purple
+    ]
+
+    for (let i = 0; i < particleCount; i++) {
+      this.particles.push({
+        x: Math.random() * this.canvas.width,
+        y: Math.random() * this.canvas.height,
+        radius: Math.random() * 2 + 0.5,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        speed: Math.random() * 2 + 0.5,
+        angle: Math.random() * Math.PI * 2,
+        opacity: Math.random() * 0.8 + 0.2,
+        pulse: Math.random() * Math.PI * 2
+      })
+    }
+  }
+
+  adjustParticleDensity() {
+    const currentCount = this.particles.length
+    const targetCount = Math.floor((window.innerWidth * window.innerHeight) / 8000)
+    
+    if (targetCount > currentCount) {
+      const colors = ['#00f0ff', '#ff00ff', '#ff0080', '#00ff80', '#8000ff']
+      for (let i = currentCount; i < targetCount; i++) {
+        this.particles.push({
+          x: Math.random() * this.canvas.width,
+          y: Math.random() * this.canvas.height,
+          radius: Math.random() * 2 + 0.5,
+          color: colors[Math.floor(Math.random() * colors.length)],
+          speed: Math.random() * 2 + 0.5,
+          angle: Math.random() * Math.PI * 2,
+          opacity: Math.random() * 0.8 + 0.2,
+          pulse: Math.random() * Math.PI * 2
+        })
+      }
+    } else if (targetCount < currentCount) {
+      this.particles = this.particles.slice(0, targetCount)
+    }
+  }
+
+  animate() {
+    this.animationId = requestAnimationFrame(() => this.animate())
+    this.update()
+    this.draw()
+  }
+
+  update() {
+    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+    
+    this.particles.forEach(particle => {
+      particle.x += Math.cos(particle.angle) * particle.speed
+      particle.y += Math.sin(particle.angle) * particle.speed
+      
+      particle.pulse += 0.05
+      particle.opacity = 0.5 + Math.sin(particle.pulse) * 0.3
+      
+      if (particle.x < -particle.radius) particle.x = this.canvas.width + particle.radius
+      if (particle.x > this.canvas.width + particle.radius) particle.x = -particle.radius
+      if (particle.y < -particle.radius) particle.y = this.canvas.height + particle.radius
+      if (particle.y > this.canvas.height + particle.radius) particle.y = -particle.radius
+      
+      const mouseX = window.mouseX || this.canvas.width / 2
+      const mouseY = window.mouseY || this.canvas.height / 2
+      const dx = particle.x - mouseX
+      const dy = particle.y - mouseY
+      const distance = Math.sqrt(dx * dx + dy * dy)
+      
+      if (distance < 150) {
+        particle.angle = Math.atan2(dy, dx) + Math.PI
+        particle.speed = Math.min(particle.speed + 0.2, 5)
+      }
+    })
+  }
+
+  draw() {
+    this.particles.forEach(particle => {
+      this.ctx.beginPath()
+      this.ctx.arc(particle.x, particle.y, particle.radius, 0, Math.PI * 2)
+      
+      const gradient = this.ctx.createRadialGradient(
+        particle.x, particle.y, 0,
+        particle.x, particle.y, particle.radius * 3
+      )
+      gradient.addColorStop(0, particle.color)
+      gradient.addColorStop(1, 'transparent')
+      
+      this.ctx.fillStyle = gradient
+      this.ctx.globalAlpha = particle.opacity
+      this.ctx.fill()
+      
+      this.ctx.shadowBlur = 15
+      this.ctx.shadowColor = particle.color
+      this.ctx.fill()
+      
+      this.ctx.globalAlpha = 1
+      this.ctx.shadowBlur = 0
+    })
+  }
+
+  destroy() {
+    if (this.animationId) {
+      cancelAnimationFrame(this.animationId)
+    }
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect()
+    }
+    if (this.canvas && this.canvas.parentNode) {
+      this.canvas.parentNode.removeChild(this.canvas)
+    }
+  }
+}
+
+// Track mouse position for interactive particles
+window.addEventListener('mousemove', (e) => {
+  window.mouseX = e.clientX
+  window.mouseY = e.clientY
+})
+
+// Initialize particle system when DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+  window.cyberParticles = new CyberParticleSystem()
+})
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', () => {
+  if (window.cyberParticles) {
+    window.cyberParticles.destroy()
+  }
+})
