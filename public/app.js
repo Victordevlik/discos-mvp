@@ -348,6 +348,32 @@ function openInviteModal(expiresAt) {
     startInviteCountdown(expiresAt)
   }
 }
+function openInviteWaitModal(expiresAt, target) {
+  showModal('Invitación enviada', '', 'info')
+  const t = q('modal-text')
+  const row = document.querySelector('#modal .row')
+  if (!t || !row) return
+  try { t.innerHTML = '' } catch {}
+  try { row.innerHTML = '' } catch {}
+  const wrap = document.createElement('div')
+  wrap.className = 'ring-wrap'
+  const selfie = (target && target.selfie) ? target.selfie : ''
+  if (selfie) {
+    const pic = document.createElement('img')
+    pic.id = 'invite-ring-selfie'
+    pic.src = selfie
+    wrap.append(pic)
+  }
+  const ring = document.createElement('div')
+  ring.id = 'invite-ring-modal'
+  ring.className = 'ring-overlay'
+  const txt = document.createElement('span')
+  txt.id = 'invite-ring-modal-txt'
+  wrap.append(ring)
+  wrap.append(txt)
+  t.append(wrap)
+  startInviteCountdown(expiresAt)
+}
 function toggleAnalytics() {
   const cur = S.staffTab || 'panel'
   if (cur === 'analytics') {
@@ -825,8 +851,9 @@ function chooseMsg(e) {
 
 async function sendInvite() {
   if (!S.currentInvite) return
-  await api('/api/invite/dance', { method: 'POST', body: JSON.stringify({ fromId: S.user.id, toId: S.currentInvite.id, messageType: inviteMsgType }) })
-  show('screen-user-home')
+  const r = await api('/api/invite/dance', { method: 'POST', body: JSON.stringify({ fromId: S.user.id, toId: S.currentInvite.id, messageType: inviteMsgType }) })
+  const exp = Number(r.expiresAt || (Date.now() + 60 * 1000))
+  openInviteWaitModal(exp, S.currentInvite)
 }
 function setReceiver(u) {
   const el = q('avail-receiver-id')
@@ -836,8 +863,9 @@ async function sendInviteQuick(u) {
   setReceiver(u)
   S.currentInvite = u
   inviteMsgType = 'bailamos'
-  await api('/api/invite/dance', { method: 'POST', body: JSON.stringify({ fromId: S.user.id, toId: u.id, messageType: 'bailamos' }) })
-  show('screen-disponibles')
+  const r = await api('/api/invite/dance', { method: 'POST', body: JSON.stringify({ fromId: S.user.id, toId: u.id, messageType: 'bailamos' }) })
+  const exp = Number(r.expiresAt || (Date.now() + 60 * 1000))
+  openInviteWaitModal(exp, u)
 }
 
 function startEvents() {
@@ -868,6 +896,7 @@ function startEvents() {
   S.sse.addEventListener('invite_result', e => {
     const data = JSON.parse(e.data)
     stopInviteCountdown()
+    const m = q('modal'); if (m) m.classList.remove('show')
     const invId = String(data.inviteId || '')
     if (invId) {
       const before = S.invitesQueue.length
@@ -893,7 +922,7 @@ function startEvents() {
       S.inInviteFlow = false
       showNextInvite()
     } else if (data.status === 'expirado') {
-      const msg = 'Invitación expirada (30s)'
+      const msg = 'Invitación expirada (60s)'
       if (document.hidden) { S.missed.push(msg) } else { showError(msg); setTimeout(() => showError(''), 1500) }
       show('screen-user-home')
       S.inInviteFlow = false

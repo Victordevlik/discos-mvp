@@ -1052,11 +1052,11 @@ const server = http.createServer(async (req, res) => {
       const msg = body.messageType === 'invitoCancion' ? 'invitoCancion' : 'bailamos'
       if (!rateCanInvite(from.id, to.id)) { json(res, 429, { error: 'rate' }); return }
       const invId = genId('inv')
-      const inv = { id: invId, sessionId: from.sessionId, fromId: from.id, toId: to.id, msg, status: 'pendiente', createdAt: now(), expiresAt: now() + 30 * 1000 }
+      const inv = { id: invId, sessionId: from.sessionId, fromId: from.id, toId: to.id, msg, status: 'pendiente', createdAt: now(), expiresAt: now() + 60 * 1000 }
       state.invites.set(invId, inv)
       const fromSelfie = from.selfie || ''
       sendToUser(to.id, 'dance_invite', { invite: { id: invId, from: { id: from.id, alias: from.alias, selfie: fromSelfie, tableId: from.tableId || '', zone: from.zone || '' } , msg, expiresAt: inv.expiresAt } })
-      json(res, 200, { inviteId: invId })
+      json(res, 200, { inviteId: invId, expiresAt: inv.expiresAt })
       return
     }
     if (pathname === '/api/invite/respond' && req.method === 'POST') {
@@ -1606,7 +1606,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/api/user/invites' && req.method === 'GET') {
       const userId = query.userId
-      const TTL = 30 * 1000
+      const TTL = 60 * 1000
       const invites = []
       for (const inv of state.invites.values()) {
         if (inv.toId === userId && inv.status === 'pendiente' && within(TTL, inv.createdAt)) {
