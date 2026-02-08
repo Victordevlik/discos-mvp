@@ -5,6 +5,9 @@ const path = require('path')
 const crypto = require('crypto')
 const os = require('os')
 
+process.on('uncaughtException', e => { try { console.error('uncaught', e) } catch {} })
+process.on('unhandledRejection', e => { try { console.error('unhandled', e) } catch {} })
+
 const state = {
   sessions: new Map(),
   users: new Map(),
@@ -28,6 +31,8 @@ const state = {
     tableChangesByUserHour: new Map(),
   },
 }
+
+let lastSSEPing = 0
 
 const dataDir = path.join(__dirname, 'data')
 if (!fs.existsSync(dataDir)) { try { fs.mkdirSync(dataDir) } catch {} }
@@ -648,6 +653,17 @@ const server = http.createServer(async (req, res) => {
       const body = await parseBody(req)
       const s = ensureSession(body.sessionId)
       if (!s) { json(res, 404, { error: 'no_session' }); return }
+      const pinStr = String(body.pin || '')
+      const adminSecret = String(req.headers['x-admin-secret'] || query.admin_secret || '')
+      const okAdmin = ADMIN_SECRET && adminSecret === ADMIN_SECRET
+      const okSessionPin = pinStr === String(s.pin)
+      let okVenuePin = false
+      try {
+        const venues = await readVenues()
+        const v = venues[s.venueId]
+        if (v && String(v.pin || '') && pinStr === String(v.pin)) okVenuePin = true
+      } catch {}
+      if (!okAdmin && !okSessionPin && !okVenuePin) { json(res, 403, { error: 'forbidden' }); return }
       endAndArchive(body.sessionId)
       json(res, 200, { ok: true })
       return
@@ -656,6 +672,17 @@ const server = http.createServer(async (req, res) => {
       const body = await parseBody(req)
       const s = ensureSession(body.sessionId)
       if (!s) { json(res, 404, { error: 'no_session' }); return }
+      const pinStr = String(body.pin || '')
+      const adminSecret = String(req.headers['x-admin-secret'] || query.admin_secret || '')
+      const okAdmin = ADMIN_SECRET && adminSecret === ADMIN_SECRET
+      const okSessionPin = pinStr === String(s.pin)
+      let okVenuePin = false
+      try {
+        const venues = await readVenues()
+        const v = venues[s.venueId]
+        if (v && String(v.pin || '') && pinStr === String(v.pin)) okVenuePin = true
+      } catch {}
+      if (!okAdmin && !okSessionPin && !okVenuePin) { json(res, 403, { error: 'forbidden' }); return }
       const urlStr = String(body.publicBaseUrl || '').trim()
       s.publicBaseUrl = urlStr
       json(res, 200, { ok: true })
@@ -700,6 +727,8 @@ const server = http.createServer(async (req, res) => {
       let u = state.users.get(userId)
       if (!u && db) { try { u = await dbGetUser(userId) } catch {} }
       if (!u) { json(res, 200, { found: false }); return }
+      const sActive = ensureSession(u.sessionId)
+      if (!sActive) { json(res, 200, { found: false }); return }
       const partner = (u.dancePartnerId && state.users.get(u.dancePartnerId)) || null
       const partnerAlias = partner ? (partner.alias || partner.id) : ''
       json(res, 200, { found: true, user: { id: u.id, sessionId: u.sessionId, role: u.role, alias: u.alias, selfie: u.selfie || '', selfieApproved: u.selfieApproved, available: u.available, prefs: u.prefs, zone: u.zone, tableId: u.tableId, visibility: u.visibility, danceState: u.danceState || 'idle', partnerAlias } })
@@ -1925,6 +1954,15 @@ setInterval(() => {
           sendToUser(inv.toId, 'dance_status', { state: 'idle' })
         } catch {}
       }
+    }
+  }
+  if ((nowTs - lastSSEPing) > 60 * 1000) {
+    lastSSEPing = nowTs
+    for (const uid of state.sseUsers.keys()) {
+      try { sendToUser(uid, 'ping', { ts: nowTs }) } catch {}
+    }
+    for (const sessId of state.sseStaff.keys()) {
+      try { sendToStaff(sessId, 'ping', { ts: nowTs }) } catch {}
     }
   }
   // Cierre automático de SSE inactivas (>15 min sin eventos enviados)

@@ -1188,6 +1188,7 @@ async function startStaffSession() {
     const joinRes = await api('/api/join', { method: 'POST', body: JSON.stringify({ sessionId: r.sessionId, role: 'staff', pin: pinToUse }) })
     S.user = joinRes.user
     S.role = 'staff'
+    S.sessionPin = pinToUse
     try { saveLocalUser() } catch {}
     show('screen-staff')
     showStaffTab('panel')
@@ -1209,7 +1210,7 @@ async function endStaffSession() {
   const ok = await confirmAction('¿Cerrar sesión de la noche y borrar datos?')
   if (!ok) return
   try { await saveStaffCatalog() } catch {}
-  await api('/api/session/end', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId }) })
+  await api('/api/session/end', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, pin: S.sessionPin || '' }) })
   try { if (S.sse) S.sse.close() } catch {}
   try { if (S.staffSSE) S.staffSSE.close() } catch {}
   S.sessionId = ''; S.user = null; S.role = ''; S.sse = null; S.staffSSE = null
@@ -1223,7 +1224,7 @@ async function restartStaffSession() {
     const ok = await confirmAction('¿Destruir sesión actual y crear una nueva?')
     if (!ok) return
     try { await saveStaffCatalog() } catch {}
-    try { await api('/api/session/end', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId }) }) } catch {}
+    try { await api('/api/session/end', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, pin: S.sessionPin || '' }) }) } catch {}
     try { if (S.sse) S.sse.close() } catch {}
     try { if (S.staffSSE) S.staffSSE.close() } catch {}
     S.sessionId = ''; S.user = null; S.role = ''; S.sse = null; S.staffSSE = null
@@ -1592,7 +1593,7 @@ function bind() {
   if (savePB) savePB.onclick = async () => {
     try {
       const val = q('public-base').value.trim()
-      await api('/api/session/public-base', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, publicBaseUrl: val }) })
+      await api('/api/session/public-base', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, publicBaseUrl: val, pin: S.sessionPin || '' }) })
       showError('URL pública guardada')
       setTimeout(() => showError(''), 1000)
       await startStaffSession()
