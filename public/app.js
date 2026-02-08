@@ -137,7 +137,7 @@ async function loadSessionInfo() {
     const url = `${base}/?venueId=${encodeURIComponent(S.venueId || 'default')}&sessionId=${encodeURIComponent(S.sessionId)}&aj=1`
     const pd = q('pin-display'); if (pd) pd.textContent = pin
     const qrImg = q('qr-session'); if (qrImg) qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`
-    const share = q('share-url'); if (share) { share.href = url; share.title = url }
+    S.shareUrl = url
     renderVenueTitle()
   } catch {}
 }
@@ -1506,7 +1506,7 @@ function bind() {
   const copyBtn = q('btn-copy-link')
   if (copyBtn) copyBtn.onclick = async () => {
     try {
-      const href = 'https://discos-mvp.up.railway.app/?venueId=vtlik&sessionId=sess_a0327d8606d01797&aj=1'
+      const href = S.shareUrl || ''
       await navigator.clipboard.writeText(href)
       showError('Link copiado')
       setTimeout(() => showError(''), 1000)

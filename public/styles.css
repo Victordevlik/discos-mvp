@@ -225,7 +225,8 @@ body[data-theme="light"] #user-header.party { background: linear-gradient(135deg
 #screen-staff input, #screen-staff select { min-width: unset }
 #screen-staff-orders .row label { color: var(--muted); min-width: 80px }
 #screen-staff-welcome .card { max-width: 560px; margin: 0 auto }
-#staff-panel-content .card { max-width: 560px; margin: 0 auto }
+#staff-panel-content .card { max-width: 560px; margin: 0 auto; text-align: center }
+#staff-panel-content .row { justify-content: center }
 #screen-staff #waiter-calls .card { display: grid; grid-template-columns: 1fr auto; align-items: center }
 #screen-staff #waiter-calls .card .row { justify-content: flex-end }
 #screen-staff .chip:hover { border-color:#3a3b5c; background: rgba(30,32,50,0.75) }
