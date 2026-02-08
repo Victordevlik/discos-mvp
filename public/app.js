@@ -1585,7 +1585,13 @@ function bind() {
   const copyBtn = q('btn-copy-link')
   if (copyBtn) copyBtn.onclick = async () => {
     try {
-      const href = 'https://discos-mvp.up.railway.app/?venueId=vtlik&sessionId=sess_a0327d8606d01797&aj=1'
+      let baseCandidate = ''
+      try {
+        const pb = await api(`/api/session/public-base?sessionId=${encodeURIComponent(S.sessionId)}`)
+        baseCandidate = (pb.publicBaseUrl || '').trim()
+      } catch {}
+      const base = baseCandidate || location.origin
+      const href = `${base}/?venueId=${encodeURIComponent(S.venueId || 'default')}&sessionId=${encodeURIComponent(S.sessionId)}&aj=1`
       await navigator.clipboard.writeText(href)
       showError('Link copiado')
       setTimeout(() => showError(''), 1000)
