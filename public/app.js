@@ -1241,7 +1241,13 @@ function startStaffEvents() {
   if (!S.sessionId) return
   try { if (S.staffSSE) S.staffSSE.close() } catch {}
   S.staffSSE = new EventSource(`/api/events/staff?sessionId=${encodeURIComponent(S.sessionId)}`)
-  S.staffSSE.onopen = () => { if (S.timers.staffReconnect) { try { clearTimeout(S.timers.staffReconnect) } catch {}; S.timers.staffReconnect = 0 } }
+  S.staffSSE.onopen = () => {
+    if (S.timers.staffReconnect) { try { clearTimeout(S.timers.staffReconnect) } catch {}; S.timers.staffReconnect = 0 }
+    scheduleStaffOrdersUpdate()
+    scheduleStaffAnalyticsUpdate()
+    scheduleStaffUsersUpdate()
+    scheduleStaffWaiterUpdate()
+  }
   S.staffSSE.onerror = () => { scheduleStaffSSEReconnect() }
   S.staffSSE.addEventListener('order_new', e => {
     scheduleStaffOrdersUpdate()
@@ -2194,7 +2200,15 @@ function init() {
     restoreLocalUser().then(ok => {
       if (ok) return
       if (sid && aj === '1') { setTimeout(() => join('user', sid), 50) }
-      else if (staffParam === '1') { show('screen-staff-welcome') }
+      else if (staffParam === '1') {
+        show('screen-staff-welcome')
+        if (sid) {
+          setTimeout(async () => {
+            const pin = await promptInput('Ingresa el PIN de sesión', 'PIN de venue')
+            if (pin) { await join('staff', sid, pin) }
+          }, 80)
+        }
+      }
       else { show('screen-welcome') }
     })
   } catch {}
