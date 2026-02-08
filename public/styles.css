@@ -212,8 +212,8 @@ button.icon svg { width:18px; height:18px }
 #catalog-list h3 { margin: 4px 0 8px 0; font-size: 16px; color: var(--primary2) }
 #catalog-list .chip { background: linear-gradient(180deg, var(--primary), #5868ff); color:#fff; border:0 }
 body[data-theme="light"] #catalog-list .chip { background: linear-gradient(180deg, #5868ff, #3747ff); color:#fff; border:0 }
-.fab { position: fixed; right: 16px; bottom: 70px; width: 52px; height: 52px; border-radius: 50%; background: linear-gradient(180deg, #7d88ff, #5868ff); color: #fff; border: 0; box-shadow: 0 14px 28px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center }
-.fab-label { position: fixed; right: 16px; bottom: 128px; background: rgba(23,24,38,0.9); backdrop-filter: blur(8px); color: #fff; padding: 8px 10px; border-radius: 8px; border: 1px solid #2b2c44; box-shadow: 0 10px 24px rgba(0,0,0,0.25); font-size: 13px }
+.fab { position: fixed; right: 16px; bottom: 70px; width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(180deg, #7d88ff, #5868ff); color: #fff; border: 0; box-shadow: 0 14px 28px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center }
+.fab-label { position: fixed; right: 16px; bottom: 120px; background: rgba(23,24,38,0.9); backdrop-filter: blur(8px); color: #fff; padding: 6px 8px; border-radius: 8px; border: 1px solid #2b2c44; box-shadow: 0 10px 24px rgba(0,0,0,0.25); font-size: 11px }
 /* Staff visuals */
 #screen-staff h2, #screen-staff-users h2, #screen-staff-orders h2, #screen-staff-mesas h2 { font-size: 26px; letter-spacing: 0.2px }
 #screen-staff h2, #screen-staff h3, #screen-staff-users h2, #screen-staff-orders h2, #screen-staff-mesas h2 { font-family: 'Sora', Inter, system-ui, sans-serif }
