@@ -225,6 +225,7 @@ body[data-theme="light"] #user-header.party { background: linear-gradient(135deg
 #screen-staff input, #screen-staff select { min-width: unset }
 #screen-staff-orders .row label { color: var(--muted); min-width: 80px }
 #screen-staff-welcome .card { max-width: 560px; margin: 0 auto }
+#staff-panel-content .card { max-width: 560px; margin: 0 auto }
 #screen-staff #waiter-calls .card { display: grid; grid-template-columns: 1fr auto; align-items: center }
 #screen-staff #waiter-calls .card .row { justify-content: flex-end }
 #screen-staff .chip:hover { border-color:#3a3b5c; background: rgba(30,32,50,0.75) }
@@ -278,3 +279,8 @@ body[data-theme="light"] .modal-inner { background: #fff; border-color: #dbe1f3 
 .modal.type-success #modal-title { color: var(--success) }
 .modal.type-info .modal-inner { border-color: #2b2c44 }
 .modal.type-info #modal-title { color: var(--primary2) }
+.modal .menu.modal-grid { display: grid; grid-template-columns: repeat(2, minmax(160px, 1fr)); gap: 10px }
+.modal .menu.modal-grid .menu-item { width: 100% }
+@media (max-width: 480px) {
+  .modal .menu.modal-grid { grid-template-columns: 1fr }
+}

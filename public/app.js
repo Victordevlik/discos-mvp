@@ -256,6 +256,32 @@ function toggleAnalytics() {
     showStaffTab('analytics')
   }
 }
+function openMenuMoreModal() {
+  showModal('Más', '', 'info')
+  const t = q('modal-text')
+  if (!t) return
+  try { t.innerHTML = '' } catch {}
+  const list = document.createElement('div')
+  list.className = 'menu modal-grid'
+  const mk = (tab, label) => {
+    const b = document.createElement('button')
+    b.className = 'menu-item'
+    b.textContent = label
+    b.onclick = () => {
+      showStaffTab(tab)
+      const m = q('modal'); if (m) m.classList.remove('show')
+    }
+    return b
+  }
+  list.append(
+    mk('mesas', 'Mesas'),
+    mk('users', 'Usuarios'),
+    mk('reportes', 'Reportes'),
+    mk('promos', 'Promos'),
+    mk('catalog', 'Carta'),
+  )
+  t.append(list)
+}
 function showModalAction(title, msg, btnText, handler, type = 'info') {
   showModal(title, msg, type)
   const row = document.querySelector('#modal .row')
@@ -1410,7 +1436,7 @@ function bind() {
   const menuReportes = q('menu-staff-reportes'); if (menuReportes) menuReportes.onclick = () => { showStaffTab('reportes'); const more = q('staff-menu-more'); if (more) more.style.display = 'none' }
   const menuPromos = q('menu-staff-promos'); if (menuPromos) menuPromos.onclick = () => { showStaffTab('promos'); const more = q('staff-menu-more'); if (more) more.style.display = 'none' }
   const menuCatalog = q('menu-staff-catalog'); if (menuCatalog) menuCatalog.onclick = () => { showStaffTab('catalog'); const more = q('staff-menu-more'); if (more) more.style.display = 'none' }
-  const btnMenuMore = q('menu-staff-more'); if (btnMenuMore) btnMenuMore.onclick = () => { const more = q('staff-menu-more'); if (more) more.style.display = (more.style.display === 'none' || !more.style.display) ? 'block' : 'none' }
+  const btnMenuMore = q('menu-staff-more'); if (btnMenuMore) btnMenuMore.onclick = openMenuMoreModal
   q('btn-start-session-welcome').onclick = startStaffSession
   const btnScan = q('btn-scan-qr'); if (btnScan) btnScan.onclick = startScanQR
   q('btn-end-session').onclick = endStaffSession
