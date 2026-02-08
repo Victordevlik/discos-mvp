@@ -1341,7 +1341,6 @@ function bind() {
   const btnViewOrders = q('btn-view-orders'); if (btnViewOrders) btnViewOrders.onclick = () => { setActiveNav('orders'); loadUserOrders(); loadUserInvitesHistory(); show('screen-orders-user') }
   const btnWaiterOrder = q('btn-waiter-order'); if (btnWaiterOrder) btnWaiterOrder.onclick = callWaiterOrder
   for (const b of document.querySelectorAll('.btn-waiter-reason')) b.onclick = chooseWaiterReason
-  const btnWaiterOther = q('btn-waiter-other'); if (btnWaiterOther) btnWaiterOther.onclick = () => { S.waiterReason = 'otro'; const other = q('waiter-other'); if (other) other.style.display = ''; for (const b of document.querySelectorAll('.btn-waiter-reason')) b.classList.remove('active') }
   const btnBack = q('btn-back'); if (btnBack) btnBack.onclick = goBack
   const nc = q('nav-carta'), nd = q('nav-disponibles'), nm = q('nav-mesas'), no = q('nav-orders'), nf = q('nav-perfil')
   if (nc) nc.onclick = () => { setActiveNav('carta'); openMenu() }
@@ -1385,6 +1384,7 @@ function bind() {
   const tabReportes = q('tab-staff-reportes'); if (tabReportes) tabReportes.onclick = () => showStaffTab('reportes')
   const tabPromos = q('tab-staff-promos'); if (tabPromos) tabPromos.onclick = () => showStaffTab('promos')
   const tabCatalog = q('tab-staff-catalog'); if (tabCatalog) tabCatalog.onclick = () => showStaffTab('catalog')
+  const tabAnalytics = q('tab-staff-analytics'); if (tabAnalytics) tabAnalytics.onclick = () => showStaffTab('analytics')
   const btnStaffAnalytics = q('btn-staff-analytics'); if (btnStaffAnalytics) btnStaffAnalytics.onclick = () => showStaffTab('analytics')
   q('btn-start-session-welcome').onclick = startStaffSession
   const btnScan = q('btn-scan-qr'); if (btnScan) btnScan.onclick = startScanQR
@@ -1399,7 +1399,6 @@ function bind() {
   q('mesa-only-available').onchange = () => loadMesaPeople(S.currentTableId)
   q('btn-select-table').onclick = openSelectTable
   const heroSelfie = q('user-selfie-hero'); if (heroSelfie) heroSelfie.onclick = () => { const url = S.user?.selfie || ''; if (url) showImageModal(url) }
-  const cardSelfie = q('user-selfie'); if (cardSelfie) cardSelfie.onclick = () => { const url = S.user?.selfie || ''; if (url) showImageModal(url) }
   q('btn-select-table-save').onclick = saveSelectTable
   q('btn-invite-block').onclick = blockFromInvite
   q('btn-invite-report').onclick = reportFromInvite
@@ -1489,7 +1488,7 @@ async function loadMesasActive() {
     const div = document.createElement('div')
     div.className = 'card'
     const info = document.createElement('div')
-    info.textContent = `${m.tableId} • Personas ${m.people} • Disponibles ${m.disponibles} • +${m.incognitos} incógnitos`
+    info.textContent = `${m.tableId} • Personas ${m.people} • Disponibles ${m.disponibles}`
     const tags = document.createElement('div')
     tags.className = 'tags'
     if (Array.isArray(m.tags)) {
@@ -1644,7 +1643,6 @@ async function saveEditProfile() {
 
 function openCallWaiter() {
   S.waiterReason = ''
-  const other = q('waiter-other'); if (other) { other.value = ''; other.style.display = 'none' }
   for (const b of document.querySelectorAll('.btn-waiter-reason')) { b.classList.remove('active') }
   show('screen-call-waiter')
 }
@@ -1654,7 +1652,6 @@ async function sendWaiterCall() {
   if (S.waiterReason === 'hielo') reason = 'Me puedes traer hielo'
   else if (S.waiterReason === 'pasabocas') reason = 'Me puedes traer pasabocas'
   else if (S.waiterReason === 'limpieza') reason = '¿Puedes limpiar la mesa?'
-  else if (S.waiterReason === 'otro') { reason = q('waiter-other') ? q('waiter-other').value.trim() : '' }
   else { reason = 'Atención' }
   const phr = reason ? `Vas a llamar al mesero: ${reason}. ¿Confirmas?` : `Vas a llamar al mesero. ¿Confirmas?`
   const ok = await confirmAction(phr)
