@@ -1597,6 +1597,21 @@ function bind() {
       setTimeout(() => showError(''), 1000)
     } catch (e) { showError('No se pudo copiar') }
   }
+  const copyStaffBtn = q('btn-copy-link-staff')
+  if (copyStaffBtn) copyStaffBtn.onclick = async () => {
+    try {
+      let baseCandidate = ''
+      try {
+        const pb = await api(`/api/session/public-base?sessionId=${encodeURIComponent(S.sessionId)}`)
+        baseCandidate = (pb.publicBaseUrl || '').trim()
+      } catch {}
+      const base = baseCandidate || location.origin
+      const href = `${base}/?venueId=${encodeURIComponent(S.venueId || 'default')}&sessionId=${encodeURIComponent(S.sessionId)}&staff=1`
+      await navigator.clipboard.writeText(href)
+      showError('Link Staff copiado')
+      setTimeout(() => showError(''), 1000)
+    } catch (e) { showError('No se pudo copiar') }
+  }
   const catalogSearch = q('catalog-search'); if (catalogSearch) catalogSearch.oninput = applyCatalogSearch
   const btnWelcomeVenuePinSend = q('btn-welcome-venue-pin-send'); if (btnWelcomeVenuePinSend) btnWelcomeVenuePinSend.onclick = sendVenuePinAdminWelcome
   const savePB = q('btn-save-public-base')
