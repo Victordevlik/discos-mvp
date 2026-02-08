@@ -94,6 +94,7 @@ function showStaffTab(tab) {
     reportes: 'staff-reportes-content',
     promos: 'staff-promos-content',
     catalog: 'staff-catalog-content',
+    analytics: 'staff-analytics-content',
   }
   for (const el of document.querySelectorAll('#staff-content .section')) el.classList.remove('active')
   const id = contentMap[tab]
@@ -111,6 +112,7 @@ function showStaffTab(tab) {
   else if (tab === 'promos') loadStaffPromos()
   else if (tab === 'catalog') loadStaffCatalogEditor()
   else if (tab === 'panel') loadSessionInfo()
+  else if (tab === 'analytics') loadAnalytics()
   S.staffTab = tab
 }
 
@@ -1383,6 +1385,7 @@ function bind() {
   const tabReportes = q('tab-staff-reportes'); if (tabReportes) tabReportes.onclick = () => showStaffTab('reportes')
   const tabPromos = q('tab-staff-promos'); if (tabPromos) tabPromos.onclick = () => showStaffTab('promos')
   const tabCatalog = q('tab-staff-catalog'); if (tabCatalog) tabCatalog.onclick = () => showStaffTab('catalog')
+  const btnStaffAnalytics = q('btn-staff-analytics'); if (btnStaffAnalytics) btnStaffAnalytics.onclick = () => showStaffTab('analytics')
   q('btn-start-session-welcome').onclick = startStaffSession
   const btnScan = q('btn-scan-qr'); if (btnScan) btnScan.onclick = startScanQR
   q('btn-end-session').onclick = endStaffSession

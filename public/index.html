@@ -384,6 +384,7 @@
     <div class="row toolbar">
       <h2 id="staff-title">Panel de órdenes</h2>
       <div class="actions">
+        <button id="btn-staff-analytics" class="secondary">Analytics</button>
         <button id="btn-end-session">Cerrar sesión</button>
       </div>
     </div>
@@ -397,19 +398,21 @@
       <button id="tab-staff-promos" class="tab-item">Promos</button>
       <button id="tab-staff-catalog" class="tab-item">Carta</button>
     </div>
-    <div class="card">
-      <h3>Analytics</h3>
-      <div class="row metrics">
-        <div class="chip" id="an-users">Usuarios: 0</div>
-        <div class="chip" id="an-mesas">Mesas activas: 0</div>
-        <div class="chip" id="an-invites">Invitaciones: 0</div>
-        <div class="chip" id="an-accepted">Aceptadas: 0</div>
-        <div class="chip" id="an-ratio">Ratio: 0%</div>
-      </div>
-      <div class="row" id="an-orders"></div>
-      <div class="row" id="an-top"></div>
-    </div>
     <div id="staff-content">
+      <div id="staff-analytics-content" class="section">
+        <div class="card">
+          <h3>Analytics</h3>
+          <div class="row metrics">
+            <div class="chip" id="an-users">Usuarios: 0</div>
+            <div class="chip" id="an-mesas">Mesas activas: 0</div>
+            <div class="chip" id="an-invites">Invitaciones: 0</div>
+            <div class="chip" id="an-accepted">Aceptadas: 0</div>
+            <div class="chip" id="an-ratio">Ratio: 0%</div>
+          </div>
+          <div class="row" id="an-orders"></div>
+          <div class="row" id="an-top"></div>
+        </div>
+      </div>
       <div id="staff-panel-content" class="section">
         <div class="card">
           <h3>Panel</h3>
