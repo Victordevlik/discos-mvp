@@ -208,6 +208,22 @@ function showModal(title, msg, type = 'info') {
   if (!m || !t || !tt) return
   try { const btn = q('modal-action'); if (btn) btn.remove() } catch {}
   try { const inp = q('modal-input'); if (inp) inp.remove() } catch {}
+  const row = document.querySelector('#modal .row')
+  if (row) {
+    try {
+      for (const child of Array.from(row.children)) {
+        if (child.id !== 'modal-close') child.remove()
+      }
+    } catch {}
+    let closeBtn = q('modal-close')
+    if (!closeBtn) {
+      closeBtn = document.createElement('button')
+      closeBtn.id = 'modal-close'
+      closeBtn.textContent = 'Cerrar'
+      closeBtn.onclick = () => { const mm = q('modal'); if (mm) mm.classList.remove('show') }
+      row.append(closeBtn)
+    }
+  }
   m.classList.remove('type-error', 'type-success', 'type-info')
   m.classList.add('type-' + type)
   tt.textContent = title || ''
