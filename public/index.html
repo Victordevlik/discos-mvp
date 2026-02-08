@@ -85,18 +85,12 @@
       </div>
       <div id="user-hero-equalizer" class="equalizer" style="display:none"><span></span><span></span><span></span><span></span><span></span></div>
     </div>
-    <div class="card" id="user-header">
-      <div class="row">
-        <div class="zone" id="user-dance-status"></div>
-        <div class="row"><button id="btn-end-dance" style="display:none">Terminé de bailar</button></div>
-      </div>
-      <div id="user-equalizer" class="equalizer" style="display:none"><span></span><span></span><span></span><span></span><span></span></div>
-    </div>
     <div id="restore-chip" class="chip" style="display:none"></div>
     <div class="section-title">Disponibilidad</div>
     <div class="row">
       <label class="switch"><input id="switch-available" type="checkbox"><span>Disponible para bailar</span></label>
     </div>
+    <div class="row"><button id="btn-end-dance" style="display:none">Terminé de bailar</button></div>
     <div class="section-title">Perfil</div>
     <div class="row">
       <button id="btn-edit-profile" class="icon"><svg viewBox="0 0 24 24" fill="none"><path d="M15 4l5 5-9 9H6v-5z" stroke="#a6b0ff" stroke-width="1.5"/></svg><span>Editar perfil</span></button>
@@ -389,13 +383,7 @@
         <button id="menu-staff-waiter" class="menu-item">Llamados</button>
         <button id="menu-staff-more" class="menu-item">Más</button>
       </div>
-      <div id="staff-menu-more" class="menu-more" style="display:none">
-        <button id="menu-staff-mesas" class="menu-item">Mesas</button>
-        <button id="menu-staff-users" class="menu-item">Usuarios</button>
-        <button id="menu-staff-reportes" class="menu-item">Reportes</button>
-        <button id="menu-staff-promos" class="menu-item">Promos</button>
-        <button id="menu-staff-catalog" class="menu-item">Carta</button>
-      </div>
+      <!-- Más ahora se abre en modal -->
     </div>
     <div class="tabs" id="staff-tabs">
       <button id="tab-staff-panel" class="tab-item active">Panel <span id="badge-tab-panel" class="badge"></span></button>
