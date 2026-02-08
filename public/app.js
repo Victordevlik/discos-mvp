@@ -1,5 +1,5 @@
 // Añadimos venueId para operar en modo SaaS multi-venue
-let S = { sessionId: '', venueId: '', user: null, staff: null, role: '', sse: null, staffSSE: null, currentInvite: null, meeting: null, consumptionReq: null, nav: { history: [], current: '' }, notifications: { invites: 0 }, timers: { userPoll: 0, staffPoll: 0, userReconnect: 0, staffReconnect: 0, catalogSave: 0, modalHide: 0 }, staffTab: '', cart: [], messageTTL: 4000, modalShownAt: 0, isMeetingReceiver: false, meetingPlan: '', sched: {}, loading: {}, catalogGroups: {}, catalogCat: '', catalogSubcat: '', waiterReason: '', invitesQueue: [], inInviteFlow: false, missed: [] }
+let S = { sessionId: '', venueId: '', user: null, staff: null, role: '', sse: null, staffSSE: null, currentInvite: null, meeting: null, consumptionReq: null, nav: { history: [], current: '' }, notifications: { invites: 0 }, timers: { userPoll: 0, staffPoll: 0, userReconnect: 0, staffReconnect: 0, catalogSave: 0, modalHide: 0 }, staffTab: '', cart: [], messageTTL: 4000, modalShownAt: 0, isMeetingReceiver: false, meetingPlan: '', sched: {}, loading: {}, catalogGroups: {}, catalogCat: '', catalogSubcat: '', waiterReason: '', invitesQueue: [], inInviteFlow: false, missed: [], skipConfirmInvite: false }
 
 function q(id) { return document.getElementById(id) }
 function show(id) {
@@ -248,6 +248,32 @@ function showImageModal(url) {
   img.style.borderRadius = '12px'
   img.style.border = '1px solid #333'
   t.append(img)
+}
+function openInviteModal(expiresAt) {
+  showModal('', '', 'info')
+  const t = q('modal-text')
+  const row = document.querySelector('#modal .row')
+  if (!t || !row) return
+  S.skipConfirmInvite = true
+  try { t.innerHTML = '' } catch {}
+  try { row.innerHTML = '' } catch {}
+  const ring = document.createElement('div')
+  ring.id = 'invite-ring-modal'
+  ring.className = 'ring'
+  const txt = document.createElement('span')
+  txt.id = 'invite-ring-modal-txt'
+  ring.append(txt)
+  t.append(ring)
+  const bA = document.createElement('button')
+  bA.id = 'btn-invite-accept'
+  bA.textContent = 'Aceptar'
+  bA.onclick = () => respondInvite(true)
+  const bP = document.createElement('button')
+  bP.id = 'btn-invite-pass'
+  bP.textContent = 'Pasar'
+  bP.onclick = () => respondInvite(false)
+  row.append(bA, bP)
+  startInviteCountdown(expiresAt)
 }
 function toggleAnalytics() {
   const cur = S.staffTab || 'panel'
@@ -912,7 +938,7 @@ async function respondInvite(accept) {
     const listTxt = hasItems ? S.consumptionReq.items.map(it => `${it.quantity} x ${it.product}`).join(', ') : S.consumptionReq.product
     const phr = accept ? `Vas a aceptar invitación de consumo de ${S.consumptionReq.from.alias} (${listTxt}). ¿Confirmas?`
                        : `Vas a ignorar invitación de consumo. ¿Confirmas?`
-    const ok = await confirmAction(phr)
+    const ok = S.skipConfirmInvite ? true : await confirmAction(phr)
     if (!ok) return
     if (accept) {
       if (hasItems) {
@@ -933,7 +959,7 @@ async function respondInvite(accept) {
   const id = S.currentInvite.id
   const action = accept ? 'accept' : 'pass'
   const phr2 = accept ? `Vas a aceptar invitación de baile. ¿Confirmas?` : `Vas a pasar la invitación de baile. ¿Confirmas?`
-  const ok2 = await confirmAction(phr2)
+  const ok2 = S.skipConfirmInvite ? true : await confirmAction(phr2)
   if (!ok2) return
   stopInviteCountdown()
   const note = (q('invite-response') ? q('invite-response').value.trim().slice(0, 120) : '')
@@ -942,6 +968,7 @@ async function respondInvite(accept) {
   setBadgeNav('disponibles', S.notifications.invites)
   if (!accept) show('screen-user-home')
   if (!accept) { S.inInviteFlow = false; showNextInvite() }
+  S.skipConfirmInvite = false
 }
 
 function openThanks(toId, context) {
@@ -1434,8 +1461,6 @@ function bind() {
   q('btn-select-table').onclick = openSelectTable
   const heroSelfie = q('user-selfie-hero'); if (heroSelfie) heroSelfie.onclick = () => { const url = S.user?.selfie || ''; if (url) showImageModal(url) }
   q('btn-select-table-save').onclick = saveSelectTable
-  q('btn-invite-block').onclick = blockFromInvite
-  q('btn-invite-report').onclick = reportFromInvite
   q('btn-meeting-confirm').onclick = confirmMeeting
   const endBtn = q('btn-end-dance'); if (endBtn) endBtn.onclick = finishDance
   const btnMeetCome = q('btn-meet-come'); if (btnMeetCome) btnMeetCome.onclick = () => setMeetingPlan('come')
@@ -1832,8 +1857,8 @@ function showNextInvite() {
     const zoneTxt = S.currentInvite.from.zone ? ` • Zona ${S.currentInvite.from.zone}` : ''
     const info = q('invite-received-info'); if (info) info.textContent = `${S.currentInvite.from.alias} te invita${mesaTxt}${zoneTxt}`
     const img = q('invite-from-selfie'); if (img) img.src = S.currentInvite.from.selfie || ''
-    startInviteCountdown(S.currentInvite.expiresAt)
     show('screen-invite-received')
+    openInviteModal(S.currentInvite.expiresAt)
   } else if (next.type === 'consumption') {
     S.consumptionReq = next.data
     const msg = S.consumptionReq.note ? ` • Mensaje: ${S.consumptionReq.note}` : ''
@@ -1842,6 +1867,8 @@ function showNextInvite() {
     const info = q('invite-received-info'); if (info) info.textContent = `${S.consumptionReq.from.alias} te invita ${listTxt}${mesaTxt}${msg}`
     stopInviteCountdown()
     show('screen-invite-received')
+    S.skipConfirmInvite = true
+    openInviteModal(0)
   }
   S.notifications.invites = Math.max(0, (S.notifications.invites || 0) - 1)
   setBadgeNav('disponibles', S.notifications.invites)
@@ -1919,9 +1946,9 @@ async function passAllConsumptionInvites() {
 function startInviteCountdown(expiresAt) {
   try { if (S.timers && S.timers.inviteCountdown) { clearInterval(S.timers.inviteCountdown); S.timers.inviteCountdown = 0 } } catch {}
   const target = Number(expiresAt || 0)
-  if (!target) { const txt = q('invite-ring-txt'); if (txt) txt.textContent = ''; const el = q('invite-ring'); if (el) el.style.setProperty('--deg','0deg'); return }
-  const el = q('invite-ring')
-  const txt = q('invite-ring-txt')
+  if (!target) { const txt = q('invite-ring-modal-txt') || q('invite-ring-txt'); if (txt) txt.textContent = ''; const el = q('invite-ring-modal') || q('invite-ring'); if (el) el.style.setProperty('--deg','0deg'); return }
+  const el = q('invite-ring-modal') || q('invite-ring')
+  const txt = q('invite-ring-modal-txt') || q('invite-ring-txt')
   if (!el || !txt) return
   S.inviteTTL = Math.max(1, Math.ceil((target - Date.now()) / 1000))
   const tick = () => {
@@ -1946,8 +1973,8 @@ function startInviteCountdown(expiresAt) {
 }
 function stopInviteCountdown() {
   try { if (S.timers && S.timers.inviteCountdown) { clearInterval(S.timers.inviteCountdown); S.timers.inviteCountdown = 0 } } catch {}
-  const el = q('invite-ring'); if (el) el.style.setProperty('--deg', '0deg')
-  const txt = q('invite-ring-txt'); if (txt) txt.textContent = ''
+  const el = q('invite-ring-modal') || q('invite-ring'); if (el) el.style.setProperty('--deg', '0deg')
+  const txt = q('invite-ring-modal-txt') || q('invite-ring-txt'); if (txt) txt.textContent = ''
 }
 async function loadUserInvitesHistory() {
   const r = await api(`/api/user/invites/history?userId=${encodeURIComponent(S.user.id)}`)
