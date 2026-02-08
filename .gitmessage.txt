@@ -1,0 +1,13 @@
+tipo(alcance): resumen breve e imperativo
+
+Qué:
+
+Por qué:
+
+Validación:
+
+Notas:
+
+BREAKING CHANGE:
+
+Refs:
