@@ -25,6 +25,7 @@ const state = {
   rate: {
     invitesByUserHour: new Map(),
     lastInvitePair: new Map(),
+    passesByPair: new Map(),
     restrictedUsers: new Map(),
     consumptionByUserHour: new Map(),
     thanksByUserHour: new Map(),
@@ -999,6 +1000,11 @@ const server = http.createServer(async (req, res) => {
         if (only && !u.available) continue
         if (excludeId && u.id === excludeId) continue
         if (u.danceState && u.danceState !== 'idle') continue
+        if (excludeId) {
+          const key = `${excludeId}:${u.id}`
+          const passes = Number(state.rate.passesByPair.get(key) || 0)
+          if (passes >= 2) continue
+        }
         const ageOk = u.prefs && u.prefs.age ? (u.prefs.age >= min && u.prefs.age <= max) : true
         const tagsOk = tagsQ.length ? (Array.isArray(u.prefs.tags) && tagsQ.every(t => u.prefs.tags.includes(t))) : true
         const zoneOk = zoneQ ? (u.zone === zoneQ) : true
@@ -1068,6 +1074,11 @@ const server = http.createServer(async (req, res) => {
       if (action === 'pass') {
         inv.status = 'pasado'
         state.rate.lastInvitePair.set(`${inv.fromId}:${inv.toId}`, { ts: now(), blocked: true })
+        {
+          const k = `${inv.fromId}:${inv.toId}`
+          const prev = Number(state.rate.passesByPair.get(k) || 0)
+          state.rate.passesByPair.set(k, prev + 1)
+        }
         sendToUser(inv.fromId, 'invite_result', { inviteId: inv.id, status: 'pasado', note })
         json(res, 200, { ok: true })
         return

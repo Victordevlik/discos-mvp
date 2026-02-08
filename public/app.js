@@ -876,6 +876,7 @@ function startEvents() {
   S.sse.onerror = () => { scheduleUserSSEReconnect() }
   S.sse.addEventListener('dance_invite', e => {
     const data = JSON.parse(e.data)
+    try { if (navigator && navigator.vibrate) navigator.vibrate([140,40,140]) } catch {}
     S.invitesQueue.push({ type: 'dance', id: data.invite.id, invite: data.invite })
     S.notifications.invites = (S.notifications.invites || 0) + 1
     setBadgeNav('disponibles', S.notifications.invites)
@@ -945,6 +946,7 @@ function startEvents() {
   })
   S.sse.addEventListener('consumption_invite', e => {
     const data = JSON.parse(e.data)
+    try { if (navigator && navigator.vibrate) navigator.vibrate([80,30,80]) } catch {}
     S.invitesQueue.push({ type: 'consumption', data })
     S.notifications.invites = (S.notifications.invites || 0) + 1
     setBadgeNav('disponibles', S.notifications.invites)
@@ -956,6 +958,7 @@ function startEvents() {
   })
   S.sse.addEventListener('consumption_invite_bulk', e => {
     const data = JSON.parse(e.data)
+    try { if (navigator && navigator.vibrate) navigator.vibrate([80,30,80,30,80]) } catch {}
     S.invitesQueue.push({ type: 'consumption', data })
     S.notifications.invites = (S.notifications.invites || 0) + 1
     setBadgeNav('disponibles', S.notifications.invites)
@@ -969,12 +972,16 @@ function startEvents() {
   S.sse.addEventListener('consumption_accepted', e => {
     const data = JSON.parse(e.data)
     const msg = `${data.from.alias} aceptó tu invitación: ${data.quantity} x ${data.product}`
+    stopInviteCountdown()
+    const m = q('modal'); if (m) m.classList.remove('show')
     if (document.hidden) { S.missed.push(msg) } else { showSuccess(msg) }
   })
   S.sse.addEventListener('consumption_passed', e => {
     const data = JSON.parse(e.data)
     const listTxt = (Array.isArray(data.items) ? data.items.map(it => `${it.quantity} x ${it.product}`).join(', ') : data.product)
     const msg = `${data.to.alias} pasó tu invitación: ${listTxt}`
+    stopInviteCountdown()
+    const m = q('modal'); if (m) m.classList.remove('show')
     if (document.hidden) { S.missed.push(msg) } else { showError(msg); setTimeout(() => showError(''), 1500) }
   })
   S.sse.addEventListener('order_update', e => {
@@ -1155,7 +1162,8 @@ async function sendConsumption() {
   renderCart()
   const inp = q('product'); if (inp) inp.value = ''
   const qn = q('quantity'); if (qn) qn.value = '1'
-  show('screen-user-home')
+  const exp = Date.now() + 60 * 1000
+  openInviteWaitModal(exp, { id: toId, alias: displayTo, selfie: '' })
 }
 
 async function orderTable() {
@@ -1363,7 +1371,8 @@ async function loadOrders(state = '') {
     const ia = String(a.id || ''), ib = String(b.id || '')
     return ia.localeCompare(ib)
   })
-  for (const o of listAsc) {
+  const list = state ? listAsc : listAsc.filter(o => o.status !== 'cobrado')
+  for (const o of list) {
     const div = document.createElement('div')
     div.className = 'card'
     const info = document.createElement('div')
