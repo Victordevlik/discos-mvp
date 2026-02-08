@@ -80,7 +80,7 @@ body[data-theme="light"] .chip.expirado { background:#faeded; color:#6b3c3c; bor
 h2 { font-size: 24px; margin: 0 0 12px 0 }
 .section-title { color: var(--muted); font-size: 14px; margin: 6px 0 }
 .topbar { display:none; position: sticky; top:0; padding: 8px 16px; background: rgba(13,14,22,0.8); backdrop-filter: blur(10px); border-bottom:1px solid #2b2c44; z-index: 10 }
-.topbar.show { display:block }
+.topbar.show { display:flex; justify-content: space-between; align-items: center }
 .navbar { position: fixed; bottom: 0; left: 0; right: 0; display: grid; grid-template-columns: repeat(5,1fr); gap: 8px; padding: 10px 14px; background: rgba(13,14,22,0.8); backdrop-filter: blur(12px); border-top: 1px solid #2b2c44 }
 body[data-theme="light"] .navbar { background: rgba(247,248,254,0.85); border-top-color: #dde2f0 }
 .nav-item { display:flex; flex-direction:column; align-items:center; gap:6px; padding: 10px 8px; border: 0; background: transparent; color: var(--muted) }
