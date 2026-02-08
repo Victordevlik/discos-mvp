@@ -2197,9 +2197,7 @@ function init() {
     if (sid && q('join-code')) q('join-code').value = sid
     const aj = u.searchParams.get('aj')
     const staffParam = u.searchParams.get('staff')
-    if (sid && aj === '1') {
-      setTimeout(() => join('user', sid), 50)
-    } else if (staffParam === '1') {
+    if (staffParam === '1') {
       show('screen-staff-welcome')
       if (sid) {
         setTimeout(async () => {
@@ -2207,8 +2205,15 @@ function init() {
           if (pin) { await join('staff', sid, pin) }
         }, 80)
       }
+    } else if (sid && aj === '1') {
+      restoreLocalUser().then(ok => {
+        if (ok) return
+        setTimeout(() => join('user', sid), 50)
+      })
     } else {
-      restoreLocalUser().then(ok => { if (!ok) show('screen-welcome') })
+      restoreLocalUser().then(ok => {
+        if (!ok) show('screen-welcome')
+      })
     }
   } catch {}
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js')
