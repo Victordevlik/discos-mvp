@@ -1404,12 +1404,12 @@ function bind() {
   const btnStaffAnalytics = q('btn-staff-analytics'); if (btnStaffAnalytics) btnStaffAnalytics.onclick = toggleAnalytics
   const menuPanel = q('menu-staff-panel'); if (menuPanel) menuPanel.onclick = () => showStaffTab('panel')
   const menuOrders = q('menu-staff-orders'); if (menuOrders) menuOrders.onclick = () => showStaffTab('orders')
-  const menuMesas = q('menu-staff-mesas'); if (menuMesas) menuMesas.onclick = () => showStaffTab('mesas')
-  const menuUsers = q('menu-staff-users'); if (menuUsers) menuUsers.onclick = () => showStaffTab('users')
-  const menuWaiter = q('menu-staff-waiter'); if (menuWaiter) menuWaiter.onclick = () => showStaffTab('waiter')
-  const menuReportes = q('menu-staff-reportes'); if (menuReportes) menuReportes.onclick = () => showStaffTab('reportes')
-  const menuPromos = q('menu-staff-promos'); if (menuPromos) menuPromos.onclick = () => showStaffTab('promos')
-  const menuCatalog = q('menu-staff-catalog'); if (menuCatalog) menuCatalog.onclick = () => showStaffTab('catalog')
+  const menuMesas = q('menu-staff-mesas'); if (menuMesas) menuMesas.onclick = () => { showStaffTab('mesas'); const more = q('staff-menu-more'); if (more) more.style.display = 'none' }
+  const menuUsers = q('menu-staff-users'); if (menuUsers) menuUsers.onclick = () => { showStaffTab('users'); const more = q('staff-menu-more'); if (more) more.style.display = 'none' }
+  const menuWaiter = q('menu-staff-waiter'); if (menuWaiter) menuWaiter.onclick = () => { showStaffTab('waiter'); const more = q('staff-menu-more'); if (more) more.style.display = 'none' }
+  const menuReportes = q('menu-staff-reportes'); if (menuReportes) menuReportes.onclick = () => { showStaffTab('reportes'); const more = q('staff-menu-more'); if (more) more.style.display = 'none' }
+  const menuPromos = q('menu-staff-promos'); if (menuPromos) menuPromos.onclick = () => { showStaffTab('promos'); const more = q('staff-menu-more'); if (more) more.style.display = 'none' }
+  const menuCatalog = q('menu-staff-catalog'); if (menuCatalog) menuCatalog.onclick = () => { showStaffTab('catalog'); const more = q('staff-menu-more'); if (more) more.style.display = 'none' }
   const btnMenuMore = q('menu-staff-more'); if (btnMenuMore) btnMenuMore.onclick = () => { const more = q('staff-menu-more'); if (more) more.style.display = (more.style.display === 'none' || !more.style.display) ? 'block' : 'none' }
   q('btn-start-session-welcome').onclick = startStaffSession
   const btnScan = q('btn-scan-qr'); if (btnScan) btnScan.onclick = startScanQR
