@@ -2511,187 +2511,159 @@ async function closeStaffTable2() {
   viewStaffTableHistory2()
 }
 
-// ==================== SISTEMA DE PARTÍCULAS CYBERPUNK ====================
-class CyberParticleSystem {
+// ==================== SISTEMA PREMIUM EXECUTIVE ====================
+class PremiumUXSystem {
   constructor() {
-    this.canvas = null
-    this.ctx = null
-    this.particles = []
-    this.animationId = null
-    this.resizeObserver = null
     this.init()
   }
 
   init() {
-    this.createCanvas()
-    this.setupResizeObserver()
-    this.createParticles()
-    this.animate()
+    this.setupPremiumStyles()
+    this.setupSmoothAnimations()
+    this.setupMicroInteractions()
+    this.setupLuxuryEffects()
   }
 
-  createCanvas() {
-    this.canvas = document.createElement('canvas')
-    this.canvas.className = 'cyber-particle-canvas'
-    this.canvas.style.position = 'fixed'
-    this.canvas.style.top = '0'
-    this.canvas.style.left = '0'
-    this.canvas.style.width = '100vw'
-    this.canvas.style.height = '100vh'
-    this.canvas.style.zIndex = '-1'
-    this.canvas.style.pointerEvents = 'none'
-    document.body.appendChild(this.canvas)
-    this.ctx = this.canvas.getContext('2d')
-    this.resizeCanvas()
+  setupPremiumStyles() {
+    document.documentElement.style.setProperty('--scrollbar-width', (window.innerWidth - document.documentElement.clientWidth) + 'px')
   }
 
-  resizeCanvas() {
-    this.canvas.width = window.innerWidth
-    this.canvas.height = window.innerHeight
-  }
-
-  setupResizeObserver() {
-    this.resizeObserver = new ResizeObserver(() => {
-      this.resizeCanvas()
-      this.adjustParticleDensity()
+  setupSmoothAnimations() {
+    // Smooth scrolling para experiencia premium
+    document.addEventListener('click', (e) => {
+      const target = e.target.closest('a[href^="#"]')
+      if (target) {
+        e.preventDefault()
+        const targetElement = document.querySelector(target.getAttribute('href'))
+        if (targetElement) {
+          targetElement.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start'
+          })
+        }
+      }
     })
-    this.resizeObserver.observe(document.body)
   }
 
-  createParticles() {
-    const particleCount = Math.floor((window.innerWidth * window.innerHeight) / 8000)
-    this.particles = []
-    
-    const colors = [
-      '#00f0ff', // neon cyan
-      '#ff00ff', // neon magenta  
-      '#ff0080', // neon pink
-      '#00ff80', // neon green
-      '#8000ff'  // neon purple
-    ]
+  setupMicroInteractions() {
+    // Efectos hover premium para todos los elementos interactivos
+    this.setupPremiumHoverEffects()
+    this.setupFocusEffects()
+    this.setupLoadingStates()
+  }
 
-    for (let i = 0; i < particleCount; i++) {
-      this.particles.push({
-        x: Math.random() * this.canvas.width,
-        y: Math.random() * this.canvas.height,
-        radius: Math.random() * 2 + 0.5,
-        color: colors[Math.floor(Math.random() * colors.length)],
-        speed: Math.random() * 2 + 0.5,
-        angle: Math.random() * Math.PI * 2,
-        opacity: Math.random() * 0.8 + 0.2,
-        pulse: Math.random() * Math.PI * 2
+  setupPremiumHoverEffects() {
+    document.addEventListener('mouseover', (e) => {
+      const interactive = e.target.closest('button, a, .card, input, select, .interactive')
+      if (interactive) {
+        interactive.style.transform = 'translateY(-1px) scale(1.01)'
+        interactive.style.transition = 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+      }
+    })
+
+    document.addEventListener('mouseout', (e) => {
+      const interactive = e.target.closest('button, a, .card, input, select, .interactive')
+      if (interactive) {
+        interactive.style.transform = ''
+      }
+    })
+  }
+
+  setupFocusEffects() {
+    document.addEventListener('focusin', (e) => {
+      if (e.target.matches('input, select, textarea, button, a')) {
+        e.target.style.transform = 'scale(1.02)'
+        e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+      }
+    })
+
+    document.addEventListener('focusout', (e) => {
+      if (e.target.matches('input, select, textarea, button, a')) {
+        e.target.style.transform = ''
+        e.target.style.boxShadow = ''
+      }
+    })
+  }
+
+  setupLoadingStates() {
+    // Interceptar llamadas API para mostrar estados de carga premium
+    const originalFetch = window.fetch
+    window.fetch = async function(...args) {
+      const loadingEvent = new CustomEvent('loadingStart', { detail: { url: args[0] } })
+      document.dispatchEvent(loadingEvent)
+      
+      try {
+        const response = await originalFetch.apply(this, args)
+        const loadedEvent = new CustomEvent('loadingEnd', { detail: { url: args[0], success: true } })
+        document.dispatchEvent(loadedEvent)
+        return response
+      } catch (error) {
+        const errorEvent = new CustomEvent('loadingEnd', { detail: { url: args[0], success: false, error } })
+        document.dispatchEvent(errorEvent)
+        throw error
+      }
+    }
+  }
+
+  setupLuxuryEffects() {
+    // Efectos visuales premium
+    this.setupParallaxEffect()
+    this.setupGlassMorphism()
+  }
+
+  setupParallaxEffect() {
+    window.addEventListener('scroll', () => {
+      const scrolled = window.pageYOffset
+      const parallaxElements = document.querySelectorAll('.parallax')
+      
+      parallaxElements.forEach(element => {
+        const speed = parseFloat(element.dataset.speed) || 0.5
+        element.style.transform = `translateY(${scrolled * speed}px)`
       })
-    }
-  }
-
-  adjustParticleDensity() {
-    const currentCount = this.particles.length
-    const targetCount = Math.floor((window.innerWidth * window.innerHeight) / 8000)
-    
-    if (targetCount > currentCount) {
-      const colors = ['#00f0ff', '#ff00ff', '#ff0080', '#00ff80', '#8000ff']
-      for (let i = currentCount; i < targetCount; i++) {
-        this.particles.push({
-          x: Math.random() * this.canvas.width,
-          y: Math.random() * this.canvas.height,
-          radius: Math.random() * 2 + 0.5,
-          color: colors[Math.floor(Math.random() * colors.length)],
-          speed: Math.random() * 2 + 0.5,
-          angle: Math.random() * Math.PI * 2,
-          opacity: Math.random() * 0.8 + 0.2,
-          pulse: Math.random() * Math.PI * 2
-        })
-      }
-    } else if (targetCount < currentCount) {
-      this.particles = this.particles.slice(0, targetCount)
-    }
-  }
-
-  animate() {
-    this.animationId = requestAnimationFrame(() => this.animate())
-    this.update()
-    this.draw()
-  }
-
-  update() {
-    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
-    
-    this.particles.forEach(particle => {
-      particle.x += Math.cos(particle.angle) * particle.speed
-      particle.y += Math.sin(particle.angle) * particle.speed
-      
-      particle.pulse += 0.05
-      particle.opacity = 0.5 + Math.sin(particle.pulse) * 0.3
-      
-      if (particle.x < -particle.radius) particle.x = this.canvas.width + particle.radius
-      if (particle.x > this.canvas.width + particle.radius) particle.x = -particle.radius
-      if (particle.y < -particle.radius) particle.y = this.canvas.height + particle.radius
-      if (particle.y > this.canvas.height + particle.radius) particle.y = -particle.radius
-      
-      const mouseX = window.mouseX || this.canvas.width / 2
-      const mouseY = window.mouseY || this.canvas.height / 2
-      const dx = particle.x - mouseX
-      const dy = particle.y - mouseY
-      const distance = Math.sqrt(dx * dx + dy * dy)
-      
-      if (distance < 150) {
-        particle.angle = Math.atan2(dy, dx) + Math.PI
-        particle.speed = Math.min(particle.speed + 0.2, 5)
-      }
     })
   }
 
-  draw() {
-    this.particles.forEach(particle => {
-      this.ctx.beginPath()
-      this.ctx.arc(particle.x, particle.y, particle.radius, 0, Math.PI * 2)
-      
-      const gradient = this.ctx.createRadialGradient(
-        particle.x, particle.y, 0,
-        particle.x, particle.y, particle.radius * 3
-      )
-      gradient.addColorStop(0, particle.color)
-      gradient.addColorStop(1, 'transparent')
-      
-      this.ctx.fillStyle = gradient
-      this.ctx.globalAlpha = particle.opacity
-      this.ctx.fill()
-      
-      this.ctx.shadowBlur = 15
-      this.ctx.shadowColor = particle.color
-      this.ctx.fill()
-      
-      this.ctx.globalAlpha = 1
-      this.ctx.shadowBlur = 0
+  setupGlassMorphism() {
+    // Aplicar efecto glass morphism a elementos específicos
+    const glassElements = document.querySelectorAll('.glass')
+    glassElements.forEach(element => {
+      element.style.backdropFilter = 'blur(20px) saturate(180%)'
+      element.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'
+      element.style.border = '1px solid rgba(255, 255, 255, 0.1)'
     })
   }
 
-  destroy() {
-    if (this.animationId) {
-      cancelAnimationFrame(this.animationId)
-    }
-    if (this.resizeObserver) {
-      this.resizeObserver.disconnect()
-    }
-    if (this.canvas && this.canvas.parentNode) {
-      this.canvas.parentNode.removeChild(this.canvas)
-    }
+  showPremiumNotification(message, type = 'success') {
+    const notification = document.createElement('div')
+    notification.className = `premium-notification premium-notification-${type}`
+    notification.innerHTML = `
+      <div class="premium-notification-content">
+        <span class="premium-notification-icon">✓</span>
+        <span class="premium-notification-message">${message}</span>
+      </div>
+    `
+    
+    document.body.appendChild(notification)
+    
+    setTimeout(() => {
+      notification.classList.add('show')
+      setTimeout(() => {
+        notification.classList.remove('show')
+        setTimeout(() => {
+          notification.remove()
+        }, 300)
+      }, 3000)
+    }, 100)
   }
 }
 
-// Track mouse position for interactive particles
-window.addEventListener('mousemove', (e) => {
-  window.mouseX = e.clientX
-  window.mouseY = e.clientY
-})
-
-// Initialize particle system when DOM is loaded
+// Inicializar sistema premium cuando el DOM esté listo
 document.addEventListener('DOMContentLoaded', () => {
-  window.cyberParticles = new CyberParticleSystem()
-})
-
-// Cleanup on page unload
-window.addEventListener('beforeunload', () => {
-  if (window.cyberParticles) {
-    window.cyberParticles.destroy()
+  window.premiumUX = new PremiumUXSystem()
+  
+  // Remover cualquier efecto cyberpunk anterior
+  const cyberCanvas = document.querySelector('.cyber-particle-canvas')
+  if (cyberCanvas) {
+    cyberCanvas.remove()
   }
 })
