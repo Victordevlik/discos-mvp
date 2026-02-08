@@ -197,7 +197,7 @@ body[data-theme="light"] .tab-item.active { background:#eaf0ff; border-color:#cd
 #staff-menu { display: block }
 /* Staff menu */
 .menu { display:flex; flex-direction: column; gap:10px; margin: 6px 0 12px 0 }
-.menu .menu-item { text-align: left; padding: 10px 12px; border-radius: 12px; border:1px solid #2b2c44; background: rgba(20,21,32,0.6); color: var(--muted); font-weight: 600; width: auto; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center }
+.menu .menu-item { position: relative; text-align: left; padding: 10px 12px; border-radius: 12px; border:1px solid #2b2c44; background: rgba(20,21,32,0.6); color: var(--muted); font-weight: 600; width: auto; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center }
 .menu .menu-item.active { color: var(--primary2); border-color: #3a3b5c; background: rgba(27,28,44,0.75) }
 body[data-theme="light"] .menu .menu-item { background:#f3f5fd; border-color:#dbe1f3; color:#1b1f2b }
 body[data-theme="light"] .menu .menu-item.active { background:#eaf0ff; border-color:#cdd9ff; color:#3747ff }

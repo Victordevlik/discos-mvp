@@ -1002,7 +1002,8 @@ async function respondInvite(accept) {
         await api('/api/consumption/respond/bulk', { method: 'POST', body: JSON.stringify({ fromId: S.consumptionReq.from.id, toId: S.user.id, items: S.consumptionReq.items, action: 'accept', requestId: S.consumptionReq.requestId || '' }) })
         openThanks(S.consumptionReq.from.id, 'consumption')
       } else {
-        await api('/api/consumption/respond', { method: 'POST', body: JSON.stringify({ fromId: S.consumptionReq.from.id, toId: S.user.id, product: S.consumptionReq.product, action: 'accept', requestId: S.consumptionReq.requestId || '' }) })
+        const qty = Math.max(1, Number(S.consumptionReq.quantity || 1))
+        await api('/api/consumption/respond', { method: 'POST', body: JSON.stringify({ fromId: S.consumptionReq.from.id, toId: S.user.id, product: S.consumptionReq.product, quantity: qty, action: 'accept', requestId: S.consumptionReq.requestId || '' }) })
         openThanks(S.consumptionReq.from.id, 'consumption')
       }
     }
@@ -1387,7 +1388,7 @@ async function loadWaiterCalls() {
   const r = await api(`/api/staff/waiter?sessionId=${encodeURIComponent(S.sessionId)}`)
   const container = q('waiter-calls')
   container.innerHTML = ''
-  const list = (r.calls || []).slice().sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0))
+  const list = (r.calls || []).slice().filter(c => c.status !== 'atendido' && c.status !== 'cancelado').sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0))
   for (const c of list) {
     const div = document.createElement('div')
     div.className = 'card'
@@ -1403,7 +1404,9 @@ async function loadWaiterCalls() {
     container.append(div)
   }
   const bWaiter = q('badge-tab-waiter')
-  if (bWaiter) { const v = (r.calls || []).filter(x => x.status !== 'atendido' && x.status !== 'cancelado').length; bWaiter.classList.toggle('show', v > 0); bWaiter.textContent = v > 9 ? '9+' : String(v) }
+  if (bWaiter) { const v = list.length; bWaiter.classList.toggle('show', v > 0); bWaiter.textContent = v > 9 ? '9+' : String(v) }
+  const bMenuWaiter = q('badge-menu-waiter')
+  if (bMenuWaiter) { const v = list.length; bMenuWaiter.classList.toggle('show', v > 0); bMenuWaiter.textContent = v > 9 ? '9+' : String(v) }
 }
 async function approveSelfie(userId) {
   await api('/api/moderation/approve-selfie', { method: 'POST', body: JSON.stringify({ staffId: S.user.id, userId }) })
@@ -1949,7 +1952,7 @@ function openInvitesInbox() {
       const listTxt = (Array.isArray(data.items) ? data.items.map(it => `${it.quantity} x ${it.product}`).join(', ') : `${data.quantity || 1} x ${data.product}`)
       div.textContent = `Consumo de ${data.from.alias}: ${listTxt}`
       const row = document.createElement('div'); row.className = 'row'
-      const bA = document.createElement('button'); bA.textContent = 'Aceptar'; bA.onclick = async () => { if (Array.isArray(data.items) && data.items.length) { await api('/api/consumption/respond/bulk', { method: 'POST', body: JSON.stringify({ fromId: data.from.id, toId: S.user.id, items: data.items, action: 'accept', requestId: data.requestId || '' }) }) } else { await api('/api/consumption/respond', { method: 'POST', body: JSON.stringify({ fromId: data.from.id, toId: S.user.id, product: data.product, action: 'accept', requestId: data.requestId || '' }) }) } show('screen-user-home') }
+      const bA = document.createElement('button'); bA.textContent = 'Aceptar'; bA.onclick = async () => { if (Array.isArray(data.items) && data.items.length) { await api('/api/consumption/respond/bulk', { method: 'POST', body: JSON.stringify({ fromId: data.from.id, toId: S.user.id, items: data.items, action: 'accept', requestId: data.requestId || '' }) }) } else { const qty = Math.max(1, Number(data.quantity || 1)); await api('/api/consumption/respond', { method: 'POST', body: JSON.stringify({ fromId: data.from.id, toId: S.user.id, product: data.product, quantity: qty, action: 'accept', requestId: data.requestId || '' }) }) } show('screen-user-home') }
       const bP = document.createElement('button'); bP.textContent = 'Pasar'; bP.onclick = async () => { if (Array.isArray(data.items) && data.items.length) { await api('/api/consumption/respond/bulk', { method: 'POST', body: JSON.stringify({ fromId: data.from.id, toId: S.user.id, items: data.items, action: 'pass', requestId: data.requestId || '' }) }) } else { await api('/api/consumption/respond', { method: 'POST', body: JSON.stringify({ fromId: data.from.id, toId: S.user.id, product: data.product, action: 'pass', requestId: data.requestId || '' }) }) } S.invitesQueue = S.invitesQueue.filter(x => !(x.type === 'consumption' && x.data && x.data.requestId === data.requestId)); openInvitesInbox() }
       row.append(bA, bP); div.append(row)
     }
@@ -2273,7 +2276,17 @@ async function loadAnalytics() {
     }
   }
   const bOrders = q('badge-tab-orders')
-  if (bOrders) { const v = r.orders?.pendiente_cobro || 0; bOrders.classList.toggle('show', v > 0); bOrders.textContent = v > 9 ? '9+' : String(v) }
+  if (bOrders) {
+    let v = 0
+    for (const k of Object.keys(r.orders || {})) { if (k !== 'cobrado' && k !== 'cancelado') v += Number(r.orders[k] || 0) }
+    bOrders.classList.toggle('show', v > 0); bOrders.textContent = v > 9 ? '9+' : String(v)
+  }
+  const bMenuOrders = q('badge-menu-orders')
+  if (bMenuOrders) {
+    let v = 0
+    for (const k of Object.keys(r.orders || {})) { if (k !== 'cobrado' && k !== 'cancelado') v += Number(r.orders[k] || 0) }
+    bMenuOrders.classList.toggle('show', v > 0); bMenuOrders.textContent = v > 9 ? '9+' : String(v)
+  }
   const bMesas = q('badge-tab-mesas')
   if (bMesas) { const v = r.mesasActivas || 0; bMesas.classList.toggle('show', v > 0); bMesas.textContent = v > 9 ? '9+' : String(v) }
   const bUsers = q('badge-tab-usuarios')

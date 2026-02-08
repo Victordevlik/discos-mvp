@@ -1138,7 +1138,8 @@ const server = http.createServer(async (req, res) => {
       state.rate.consumptionByUserHour.set(hourKey, [...fresh, now()])
       const reqId = genId('cinv')
       const note = String(body.note || '').slice(0, 140)
-      sendToUser(to.id, 'consumption_invite', { requestId: reqId, from: { id: from.id, alias: from.alias, tableId: from.tableId || '' }, product: body.product, note })
+      const qty = Math.max(1, Number(body.quantity || 1))
+      sendToUser(to.id, 'consumption_invite', { requestId: reqId, from: { id: from.id, alias: from.alias, tableId: from.tableId || '' }, product: body.product, quantity: qty, note })
       json(res, 200, { requestId: reqId })
       return
     }
@@ -1183,12 +1184,13 @@ const server = http.createServer(async (req, res) => {
       const price = found ? Number(found.price || 0) : 0
       const orderId = genId('ord')
       const expiresAt = now() + 10 * 60 * 1000
-      const order = { id: orderId, sessionId: from.sessionId, emitterId: from.id, receiverId: to.id, product: itemName, quantity: 1, price, total: price * 1, status: 'pendiente_cobro', createdAt: now(), expiresAt, emitterTable: from.tableId || '', receiverTable: to.tableId || '', mesaEntrega: to.tableId || '', isInvitation: true }
+      const qty = Math.max(1, Number(body.quantity || 1))
+      const order = { id: orderId, sessionId: from.sessionId, emitterId: from.id, receiverId: to.id, product: itemName, quantity: qty, price, total: price * qty, status: 'pendiente_cobro', createdAt: now(), expiresAt, emitterTable: from.tableId || '', receiverTable: to.tableId || '', mesaEntrega: to.tableId || '', isInvitation: true }
       state.orders.set(orderId, order)
       sendToStaff(order.sessionId, 'order_new', { order })
       sendToUser(order.emitterId, 'order_update', { order })
       sendToUser(order.receiverId, 'order_update', { order })
-      sendToUser(order.emitterId, 'consumption_accepted', { from: { id: to.id, alias: to.alias }, product: itemName, quantity: 1 })
+      sendToUser(order.emitterId, 'consumption_accepted', { from: { id: to.id, alias: to.alias }, product: itemName, quantity: qty })
       try { await dbInsertOrder(order) } catch {}
       persistOrders(order.sessionId)
       json(res, 200, { orderId })
