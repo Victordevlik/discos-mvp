@@ -108,7 +108,7 @@ function showStaffTab(tab) {
   for (const el of document.querySelectorAll('#staff-menu .menu-item')) el.classList.remove('active')
   const menuMap = {
     panel: 'menu-staff-panel', orders: 'menu-staff-orders', mesas: 'menu-staff-mesas', users: 'menu-staff-users',
-    waiter: 'menu-staff-waiter', reportes: 'menu-staff-reportes', promos: 'menu-staff-promos', catalog: 'menu-staff-catalog', analytics: 'menu-staff-analytics'
+    waiter: 'menu-staff-waiter', reportes: 'menu-staff-reportes', promos: 'menu-staff-promos', catalog: 'menu-staff-catalog'
   }
   const mId = menuMap[tab]; if (mId) { const el = q(mId); if (el) el.classList.add('active') }
   if (tab === 'orders') loadOrders(q('staff-orders-filter')?.value || '')
@@ -245,6 +245,16 @@ function showImageModal(url) {
   img.style.borderRadius = '12px'
   img.style.border = '1px solid #333'
   t.append(img)
+}
+function toggleAnalytics() {
+  const cur = S.staffTab || 'panel'
+  if (cur === 'analytics') {
+    const back = S.lastStaffTab && S.lastStaffTab !== 'analytics' ? S.lastStaffTab : 'panel'
+    showStaffTab(back)
+  } else {
+    S.lastStaffTab = cur
+    showStaffTab('analytics')
+  }
 }
 function showModalAction(title, msg, btnText, handler, type = 'info') {
   showModal(title, msg, type)
@@ -1391,7 +1401,7 @@ function bind() {
   const tabPromos = q('tab-staff-promos'); if (tabPromos) tabPromos.onclick = () => showStaffTab('promos')
   const tabCatalog = q('tab-staff-catalog'); if (tabCatalog) tabCatalog.onclick = () => showStaffTab('catalog')
   const tabAnalytics = q('tab-staff-analytics'); if (tabAnalytics) tabAnalytics.onclick = () => showStaffTab('analytics')
-  const btnStaffAnalytics = q('btn-staff-analytics'); if (btnStaffAnalytics) btnStaffAnalytics.onclick = () => showStaffTab('analytics')
+  const btnStaffAnalytics = q('btn-staff-analytics'); if (btnStaffAnalytics) btnStaffAnalytics.onclick = toggleAnalytics
   const menuPanel = q('menu-staff-panel'); if (menuPanel) menuPanel.onclick = () => showStaffTab('panel')
   const menuOrders = q('menu-staff-orders'); if (menuOrders) menuOrders.onclick = () => showStaffTab('orders')
   const menuMesas = q('menu-staff-mesas'); if (menuMesas) menuMesas.onclick = () => showStaffTab('mesas')
@@ -1400,7 +1410,7 @@ function bind() {
   const menuReportes = q('menu-staff-reportes'); if (menuReportes) menuReportes.onclick = () => showStaffTab('reportes')
   const menuPromos = q('menu-staff-promos'); if (menuPromos) menuPromos.onclick = () => showStaffTab('promos')
   const menuCatalog = q('menu-staff-catalog'); if (menuCatalog) menuCatalog.onclick = () => showStaffTab('catalog')
-  const menuAnalytics = q('menu-staff-analytics'); if (menuAnalytics) menuAnalytics.onclick = () => showStaffTab('analytics')
+  const btnMenuMore = q('menu-staff-more'); if (btnMenuMore) btnMenuMore.onclick = () => { const more = q('staff-menu-more'); if (more) more.style.display = (more.style.display === 'none' || !more.style.display) ? 'block' : 'none' }
   q('btn-start-session-welcome').onclick = startStaffSession
   const btnScan = q('btn-scan-qr'); if (btnScan) btnScan.onclick = startScanQR
   q('btn-end-session').onclick = endStaffSession
