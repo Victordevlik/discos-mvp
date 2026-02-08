@@ -1,5 +1,5 @@
 // Añadimos venueId para operar en modo SaaS multi-venue
-let S = { sessionId: '', venueId: '', user: null, staff: null, role: '', sse: null, staffSSE: null, currentInvite: null, meeting: null, consumptionReq: null, nav: { history: [], current: '' }, notifications: { invites: 0 }, timers: { userPoll: 0, staffPoll: 0, userReconnect: 0, staffReconnect: 0, catalogSave: 0, modalHide: 0 }, staffTab: '', cart: [], messageTTL: 4000, modalShownAt: 0, isMeetingReceiver: false, meetingPlan: '', sched: {}, loading: {}, catalogGroups: {}, catalogCat: '', catalogSubcat: '', waiterReason: '', invitesQueue: [], inInviteFlow: false, missed: [], skipConfirmInvite: false }
+let S = { sessionId: '', venueId: '', user: null, staff: null, role: '', sse: null, staffSSE: null, currentInvite: null, meeting: null, consumptionReq: null, nav: { history: [], current: '' }, notifications: { invites: 0 }, timers: { userPoll: 0, staffPoll: 0, userReconnect: 0, staffReconnect: 0, catalogSave: 0, modalHide: 0 }, staffTab: '', cart: [], messageTTL: 4000, modalShownAt: 0, isMeetingReceiver: false, meetingPlan: '', sched: {}, loading: {}, catalogGroups: {}, catalogCat: '', catalogSubcat: '', waiterReason: '', invitesQueue: [], inInviteFlow: false, missed: [], skipConfirmInvite: false, audioCtx: null, modalKind: '' }
 
 function q(id) { return document.getElementById(id) }
 function show(id) {
@@ -95,6 +95,7 @@ function showStaffTab(tab) {
     promos: 'staff-promos-content',
     catalog: 'staff-catalog-content',
     analytics: 'staff-analytics-content',
+    dj: 'staff-dj-content',
   }
   for (const el of document.querySelectorAll('#staff-content .section')) el.classList.remove('active')
   const id = contentMap[tab]
@@ -102,7 +103,7 @@ function showStaffTab(tab) {
   for (const el of document.querySelectorAll('#staff-tabs .tab-item')) el.classList.remove('active')
   const tabMap = {
     panel: 'tab-staff-panel', orders: 'tab-staff-orders', mesas: 'tab-staff-mesas', users: 'tab-staff-users',
-    waiter: 'tab-staff-waiter', reportes: 'tab-staff-reportes', promos: 'tab-staff-promos', catalog: 'tab-staff-catalog'
+    waiter: 'tab-staff-waiter', reportes: 'tab-staff-reportes', promos: 'tab-staff-promos', catalog: 'tab-staff-catalog', dj: 'tab-staff-dj'
   }
   const tId = tabMap[tab]; if (tId) { const el = q(tId); if (el) el.classList.add('active') }
   for (const el of document.querySelectorAll('#staff-menu .menu-item')) el.classList.remove('active')
@@ -119,6 +120,7 @@ function showStaffTab(tab) {
   else if (tab === 'catalog') loadStaffCatalogEditor()
   else if (tab === 'panel') loadSessionInfo()
   else if (tab === 'analytics') loadAnalytics()
+  else if (tab === 'dj') loadDJRequests()
   S.staffTab = tab
 }
 
@@ -220,7 +222,24 @@ function showModal(title, msg, type = 'info') {
       closeBtn = document.createElement('button')
       closeBtn.id = 'modal-close'
       closeBtn.textContent = 'Cerrar'
-      closeBtn.onclick = () => { const mm = q('modal'); if (mm) mm.classList.remove('show') }
+      closeBtn.onclick = () => {
+        const mm = q('modal'); if (mm) mm.classList.remove('show')
+        if (S.modalKind === 'invite') {
+          if (S.consumptionReq) {
+            S.invitesQueue.push({ type: 'consumption', data: S.consumptionReq })
+          } else if (S.currentInvite && S.currentInvite.id) {
+            const cur = S.currentInvite
+            S.invitesQueue.push({ type: 'dance', id: cur.id, invite: { id: cur.id, from: cur.from, expiresAt: Number(cur.expiresAt || 0) } })
+          }
+          S.notifications.invites = (S.notifications.invites || 0) + 1
+          setBadgeNav('disponibles', S.notifications.invites)
+          S.inInviteFlow = false
+          S.modalKind = ''
+          showNextInvite()
+        } else {
+          S.modalKind = ''
+        }
+      }
       row.append(closeBtn)
     }
   }
@@ -266,6 +285,7 @@ function showImageModal(url) {
   t.append(img)
 }
 function openInviteModal(expiresAt) {
+  S.modalKind = 'invite'
   const isConsumption = !!S.consumptionReq
   showModal(isConsumption ? 'Invitación de consumo' : '', '', 'info')
   const t = q('modal-text')
@@ -349,6 +369,7 @@ function openInviteModal(expiresAt) {
   }
 }
 function openInviteWaitModal(expiresAt, target) {
+  S.modalKind = 'wait_invite'
   showModal('Invitación enviada', '', 'info')
   const t = q('modal-text')
   const row = document.querySelector('#modal .row')
@@ -373,6 +394,36 @@ function openInviteWaitModal(expiresAt, target) {
   wrap.append(txt)
   t.append(wrap)
   startInviteCountdown(expiresAt)
+}
+function ensureAudio() {
+  try {
+    if (!S.audioCtx) {
+      const Ctx = window.AudioContext || window.webkitAudioContext
+      if (Ctx) S.audioCtx = new Ctx()
+    }
+    if (S.audioCtx && S.audioCtx.state === 'suspended') { S.audioCtx.resume().catch(()=>{}) }
+  } catch {}
+}
+function playNotify(kind = 'short') {
+  try { if (navigator && navigator.vibrate) {
+    if (kind === 'dance') navigator.vibrate([140,40,140])
+    else if (kind === 'consumption') navigator.vibrate([80,30,80,30,80])
+    else navigator.vibrate(120)
+  } } catch {}
+  try {
+    ensureAudio()
+    if (!S.audioCtx) return
+    const osc = S.audioCtx.createOscillator()
+    const gain = S.audioCtx.createGain()
+    osc.type = 'sine'
+    osc.frequency.setValueAtTime(kind === 'dance' ? 880 : kind === 'consumption' ? 660 : 740, S.audioCtx.currentTime)
+    gain.gain.setValueAtTime(0.0001, S.audioCtx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.2, S.audioCtx.currentTime + 0.02)
+    gain.gain.exponentialRampToValueAtTime(0.0001, S.audioCtx.currentTime + (kind === 'consumption' ? 0.24 : 0.16))
+    osc.connect(gain); gain.connect(S.audioCtx.destination)
+    osc.start()
+    osc.stop(S.audioCtx.currentTime + (kind === 'consumption' ? 0.26 : 0.18))
+  } catch {}
 }
 function toggleAnalytics() {
   const cur = S.staffTab || 'panel'
@@ -851,9 +902,15 @@ function chooseMsg(e) {
 
 async function sendInvite() {
   if (!S.currentInvite) return
-  const r = await api('/api/invite/dance', { method: 'POST', body: JSON.stringify({ fromId: S.user.id, toId: S.currentInvite.id, messageType: inviteMsgType }) })
-  const exp = Number(r.expiresAt || (Date.now() + 60 * 1000))
-  openInviteWaitModal(exp, S.currentInvite)
+  try {
+    const r = await api('/api/invite/dance', { method: 'POST', body: JSON.stringify({ fromId: S.user.id, toId: S.currentInvite.id, messageType: inviteMsgType }) })
+    const exp = Number(r.expiresAt || (Date.now() + 60 * 1000))
+    openInviteWaitModal(exp, S.currentInvite)
+  } catch (e) {
+    const msg = String(e && e.message || '')
+    if (msg === 'blocked') showError('No puedes invitar a esta persona por ahora'); else if (msg === 'rate') showError('Demasiadas invitaciones recientes'); else if (msg === 'busy_target') showError('La persona ya está ocupada'); else showError('No se pudo enviar la invitación')
+    setTimeout(() => showError(''), 1500)
+  }
 }
 function setReceiver(u) {
   const el = q('avail-receiver-id')
@@ -863,9 +920,15 @@ async function sendInviteQuick(u) {
   setReceiver(u)
   S.currentInvite = u
   inviteMsgType = 'bailamos'
-  const r = await api('/api/invite/dance', { method: 'POST', body: JSON.stringify({ fromId: S.user.id, toId: u.id, messageType: 'bailamos' }) })
-  const exp = Number(r.expiresAt || (Date.now() + 60 * 1000))
-  openInviteWaitModal(exp, u)
+  try {
+    const r = await api('/api/invite/dance', { method: 'POST', body: JSON.stringify({ fromId: S.user.id, toId: u.id, messageType: 'bailamos' }) })
+    const exp = Number(r.expiresAt || (Date.now() + 60 * 1000))
+    openInviteWaitModal(exp, u)
+  } catch (e) {
+    const msg = String(e && e.message || '')
+    if (msg === 'blocked') showError('No puedes invitar a esta persona por ahora'); else if (msg === 'rate') showError('Demasiadas invitaciones recientes'); else if (msg === 'busy_target') showError('La persona ya está ocupada'); else showError('No se pudo enviar la invitación')
+    setTimeout(() => showError(''), 1500)
+  }
 }
 
 function startEvents() {
@@ -876,7 +939,7 @@ function startEvents() {
   S.sse.onerror = () => { scheduleUserSSEReconnect() }
   S.sse.addEventListener('dance_invite', e => {
     const data = JSON.parse(e.data)
-    try { if (navigator && navigator.vibrate) navigator.vibrate([140,40,140]) } catch {}
+    playNotify('dance')
     S.invitesQueue.push({ type: 'dance', id: data.invite.id, invite: data.invite })
     S.notifications.invites = (S.notifications.invites || 0) + 1
     setBadgeNav('disponibles', S.notifications.invites)
@@ -946,7 +1009,7 @@ function startEvents() {
   })
   S.sse.addEventListener('consumption_invite', e => {
     const data = JSON.parse(e.data)
-    try { if (navigator && navigator.vibrate) navigator.vibrate([80,30,80]) } catch {}
+    playNotify('consumption')
     S.invitesQueue.push({ type: 'consumption', data })
     S.notifications.invites = (S.notifications.invites || 0) + 1
     setBadgeNav('disponibles', S.notifications.invites)
@@ -958,7 +1021,7 @@ function startEvents() {
   })
   S.sse.addEventListener('consumption_invite_bulk', e => {
     const data = JSON.parse(e.data)
-    try { if (navigator && navigator.vibrate) navigator.vibrate([80,30,80,30,80]) } catch {}
+    playNotify('consumption')
     S.invitesQueue.push({ type: 'consumption', data })
     S.notifications.invites = (S.notifications.invites || 0) + 1
     setBadgeNav('disponibles', S.notifications.invites)
@@ -983,6 +1046,12 @@ function startEvents() {
     stopInviteCountdown()
     const m = q('modal'); if (m) m.classList.remove('show')
     if (document.hidden) { S.missed.push(msg) } else { showError(msg); setTimeout(() => showError(''), 1500) }
+  })
+  S.sse.addEventListener('dj_update', e => {
+    const data = JSON.parse(e.data)
+    const r = data.request || {}
+    if (r.status === 'atendido') { showSuccess('Tu canción está en cola') }
+    else if (r.status === 'descartado') { showError('Tu solicitud fue descartada'); setTimeout(() => showError(''), 1500) }
   })
   S.sse.addEventListener('order_update', e => {
     const data = JSON.parse(e.data)
@@ -1309,6 +1378,28 @@ function startStaffEvents() {
     scheduleStaffAnalyticsUpdate()
     viewStaffTableHistory()
   })
+  S.staffSSE.addEventListener('dj_request', e => {
+    try {
+      const data = JSON.parse(e.data)
+      S.notifications = S.notifications || {}
+      S.notifications.dj = (S.notifications.dj || 0) + 1
+      const b = q('badge-tab-dj')
+      if (b) { b.classList.add('show'); b.textContent = S.notifications.dj > 9 ? '9+' : String(S.notifications.dj) }
+    } catch {}
+  })
+  S.staffSSE.addEventListener('dj_update', e => {
+    try {
+      const data = JSON.parse(e.data)
+      const r = data.request || {}
+      if (r.status === 'atendido' || r.status === 'descartado') {
+        S.notifications = S.notifications || {}
+        const cur = (S.notifications.dj || 0) - 1
+        S.notifications.dj = cur < 0 ? 0 : cur
+        const b = q('badge-tab-dj')
+        if (b) { b.classList.toggle('show', S.notifications.dj > 0); b.textContent = S.notifications.dj > 9 ? '9+' : String(S.notifications.dj) }
+      }
+    } catch {}
+  })
   S.staffSSE.addEventListener('catalog_update', e => {
     scheduleLater('staff_catalog', async () => { await loadStaffCatalogEditor() }, 500)
   })
@@ -1530,6 +1621,9 @@ function bind() {
   const ut = q('user-table'); if (ut) { ut.style.cursor = 'pointer'; ut.onclick = () => openEditProfileFocus('table') }
   const linkStaff = q('link-staff'); if (linkStaff) linkStaff.onclick = (e) => { e.preventDefault(); show('screen-staff-welcome') }
   const fab = q('fab-call'); if (fab) fab.onclick = openCallWaiter
+  const fabDj = q('fab-dj'); if (fabDj) fabDj.onclick = openDJRequest
+  const fabDj2 = q('fab-dj'); if (fabDj2) fabDj2.onclick = openDJRequest
+  const btnDjSend = q('btn-dj-send'); if (btnDjSend) btnDjSend.onclick = sendDJRequest
   const bAT = q('btn-avail-by-table'); if (bAT) bAT.onclick = exploreMesas
   const bAA = q('btn-avail-all'); if (bAA) bAA.onclick = viewAvailable
   const btnOrderTable = q('btn-order-table'); if (btnOrderTable) btnOrderTable.onclick = orderTable
@@ -1552,6 +1646,8 @@ function bind() {
   const tabPromos = q('tab-staff-promos'); if (tabPromos) tabPromos.onclick = () => showStaffTab('promos')
   const tabCatalog = q('tab-staff-catalog'); if (tabCatalog) tabCatalog.onclick = () => showStaffTab('catalog')
   const tabAnalytics = q('tab-staff-analytics'); if (tabAnalytics) tabAnalytics.onclick = () => showStaffTab('analytics')
+  const tabDJ = q('tab-staff-dj'); if (tabDJ) tabDJ.onclick = () => showStaffTab('dj')
+  const btnDJLoad = q('btn-staff-dj-load'); if (btnDJLoad) btnDJLoad.onclick = loadDJRequests
   const btnStaffAnalytics = q('btn-staff-analytics'); if (btnStaffAnalytics) btnStaffAnalytics.onclick = toggleAnalytics
   const menuPanel = q('menu-staff-panel'); if (menuPanel) menuPanel.onclick = () => showStaffTab('panel')
   const menuOrders = q('menu-staff-orders'); if (menuOrders) menuOrders.onclick = () => showStaffTab('orders')
@@ -1667,6 +1763,48 @@ function bind() {
       setTimeout(() => showError(''), 1000)
       await startStaffSession()
     } catch (e) { showError(String(e.message)) }
+  }
+}
+function openDJRequest() {
+  show('screen-dj-request')
+}
+async function sendDJRequest() {
+  const song = q('dj-song')?.value.trim()
+  if (!song) { showError('Escribe una canción'); setTimeout(() => showError(''), 1200); return }
+  if (!S.user.tableId) { showError('Debes seleccionar tu mesa'); setTimeout(() => showError(''), 1200); openSelectTable(); return }
+  const ok = await confirmAction(`Vas a pedir: "${song}" para tu mesa ${S.user.tableId}. ¿Confirmas?`)
+  if (!ok) return
+  await api('/api/dj/request', { method: 'POST', body: JSON.stringify({ userId: S.user.id, song }) })
+  showError('Solicitud enviada al DJ')
+  setTimeout(() => showError(''), 1200)
+  show('screen-user-home')
+}
+async function loadDJRequests() {
+  const tRaw = q('staff-dj-filter-table')?.value.trim() || ''
+  const t = normalizeTableId(tRaw)
+  const qs = t ? `&tableId=${encodeURIComponent(t)}` : ''
+  const r = await api(`/api/staff/dj?sessionId=${encodeURIComponent(S.sessionId)}${qs}`)
+  const container = q('staff-dj-list')
+  if (!container) return
+  container.innerHTML = ''
+  const listAsc = (r.requests || []).slice().sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0))
+  { const b = q('badge-tab-dj'); if (b) { const pending = listAsc.filter(it => it.status === 'pendiente').length; b.classList.toggle('show', pending > 0); b.textContent = pending > 9 ? '9+' : String(pending) } }
+  for (const it of listAsc) {
+    const div = document.createElement('div')
+    div.className = 'card'
+    const info = document.createElement('div')
+    info.textContent = `Mesa ${it.tableId || '-'} • ${it.userAlias || ''} • ${it.song}`
+    const chip = document.createElement('span')
+    chip.className = 'chip ' + it.status
+    chip.textContent = it.status
+    info.append(chip)
+    const row = document.createElement('div')
+    row.className = 'row'
+    const b1 = document.createElement('button'); b1.textContent = 'En cola'; b1.onclick = async () => { await api(`/api/staff/dj/${it.id}`, { method: 'POST', body: JSON.stringify({ status: 'atendido' }) }); loadDJRequests() }
+    const b2 = document.createElement('button'); b2.textContent = 'Descartar'; b2.onclick = async () => { await api(`/api/staff/dj/${it.id}`, { method: 'POST', body: JSON.stringify({ status: 'descartado' }) }); loadDJRequests() }
+    row.append(b1, b2)
+    div.append(info, row)
+    container.append(div)
   }
 }
 

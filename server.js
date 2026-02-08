@@ -15,6 +15,7 @@ const state = {
   meetings: new Map(),
   orders: new Map(),
   waiterCalls: new Map(),
+  djRequests: new Map(),
   blocks: new Set(),
   reports: [],
   sseUsers: new Map(),
@@ -1690,6 +1691,46 @@ const server = http.createServer(async (req, res) => {
       sendToUser(call.userId, 'waiter_update', { call })
       try { await dbInsertWaiterCall(call) } catch {}
       json(res, 200, { callId })
+      return
+    }
+    if (pathname === '/api/dj/request' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const u = state.users.get(body.userId)
+      if (!u) { json(res, 404, { error: 'no_user' }); return }
+      const table = String(u.tableId || '')
+      if (!table) { json(res, 400, { error: 'no_table' }); return }
+      const song = String(body.song || '').slice(0, 120)
+      if (!song) { json(res, 400, { error: 'no_song' }); return }
+      const reqId = genId('dj')
+      const item = { id: reqId, sessionId: u.sessionId, userId: u.id, tableId: table, song, status: 'pendiente', ts: now() }
+      state.djRequests.set(reqId, item)
+      sendToStaff(item.sessionId, 'dj_request', { request: item })
+      try { /* optional db insert */ } catch {}
+      json(res, 200, { requestId: reqId })
+      return
+    }
+    if (pathname === '/api/staff/dj' && req.method === 'GET') {
+      const sessionId = query.sessionId
+      const tableId = String(query.tableId || '')
+      const list = []
+      for (const r of state.djRequests.values()) {
+        if (r.sessionId !== sessionId) continue
+        if (tableId && r.tableId !== tableId) continue
+        const u = state.users.get(r.userId)
+        list.push({ id: r.id, tableId: r.tableId, song: r.song, status: r.status, ts: r.ts, userAlias: u ? u.alias : r.userId })
+      }
+      json(res, 200, { requests: list })
+      return
+    }
+    if (pathname.startsWith('/api/staff/dj/') && req.method === 'POST') {
+      const reqId = pathname.split('/').pop()
+      const body = await parseBody(req)
+      const r = state.djRequests.get(reqId)
+      if (!r) { json(res, 404, { error: 'no_request' }); return }
+      r.status = String(body.status || 'atendido')
+      sendToStaff(r.sessionId, 'dj_update', { request: r })
+      sendToUser(r.userId, 'dj_update', { request: r })
+      json(res, 200, { ok: true })
       return
     }
     if (pathname === '/api/staff/waiter' && req.method === 'GET') {

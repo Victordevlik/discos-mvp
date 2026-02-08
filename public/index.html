@@ -148,7 +148,12 @@
         <span></span><span></span><span></span><span></span><span></span>
       </div>
     </div>
-    <div class="card"><div>Receptor (ID): <span id="avail-receiver-id">-</span></div></div>
+    <div class="card">
+      <div>Receptor (ID): <span id="avail-receiver-id">-</span></div>
+      <div class="row">
+        <button id="btn-invite-show-all" class="secondary">Ver invitaciones</button>
+      </div>
+    </div>
     <div id="available-list"></div>
   </div>
   <div id="screen-user-invite" class="screen">
@@ -337,6 +342,16 @@
       </div>
     </div>
   </div>
+  <div id="screen-dj-request" class="screen">
+    <h2>Pedir canción al DJ</h2>
+    <div class="card">
+      <div class="row">
+        <input id="dj-song" placeholder="Canción (ej. Artista - Título)">
+        <button id="btn-dj-send">Enviar</button>
+      </div>
+      <div class="section-title">Se enviará por mesa. Asegúrate de tener tu mesa seleccionada.</div>
+    </div>
+  </div>
 
   <div id="screen-promos" class="screen">
     <h2>Promos</h2>
@@ -406,6 +421,7 @@
       <button id="tab-staff-promos" class="tab-item">Promos</button>
       <button id="tab-staff-catalog" class="tab-item">Carta</button>
       <button id="tab-staff-analytics" class="tab-item">Analytics</button>
+      <button id="tab-staff-dj" class="tab-item">DJ <span id="badge-tab-dj" class="badge"></span></button>
     </div>
     <div id="staff-content">
       <div id="staff-analytics-content" class="section">
@@ -515,6 +531,16 @@
           </div>
         </div>
       </div>
+      <div id="staff-dj-content" class="section">
+        <div class="card">
+          <h3>DJ</h3>
+          <div class="row">
+            <input id="staff-dj-filter-table" placeholder="Mesa (opcional)">
+            <button id="btn-staff-dj-load">Ver solicitudes</button>
+          </div>
+          <div id="staff-dj-list"></div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -543,6 +569,8 @@
 </div>
 <button id="fab-call" class="fab"><svg viewBox="0 0 24 24" fill="none"><path d="M4 19h16M7 19l2-10h6l2 10" stroke="#fff" stroke-width="1.7"/></svg></button>
 <div id="fab-call-label" class="fab-label">Llamar mesero</div>
+<button id="fab-dj" class="fab fab-left"><svg viewBox="0 0 24 24" fill="none"><path d="M12 4a8 8 0 100 16 8 8 0 000-16zM4 12h4M16 12h4M9 9l6 6M9 15l6-6" stroke="#fff" stroke-width="1.7"/></svg></button>
+<div id="fab-dj-label" class="fab-label" style="left:16px; right:auto">Pedir canción</div>
 <script src="/app.js"></script>
 </body>
 </html>
