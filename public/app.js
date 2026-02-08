@@ -1371,8 +1371,8 @@ async function loadOrders(state = '') {
     const ia = String(a.id || ''), ib = String(b.id || '')
     return ia.localeCompare(ib)
   })
-  const list = state ? listAsc : listAsc.filter(o => o.status !== 'cobrado')
-  for (const o of list) {
+  const filtered = state ? listAsc : listAsc.filter(o => o.status !== 'cobrado')
+  for (const o of filtered) {
     const div = document.createElement('div')
     div.className = 'card'
     const info = document.createElement('div')
@@ -1706,7 +1706,19 @@ function openMesaView(tableId) {
   S.currentTableId = tableId
   q('mesa-title').textContent = `Mesa ${tableId}`
   loadMesaPeople(tableId)
-  loadMesaOrders(tableId)
+  const myTable = String(S.user?.tableId || '')
+  if (myTable && myTable === String(tableId)) {
+    loadMesaOrders(tableId)
+  } else {
+    const container = q('mesa-orders')
+    if (container) {
+      container.innerHTML = ''
+      const div = document.createElement('div')
+      div.className = 'card'
+      div.textContent = 'Solo puedes ver el historial de tu mesa'
+      container.append(div)
+    }
+  }
   try { if (S.mesaOrdersInterval) clearInterval(S.mesaOrdersInterval) } catch {}
   S.mesaOrdersInterval = setInterval(() => {
     if (S.currentTableId) loadMesaOrders(S.currentTableId)
