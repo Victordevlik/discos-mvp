@@ -72,13 +72,18 @@ body[data-theme="light"] .chip.en_preparacion { background:#eef0ff; color:#2b2f6
 body[data-theme="light"] .chip.expirado { background:#faeded; color:#6b3c3c; border-color:#f2d1d1 }
 .cta { display:flex; gap:12px; flex-wrap:wrap }
 .cta button { padding: 14px 20px; font-weight: 600 }
-.grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(180px,1fr)); gap: 10px }
+.grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(180px,1fr)); gap: 8px }
 #mesas-list .card { display:flex; justify-content:space-between; align-items:center }
 #mesa-people .item { display: grid; grid-template-columns: 48px 1fr; gap: 10px; padding: 10px; border: 1px solid #24243a; border-radius: 10px; margin-bottom: 8px }
 #mesa-people .item:hover { border-color:#3a3b5c; background: rgba(30,32,50,0.75) }
 #promos-list .card, #staff-promos-list .card { display:flex; justify-content:space-between; align-items:center }
 h2 { font-size: 24px; margin: 0 0 12px 0 }
 .section-title { color: var(--muted); font-size: 14px; margin: 6px 0 }
+#screen-consumption .row { margin: 10px 0; gap: 10px }
+#catalog-cats .card, #catalog-list .card { display:flex; align-items:center; justify-content:space-between; padding: 12px; margin: 8px 0; border-color:#3a3b5c; background: rgba(27,28,44,0.70) }
+body[data-theme="light"] #catalog-cats .card, body[data-theme="light"] #catalog-list .card { background:#f3f5fd; border-color:#dbe1f3 }
+#catalog-cats .card > div:first-child, #catalog-list .card > div:first-child { font-weight: 600; overflow: hidden; white-space: nowrap; text-overflow: ellipsis }
+#catalog-cats .card > div:first-child { color: var(--primary2) }
 .topbar { display:none; position: sticky; top:0; padding: 8px 16px; background: rgba(13,14,22,0.8); backdrop-filter: blur(10px); border-bottom:1px solid #2b2c44; z-index: 10 }
 .topbar.show { display:flex; justify-content: space-between; align-items: center }
 .navbar { position: fixed; bottom: 0; left: 0; right: 0; display: grid; grid-template-columns: repeat(5,1fr); gap: 8px; padding: 10px 14px; background: rgba(13,14,22,0.8); backdrop-filter: blur(12px); border-top: 1px solid #2b2c44 }
@@ -200,7 +205,10 @@ button.icon svg { width:18px; height:18px }
 #available-list .item { background: rgba(27,28,44,0.65) }
 #available-list .item:hover { border-color:#3a3b5c; background: rgba(30,32,50,0.75) }
 #catalog-list .card { transition: transform .06s ease, box-shadow .2s ease }
-#catalog-list .card:hover { transform: translateY(-2px); box-shadow: 0 14px 28px rgba(0,0,0,0.3) }
+#catalog-list .card:hover { transform: translateY(-2px); box-shadow: 0 14px 28px rgba(0,0,0,0.3); border-color:#4a4c7a }
+#catalog-list h3 { margin: 4px 0 8px 0; font-size: 16px; color: var(--primary2) }
+#catalog-list .chip { background: linear-gradient(180deg, var(--primary), #5868ff); color:#fff; border:0 }
+body[data-theme="light"] #catalog-list .chip { background: linear-gradient(180deg, #5868ff, #3747ff); color:#fff; border:0 }
 .fab { position: fixed; right: 16px; bottom: 70px; width: 52px; height: 52px; border-radius: 50%; background: linear-gradient(180deg, #7d88ff, #5868ff); color: #fff; border: 0; box-shadow: 0 14px 28px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center }
 .fab-label { position: fixed; right: 16px; bottom: 128px; background: rgba(23,24,38,0.9); backdrop-filter: blur(8px); color: #fff; padding: 8px 10px; border-radius: 8px; border: 1px solid #2b2c44; box-shadow: 0 10px 24px rgba(0,0,0,0.25); font-size: 13px }
 /* Staff visuals */
@@ -240,10 +248,10 @@ body[data-theme="light"] #user-header.party { background: linear-gradient(135deg
 #staff-content .section.active { display: block }
 @media (max-width: 768px) {
   .screen { padding: 20px; max-width: 100% }
-  .card { padding: 14px; margin: 10px 0; border-radius: 14px }
+  .card { padding: 14px; margin: 8px 0; border-radius: 14px }
   .row { flex-direction: column; gap: 10px }
   input, select, button { width: 100% }
-  .grid { grid-template-columns: repeat(auto-fill,minmax(150px,1fr)) }
+  .grid { grid-template-columns: repeat(auto-fill,minmax(150px,1fr)); gap: 8px }
   .hero h1 { font-size: 26px }
   h2 { font-size: 22px }
   #staff-tabs { display: none }
@@ -258,8 +266,8 @@ body[data-theme="light"] #user-header.party { background: linear-gradient(135deg
 }
 @media (max-width: 480px) {
   .screen { padding: 16px; padding-bottom: 88px }
-  .card { padding: 12px; border-radius: 12px }
-  .row { gap: 8px }
+  .card { padding: 12px; border-radius: 12px; margin: 8px 0 }
+  .row { gap: 8px; margin: 8px 0 }
   input, select { min-width: 0; width: 100% }
   .cta button { width: 100% }
   .navbar { gap: 6px; padding: 8px 10px }
@@ -267,7 +275,9 @@ body[data-theme="light"] #user-header.party { background: linear-gradient(135deg
   .hero h1 { font-size: 22px }
   #available-list .item { grid-template-columns: 36px 1fr; gap: 10px }
   #mesa-people .item { grid-template-columns: 36px 1fr }
-  .grid { grid-template-columns: repeat(auto-fill,minmax(130px,1fr)) }
+  .grid { grid-template-columns: repeat(auto-fill,minmax(130px,1fr)); gap: 6px }
+  #catalog-list h3 { font-size: 15px; margin: 2px 0 6px 0 }
+  #catalog-cats .card, #catalog-list .card { padding: 10px; margin: 6px 0 }
   .chip { font-size: 12px }
 }
 /* Modal */
