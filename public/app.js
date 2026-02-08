@@ -987,10 +987,8 @@ async function orderSelf() {
   const listTxt = items.map(it => `${it.quantity} x ${it.product}`).join(', ')
   const ok = await confirmAction(`Vas a ordenar: ${listTxt} para ti. ¿Confirmas?`)
   if (!ok) return
-  if (items.length > 1) {
-    await api('/api/order/bulk', { method: 'POST', body: JSON.stringify({ userId: S.user.id, items, for: 'self' }) })
-  } else {
-    await api('/api/order/new', { method: 'POST', body: JSON.stringify({ userId: S.user.id, product: items[0].product, quantity: items[0].quantity, for: 'self' }) })
+  for (const it of items) {
+    await api('/api/order/new', { method: 'POST', body: JSON.stringify({ userId: S.user.id, product: it.product, quantity: it.quantity, for: 'self' }) })
   }
   S.cart = []
   renderCart()
@@ -998,6 +996,7 @@ async function orderSelf() {
   const qn = q('quantity'); if (qn) qn.value = '1'
   showError('Pedido creado')
   setTimeout(() => showError(''), 1000)
+  showConfetti()
 }
 async function orderTable() {
   const product = q('product').value
@@ -1008,15 +1007,14 @@ async function orderTable() {
   const listTxt = items.map(it => `${it.quantity} x ${it.product}`).join(', ')
   const ok = await confirmAction(`Vas a ordenar: ${listTxt} para la mesa ${S.user.tableId}. ¿Confirmas?`)
   if (!ok) return
-  if (items.length > 1) {
-    await api('/api/order/bulk', { method: 'POST', body: JSON.stringify({ userId: S.user.id, items, for: 'mesa' }) })
-  } else {
-    await api('/api/order/new', { method: 'POST', body: JSON.stringify({ userId: S.user.id, product: items[0].product, quantity: items[0].quantity, for: 'mesa' }) })
+  for (const it of items) {
+    await api('/api/order/new', { method: 'POST', body: JSON.stringify({ userId: S.user.id, product: it.product, quantity: it.quantity, for: 'mesa' }) })
   }
   S.cart = []
   renderCart()
   const inp = q('product'); if (inp) inp.value = ''
   const qn = q('quantity'); if (qn) qn.value = '1'
+  showConfetti()
   showError('Pedido para mesa creado')
   setTimeout(() => showError(''), 1000)
 }
@@ -1325,6 +1323,12 @@ function bind() {
   const btnInviteConsumption = q('btn-invite-consumption'); if (btnInviteConsumption) btnInviteConsumption.onclick = openConsumption
   q('btn-consumption-send').onclick = sendConsumption
   const btnAddCart = q('btn-add-to-cart'); if (btnAddCart) btnAddCart.onclick = addToCart
+  const btnQtyDec = q('btn-qty-dec'); if (btnQtyDec) btnQtyDec.onclick = () => { const qn = q('quantity'); if (!qn) return; const v = Math.max(1, Number(qn.value || 1) - 1); qn.value = String(v) }
+  const btnQtyInc = q('btn-qty-inc'); if (btnQtyInc) btnQtyInc.onclick = () => { const qn = q('quantity'); if (!qn) return; const v = Math.max(1, Number(qn.value || 1) + 1); qn.value = String(v) }
+  const btnCartClear = q('btn-cart-clear'); if (btnCartClear) btnCartClear.onclick = () => { S.cart = []; renderCart() }
+  const btnViewMenu = q('btn-view-menu'); if (btnViewMenu) btnViewMenu.onclick = openMenu
+  const btnViewAvailable = q('btn-view-available'); if (btnViewAvailable) btnViewAvailable.onclick = () => { setActiveNav('disponibles'); showAvailableChoice() }
+  const btnViewOrders = q('btn-view-orders'); if (btnViewOrders) btnViewOrders.onclick = () => { setActiveNav('orders'); loadUserOrders(); show('screen-orders-user') }
   const btnWaiterOrder = q('btn-waiter-order'); if (btnWaiterOrder) btnWaiterOrder.onclick = callWaiterOrder
   for (const b of document.querySelectorAll('.btn-waiter-reason')) b.onclick = chooseWaiterReason
   const btnWaiterOther = q('btn-waiter-other'); if (btnWaiterOther) btnWaiterOther.onclick = () => { S.waiterReason = 'otro'; const other = q('waiter-other'); if (other) other.style.display = ''; for (const b of document.querySelectorAll('.btn-waiter-reason')) b.classList.remove('active') }
@@ -1446,6 +1450,7 @@ function bind() {
       setTimeout(() => showError(''), 1000)
     } catch (e) { showError('No se pudo copiar') }
   }
+  const catalogSearch = q('catalog-search'); if (catalogSearch) catalogSearch.oninput = applyCatalogSearch
   const btnWelcomeVenuePinSend = q('btn-welcome-venue-pin-send'); if (btnWelcomeVenuePinSend) btnWelcomeVenuePinSend.onclick = sendVenuePinAdminWelcome
   const savePB = q('btn-save-public-base')
   if (savePB) savePB.onclick = async () => {
@@ -1573,12 +1578,21 @@ function renderUserHeader() {
   if (ua) ua.textContent = S.user?.alias || S.user?.id || ''
   if (us) us.src = S.user?.selfie || ''
   if (ut) ut.textContent = S.user?.tableId || '-'
+  const hm = q('user-hero-main')
+  if (hm) hm.textContent = S.user?.alias || S.user?.id || 'Tu perfil'
   const uds = q('user-dance-status')
   if (uds) {
     const st = S.user?.danceState || 'idle'
     const p = S.user?.partnerAlias || ''
     uds.textContent = st === 'waiting' ? (`Esperando para bailar con ${p || 'pareja'}`) :
                       st === 'dancing' ? (`Bailando con ${p || 'pareja'}`) : ''
+  }
+  const hs = q('user-hero-sub')
+  if (hs) {
+    const st = S.user?.danceState || 'idle'
+    const p = S.user?.partnerAlias || ''
+    hs.textContent = st === 'waiting' ? (`Esperando para bailar con ${p || 'pareja'}`) :
+                     st === 'dancing' ? (`Bailando con ${p || 'pareja'}`) : ''
   }
   const endBtn = q('btn-end-dance')
   if (endBtn) {
@@ -1587,9 +1601,11 @@ function renderUserHeader() {
   }
   const header = q('user-header')
   const eq = q('user-equalizer')
+  const heq = q('user-hero-equalizer')
   const st2 = S.user?.danceState || 'idle'
   if (header) header.classList.toggle('party', st2 === 'dancing')
   if (eq) eq.style.display = st2 === 'dancing' ? '' : 'none'
+  if (heq) heq.style.display = st2 === 'dancing' ? '' : 'none'
 }
 function openEditProfileFocus(field) {
   openEditProfile()
@@ -2168,6 +2184,7 @@ async function openConsumption() {
   if (cats) cats.style.display = ''
   if (grid) grid.style.display = 'none'
   if (back) back.style.display = 'none'
+  showCatalogTop()
   show('screen-consumption')
 }
 async function openMenu() {
@@ -2189,6 +2206,7 @@ async function openMenu() {
   if (cats) cats.style.display = ''
   if (grid) grid.style.display = 'none'
   if (back) back.style.display = 'none'
+  showCatalogTop()
   show('screen-consumption')
 }
 async function loadCatalog() {
@@ -2311,22 +2329,34 @@ function renderCatalogItems(cat, labels, items) {
     itemsEl.append(div)
   }
 }
-function renderCart() {
+async function renderCart() {
   const list = q('cart-list')
   if (!list) return
   list.innerHTML = ''
+  await ensureCatalogIndex().catch(() => {})
+  let total = 0
   for (let i = 0; i < S.cart.length; i++) {
     const it = S.cart[i]
     const row = document.createElement('div')
     row.className = 'row'
     const label = document.createElement('div')
-    label.textContent = `${it.quantity} x ${it.product}`
+    const key = String(it.product || '').toLowerCase()
+    const price = S.catalogIndex && S.catalogIndex[key] ? Number(S.catalogIndex[key].price || 0) : 0
+    const subtotal = price * Math.max(1, Number(it.quantity || 1))
+    total += subtotal
+    label.textContent = `${it.quantity} x ${it.product} • ${formatPriceShort(subtotal)}`
     const del = document.createElement('button')
     del.textContent = 'Eliminar'
     del.onclick = () => { try { S.cart.splice(i, 1); renderCart() } catch {} }
     row.append(label, del)
     list.append(row)
   }
+  const totalRow = document.createElement('div')
+  totalRow.className = 'row'
+  const ttl = document.createElement('div')
+  ttl.textContent = `Total: ${formatPriceShort(total)}`
+  totalRow.append(ttl)
+  list.append(totalRow)
 }
 function addToCart() {
   const product = q('product') ? q('product').value : ''
@@ -2336,6 +2366,37 @@ function addToCart() {
   const inp = q('product'); if (inp) inp.value = ''
   const qn = q('quantity'); if (qn) qn.value = '1'
   renderCart()
+}
+function applyCatalogSearch() {
+  const inp = q('catalog-search')
+  const catsEl = q('catalog-cats'), itemsEl = q('catalog-list'), back = q('btn-catalog-back')
+  if (!inp || !catsEl || !itemsEl) return
+  const qv = String(inp.value || '').trim().toLowerCase()
+  if (!qv) { S.catalogCat=''; S.catalogSubcat=''; renderCatalogCats(['cervezas','botellas','cocteles','sodas','otros'], { cervezas:'Cervezas', botellas:'Botellas', cocteles:'Cocteles', sodas:'Sodas y sin alcohol', otros:'Otros' }); return }
+  const all = []
+  for (const arr of Object.values(S.catalogGroups || {})) for (const it of arr || []) all.push(it)
+  const matches = all.filter(it => String(it.name || '').toLowerCase().includes(qv))
+  S.catalogCat = 'search'
+  S.catalogSubcat = ''
+  catsEl.style.display = 'none'
+  renderCatalogItems('otros', { otros: 'Resultados' }, matches)
+}
+async function showCatalogTop() {
+  try {
+    const r = await api(`/api/staff/analytics?sessionId=${encodeURIComponent(S.sessionId)}`)
+    const top = q('catalog-top')
+    if (!top) return
+    top.innerHTML = ''
+    const items = r.topItems || {}
+    const names = Object.keys(items)
+    for (const name of names.slice(0, 8)) {
+      const chip = document.createElement('span')
+      chip.className = 'chip'
+      chip.textContent = `${name} • ${items[name]}`
+      chip.onclick = () => { const p = q('product'); if (p) p.value = name }
+      top.append(chip)
+    }
+  } catch {}
 }
 async function loadStaffCatalogEditor() {
   try {
