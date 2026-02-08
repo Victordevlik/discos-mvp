@@ -1395,7 +1395,7 @@ function bind() {
   // Pausa social eliminada
   const btnViewPromos = q('btn-view-promos'); if (btnViewPromos) btnViewPromos.onclick = viewPromos
   const btnCallWaiter = q('btn-call-waiter'); if (btnCallWaiter) btnCallWaiter.onclick = openCallWaiter
-  q('btn-waiter-send').onclick = sendWaiterCall
+  const btnWaiterSend = q('btn-waiter-send'); if (btnWaiterSend) btnWaiterSend.onclick = sendWaiterCall
   q('mesa-only-available').onchange = () => loadMesaPeople(S.currentTableId)
   q('btn-select-table').onclick = openSelectTable
   const heroSelfie = q('user-selfie-hero'); if (heroSelfie) heroSelfie.onclick = () => { const url = S.user?.selfie || ''; if (url) showImageModal(url) }
@@ -1685,8 +1685,7 @@ function chooseWaiterReason(e) {
   S.waiterReason = val
   for (const b of document.querySelectorAll('.btn-waiter-reason')) b.classList.remove('active')
   el.classList.add('active')
-  const other = q('waiter-other'); if (other) other.style.display = val === 'otro' ? '' : 'none'
-  if (val && val !== 'otro') { sendWaiterCall() }
+  if (val) { sendWaiterCall() }
 }
 
 async function viewPromos() {
