@@ -483,7 +483,8 @@ function scheduleStaffOrdersUpdate() {
   scheduleLater('staff_orders', async () => {
     S.ui = S.ui || {}
     if (S.ui.freezeStaffOrders) { scheduleStaffOrdersUpdate(); return }
-    await loadOrders()
+    const cur = q('staff-orders-filter')?.value || ''
+    await loadOrders(cur)
     await loadAnalytics()
   }, 500)
 }
@@ -1361,7 +1362,8 @@ async function loadOrders(state = '') {
 
 async function updateOrder(id, status) {
   await api(`/api/staff/orders/${id}`, { method: 'POST', body: JSON.stringify({ status }) })
-  loadOrders()
+  const cur = q('staff-orders-filter')?.value || ''
+  loadOrders(cur)
 }
 
 async function loadUsers() {
