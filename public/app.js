@@ -1770,6 +1770,7 @@ async function saveEditProfile() {
 
 function openCallWaiter() {
   S.waiterReason = ''
+  S.waiterCustomReason = ''
   for (const b of document.querySelectorAll('.btn-waiter-reason')) { b.classList.remove('active') }
   show('screen-call-waiter')
 }
@@ -1779,6 +1780,7 @@ async function sendWaiterCall() {
   if (S.waiterReason === 'hielo') reason = 'Me puedes traer hielo'
   else if (S.waiterReason === 'pasabocas') reason = 'Me puedes traer pasabocas'
   else if (S.waiterReason === 'limpieza') reason = '¿Puedes limpiar la mesa?'
+  else if (S.waiterReason === 'custom') reason = (S.waiterCustomReason || 'Atención')
   else { reason = 'Atención' }
   const phr = reason ? `Vas a llamar al mesero: ${reason}. ¿Confirmas?` : `Vas a llamar al mesero. ¿Confirmas?`
   const ok = await confirmAction(phr)
@@ -1806,13 +1808,22 @@ async function callWaiterOrder() {
   showError('Mesero pedido para tomar orden')
   setTimeout(() => showError(''), 1200)
 }
-function chooseWaiterReason(e) {
+async function chooseWaiterReason(e) {
   const el = e.currentTarget
   const val = el && el.getAttribute('data-reason') || ''
-  S.waiterReason = val
+  if (val === 'otro') {
+    const txt = await promptInput('Llamar mesero', 'Escribe tu pedido…')
+    const clean = String(txt || '').trim()
+    if (!clean) return
+    S.waiterReason = 'custom'
+    S.waiterCustomReason = clean
+  } else {
+    S.waiterReason = val
+    S.waiterCustomReason = ''
+  }
   for (const b of document.querySelectorAll('.btn-waiter-reason')) b.classList.remove('active')
   el.classList.add('active')
-  if (val) { sendWaiterCall() }
+  if (S.waiterReason) { sendWaiterCall() }
 }
 
 async function viewPromos() {
