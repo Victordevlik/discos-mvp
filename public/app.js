@@ -225,6 +225,19 @@ function showError(msg) {
 }
 function showInfo(msg) { showModal('Info', msg || '', 'info') }
 function showSuccess(msg) { showModal('Listo', msg || '', 'success') }
+function showImageModal(url) {
+  showModal('', '', 'info')
+  const t = q('modal-text')
+  if (!t) return
+  try { t.innerHTML = '' } catch {}
+  const img = document.createElement('img')
+  img.src = url || ''
+  img.style.maxWidth = '92vw'
+  img.style.maxHeight = '80vh'
+  img.style.borderRadius = '12px'
+  img.style.border = '1px solid #333'
+  t.append(img)
+}
 function showModalAction(title, msg, btnText, handler, type = 'info') {
   showModal(title, msg, type)
   const row = document.querySelector('#modal .row')
@@ -1323,8 +1336,6 @@ function bind() {
   const btnInviteConsumption = q('btn-invite-consumption'); if (btnInviteConsumption) btnInviteConsumption.onclick = openConsumption
   q('btn-consumption-send').onclick = sendConsumption
   const btnAddCart = q('btn-add-to-cart'); if (btnAddCart) btnAddCart.onclick = addToCart
-  const btnQtyDec = q('btn-qty-dec'); if (btnQtyDec) btnQtyDec.onclick = () => { const qn = q('quantity'); if (!qn) return; const v = Math.max(1, Number(qn.value || 1) - 1); qn.value = String(v) }
-  const btnQtyInc = q('btn-qty-inc'); if (btnQtyInc) btnQtyInc.onclick = () => { const qn = q('quantity'); if (!qn) return; const v = Math.max(1, Number(qn.value || 1) + 1); qn.value = String(v) }
   const btnCartClear = q('btn-cart-clear'); if (btnCartClear) btnCartClear.onclick = () => { S.cart = []; renderCart() }
   const btnViewOrders = q('btn-view-orders'); if (btnViewOrders) btnViewOrders.onclick = () => { setActiveNav('orders'); loadUserOrders(); loadUserInvitesHistory(); show('screen-orders-user') }
   const btnWaiterOrder = q('btn-waiter-order'); if (btnWaiterOrder) btnWaiterOrder.onclick = callWaiterOrder
@@ -1385,6 +1396,8 @@ function bind() {
   q('btn-waiter-send').onclick = sendWaiterCall
   q('mesa-only-available').onchange = () => loadMesaPeople(S.currentTableId)
   q('btn-select-table').onclick = openSelectTable
+  const heroSelfie = q('user-selfie-hero'); if (heroSelfie) heroSelfie.onclick = () => { const url = S.user?.selfie || ''; if (url) showImageModal(url) }
+  const cardSelfie = q('user-selfie'); if (cardSelfie) cardSelfie.onclick = () => { const url = S.user?.selfie || ''; if (url) showImageModal(url) }
   q('btn-select-table-save').onclick = saveSelectTable
   q('btn-invite-block').onclick = blockFromInvite
   q('btn-invite-report').onclick = reportFromInvite
@@ -1575,8 +1588,10 @@ function renderUserHeader() {
   if (ua) ua.textContent = S.user?.alias || S.user?.id || ''
   if (us) us.src = S.user?.selfie || ''
   if (ut) ut.textContent = S.user?.tableId || '-'
+  const ush = q('user-selfie-hero'); if (ush) ush.src = S.user?.selfie || ''
   const hm = q('user-hero-main')
   if (hm) hm.textContent = S.user?.alias || S.user?.id || 'Tu perfil'
+  const tc = q('user-table-chip'); if (tc) tc.textContent = `Mesa ${S.user?.tableId || '-'}`}
   const uds = q('user-dance-status')
   if (uds) {
     const st = S.user?.danceState || 'idle'
