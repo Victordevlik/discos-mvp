@@ -550,14 +550,16 @@ function endAndArchive(sessionId) {
   const staffConns = state.sseStaff.get(sessionId) || []
   for (const res of staffConns) { try { res.end() } catch {} state.sseStaffMeta.delete(res) }
   state.sseStaff.delete(sessionId)
-  // Cerrar SSE de usuarios pertenecientes a la sesión y limpiar memoria
-  for (const [uid, u] of state.users) if (u.sessionId === sessionId) state.users.delete(uid)
-  for (const [uid, list] of state.sseUsers) {
-    const user = state.users.get(uid) // ya removido arriba si era de la sesión
-    if (user && user.sessionId === sessionId) {
-      for (const res of list) { try { res.end() } catch {} state.sseUserMeta.delete(res) }
-      state.sseUsers.delete(uid)
-    }
+  const affectedUsers = []
+  for (const [uid, u] of state.users) {
+    if (u.sessionId === sessionId) affectedUsers.push(uid)
+  }
+  for (const uid of affectedUsers) {
+    try { sendToUser(uid, 'session_end', { sessionId }) } catch {}
+    const list = state.sseUsers.get(uid) || []
+    for (const res of list) { try { res.end() } catch {} state.sseUserMeta.delete(res) }
+    state.sseUsers.delete(uid)
+    state.users.delete(uid)
   }
   for (const [k, v] of state.invites) if (v.sessionId === sessionId) state.invites.delete(k)
   for (const [k, v] of state.meetings) if (v.sessionId === sessionId) state.meetings.delete(k)

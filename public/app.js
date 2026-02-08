@@ -967,6 +967,14 @@ function startEvents() {
     const data = JSON.parse(e.data)
     showSuccess(`Mensaje de ${data.from.alias}: ${data.message}`)
   })
+  S.sse.addEventListener('session_end', e => {
+    try { if (S.sse) S.sse.close() } catch {}
+    showModalAction('Sesión finalizada', 'La sesión de esta noche ha terminado', 'Aceptar', () => {
+      try { removeLocalUser(S.venueId) } catch {}
+      S.sessionId = ''; S.user = null; S.role = ''; S.sse = null
+      show('screen-welcome')
+    }, 'info')
+  })
   startUserPolls()
   loadPendingInvites()
 }
