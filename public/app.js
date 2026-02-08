@@ -1336,7 +1336,6 @@ function bind() {
   const btnInviteConsumption = q('btn-invite-consumption'); if (btnInviteConsumption) btnInviteConsumption.onclick = openConsumption
   q('btn-consumption-send').onclick = sendConsumption
   const btnAddCart = q('btn-add-to-cart'); if (btnAddCart) btnAddCart.onclick = addToCart
-  const btnCartClear = q('btn-cart-clear'); if (btnCartClear) btnCartClear.onclick = () => { S.cart = []; renderCart() }
   const btnViewOrders = q('btn-view-orders'); if (btnViewOrders) btnViewOrders.onclick = () => { setActiveNav('orders'); loadUserOrders(); loadUserInvitesHistory(); show('screen-orders-user') }
   const btnWaiterOrder = q('btn-waiter-order'); if (btnWaiterOrder) btnWaiterOrder.onclick = callWaiterOrder
   for (const b of document.querySelectorAll('.btn-waiter-reason')) b.onclick = chooseWaiterReason
@@ -1591,7 +1590,7 @@ function renderUserHeader() {
   const ush = q('user-selfie-hero'); if (ush) ush.src = S.user?.selfie || ''
   const hm = q('user-hero-main')
   if (hm) hm.textContent = S.user?.alias || S.user?.id || 'Tu perfil'
-  const tc = q('user-table-chip'); if (tc) tc.textContent = `Mesa ${S.user?.tableId || '-'}`}
+  const tc = q('user-table-chip'); if (tc) tc.textContent = `Mesa ${S.user?.tableId || '-'}`
   const uds = q('user-dance-status')
   if (uds) {
     const st = S.user?.danceState || 'idle'
