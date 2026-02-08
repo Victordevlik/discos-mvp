@@ -3,482 +3,78 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Panel Admin Executive</title>
+  <title>Panel Admin</title>
   <link rel="stylesheet" href="/styles.css">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    /* 🎯 ADMIN PANEL PREMIUM */
-    body { 
-      background: var(--gradient-executive);
-      min-height: 100vh;
-      padding: var(--spacing-2xl);
-      font-family: var(--font-primary);
-      color: var(--text-primary);
-    }
-
-    .admin-container {
-      max-width: 1400px;
-      margin: 0 auto;
-      display: grid;
-      gap: var(--spacing-2xl);
-    }
-
-    /* 🎪 HEADER EXECUTIVO */
-    .admin-header {
-      text-align: center;
-      padding: var(--spacing-2xl);
-      background: rgba(255, 255, 255, 0.05);
-      backdrop-filter: blur(20px);
-      border-radius: var(--radius-xl);
-      border: 1px solid var(--border-primary);
-      margin-bottom: var(--spacing-xl);
-    }
-
-    .admin-header h1 {
-      font-family: var(--font-heading);
-      font-size: 2.5rem;
-      font-weight: 700;
-      margin-bottom: var(--spacing-sm);
-      background: var(--gradient-gold);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-    }
-
-    .admin-header p {
-      color: var(--text-secondary);
-      font-size: 1.1rem;
-    }
-
-    /* 🎮 TOOLBAR PREMIUM */
-    .toolbar-executive {
-      display: grid;
-      grid-template-columns: 1fr auto auto;
-      gap: var(--spacing-md);
-      align-items: center;
-      padding: var(--spacing-lg);
-      background: rgba(30, 41, 59, 0.8);
-      backdrop-filter: blur(20px);
-      border: 1px solid var(--border-primary);
-      border-radius: var(--radius-lg);
-      margin-bottom: var(--spacing-xl);
-    }
-
-    .toolbar-executive input {
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid var(--border-primary);
-      border-radius: var(--radius-md);
-      padding: var(--spacing-md);
-      color: var(--text-primary);
-      font-family: var(--font-primary);
-      transition: all 0.2s ease;
-    }
-
-    .toolbar-executive input:focus {
-      border-color: var(--border-accent);
-      box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.1);
-      background: rgba(255, 255, 255, 0.12);
-    }
-
-    /* 📊 KPI DASHBOARD */
-    .kpi-executive {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-      gap: var(--spacing-lg);
-      margin-bottom: var(--spacing-xl);
-    }
-
-    .kpi-card {
-      background: rgba(30, 41, 59, 0.8);
-      backdrop-filter: blur(20px);
-      border: 1px solid var(--border-primary);
-      border-radius: var(--radius-xl);
-      padding: var(--spacing-xl);
-      text-align: center;
-      transition: all 0.3s ease;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .kpi-card::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      height: 2px;
-      background: var(--gradient-gold);
-      opacity: 0.5;
-    }
-
-    .kpi-card:hover {
-      transform: translateY(-2px);
-      box-shadow: var(--shadow-xl), 0 0 0 1px var(--border-accent);
-    }
-
-    .kpi-card .num {
-      font-size: 2.5rem;
-      font-weight: 700;
-      color: var(--accent-gold);
-      margin-bottom: var(--spacing-sm);
-    }
-
-    .kpi-card .label {
-      color: var(--text-secondary);
-      font-size: 0.9rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-
-    /* 🎴 VENUE CARDS PREMIUM */
-    .venues-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
-      gap: var(--spacing-xl);
-    }
-
-    .venue-card-executive {
-      background: rgba(30, 41, 59, 0.8);
-      backdrop-filter: blur(20px);
-      border: 1px solid var(--border-primary);
-      border-radius: var(--radius-xl);
-      padding: var(--spacing-xl);
-      transition: all 0.3s ease;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .venue-card-executive::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      height: 2px;
-      background: var(--gradient-gold);
-      opacity: 0.3;
-      transition: opacity 0.3s ease;
-    }
-
-    .venue-card-executive:hover {
-      transform: translateY(-2px);
-      box-shadow: var(--shadow-xl), 0 0 0 1px var(--border-accent);
-      border-color: var(--border-accent);
-    }
-
-    .venue-card-executive:hover::before {
-      opacity: 1;
-    }
-
-    .venue-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: var(--spacing-md);
-    }
-
-    .venue-title {
-      font-family: var(--font-heading);
-      font-size: 1.3rem;
-      font-weight: 600;
-      color: var(--text-primary);
-    }
-
-    .venue-badge {
-      padding: var(--spacing-xs) var(--spacing-md);
-      border-radius: 20px;
-      font-size: 0.8rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-
-    .venue-badge.active {
-      background: linear-gradient(135deg, #10b981, #059669);
-      color: white;
-    }
-
-    .venue-badge.inactive {
-      background: rgba(255, 255, 255, 0.1);
-      color: var(--text-secondary);
-    }
-
-    .venue-info {
-      color: var(--text-secondary);
-      font-size: 0.9rem;
-      margin-bottom: var(--spacing-md);
-      line-height: 1.5;
-    }
-
-    .venue-link {
-      display: inline-block;
-      padding: var(--spacing-xs) var(--spacing-md);
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid var(--border-primary);
-      border-radius: var(--radius-md);
-      color: var(--text-primary);
-      text-decoration: none;
-      font-size: 0.8rem;
-      transition: all 0.2s ease;
-    }
-
-    .venue-link:hover {
-      background: rgba(255, 255, 255, 0.15);
-      border-color: var(--border-accent);
-      transform: translateY(-1px);
-    }
-
-    /* 🎛️ FORM CONTROLS PREMIUM */
-    .form-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: var(--spacing-md);
-      margin-top: var(--spacing-md);
-    }
-
-    .form-input-executive {
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid var(--border-primary);
-      border-radius: var(--radius-md);
-      padding: var(--spacing-md);
-      color: var(--text-primary);
-      font-family: var(--font-primary);
-      font-size: 0.9rem;
-      transition: all 0.2s ease;
-    }
-
-    .form-input-executive:focus {
-      outline: none;
-      border-color: var(--border-accent);
-      box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.1);
-      background: rgba(255, 255, 255, 0.12);
-    }
-
-    .form-input-executive::placeholder {
-      color: var(--text-muted);
-    }
-
-    /* 🎯 ACTIONS GRID */
-    .actions-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-      gap: var(--spacing-sm);
-      margin-top: var(--spacing-md);
-    }
-
-    /* 🔍 FILTER BAR */
-    .filter-bar {
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: var(--spacing-md);
-      align-items: center;
-      margin-bottom: var(--spacing-xl);
-      padding: var(--spacing-lg);
-      background: rgba(30, 41, 59, 0.6);
-      backdrop-filter: blur(20px);
-      border: 1px solid var(--border-primary);
-      border-radius: var(--radius-lg);
-    }
-
-    /* 💎 CREDIT MANAGEMENT */
-    .credit-section {
-      background: rgba(30, 41, 59, 0.8);
-      backdrop-filter: blur(20px);
-      border: 1px solid var(--border-primary);
-      border-radius: var(--radius-xl);
-      padding: var(--spacing-xl);
-      margin-top: var(--spacing-xl);
-    }
-
-    .credit-section h3 {
-      font-family: var(--font-heading);
-      font-size: 1.5rem;
-      margin-bottom: var(--spacing-lg);
-      color: var(--accent-gold);
-    }
-
-    .credit-form {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: var(--spacing-md);
-      align-items: end;
-    }
-
-    /* 🎨 LOADING STATES */
-    .loading {
-      opacity: 0.7;
-      pointer-events: none;
-    }
-
-    .loading::after {
-      content: '';
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      width: 20px;
-      height: 20px;
-      margin: -10px 0 0 -10px;
-      border: 2px solid var(--border-accent);
-      border-radius: 50%;
-      border-top-color: transparent;
-      animation: spin 1s linear infinite;
-    }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-
-    /* 🎯 NOTIFICATION STYLES */
-    .notification {
-      position: fixed;
-      top: var(--spacing-xl);
-      right: var(--spacing-xl);
-      background: rgba(30, 41, 59, 0.95);
-      backdrop-filter: blur(20px);
-      border: 1px solid var(--border-accent);
-      border-radius: var(--radius-lg);
-      padding: var(--spacing-md) var(--spacing-lg);
-      color: var(--text-primary);
-      font-size: 0.9rem;
-      z-index: 1000;
-      transform: translateX(100%);
-      transition: transform 0.3s ease;
-    }
-
-    .notification.show {
-      transform: translateX(0);
-    }
-
-    .notification.success {
-      border-color: rgba(16, 185, 129, 0.3);
-      background: rgba(16, 185, 129, 0.1);
-    }
-
-    .notification.error {
-      border-color: rgba(239, 68, 68, 0.3);
-      background: rgba(239, 68, 68, 0.1);
-    }
-
-    /* 📱 RESPONSIVE */
-    @media (max-width: 768px) {
-      .admin-container {
-        padding: var(--spacing-md);
-      }
-      
-      .venues-grid {
-        grid-template-columns: 1fr;
-      }
-      
-      .kpi-executive {
-        grid-template-columns: 1fr;
-      }
-      
-      .toolbar-executive {
-        grid-template-columns: 1fr;
-      }
-      
-      .filter-bar {
-        grid-template-columns: 1fr;
-      }
-      
-      .credit-form {
-        grid-template-columns: 1fr;
-      }
-      
-      .notification {
-        top: var(--spacing-md);
-        right: var(--spacing-md);
-        left: var(--spacing-md);
-      }
-    }
+    body { max-width: 960px; margin: 0 auto; }
+    .toolbar { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center }
+    .info.ok { color: #0a7 }
+    .info.warn { color: #c50 }
+    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px }
+    .venue-card { padding: 12px; border: 1px solid #333; border-radius: 8px }
+    .venue-head { display: flex; justify-content: space-between; align-items: baseline }
+    .badge { padding: 2px 8px; border-radius: 12px; font-size: 12px }
+    .badge.active { background: #0a7; color: #fff }
+    .badge.inactive { background: #999; color: #fff }
+    .actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-top: 8px }
+    .row.compact { gap: 6px }
+    #venues-list { margin-top: 8px }
+    #summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px }
+    .kpi { padding: 10px; border: 1px solid #333; border-radius: 8px; text-align: center }
+    .kpi .num { font-size: 20px; font-weight: 600 }
+    .filter { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; margin-top: 8px }
   </style>
 </head>
 <body>
-  <div class="admin-container">
-    <!-- 🎪 HEADER EXECUTIVO -->
-    <div class="admin-header">
-      <h1>Panel Admin Executive</h1>
-      <p>Gestión premium de locales y administración del sistema</p>
-    </div>
-
-    <!-- 🎮 TOOLBAR PREMIUM -->
-    <div class="toolbar-executive">
-      <div>
-        <label style="display: block; margin-bottom: var(--spacing-xs); color: var(--text-secondary); font-size: 0.9rem;">Clave Administrativa</label>
-        <input id="admin-secret" type="password" placeholder="Ingrese clave admin" class="form-input-executive">
+  <div class="card">
+    <h2>Panel Admin</h2>
+    <div class="toolbar">
+      <div class="row compact">
+        <label>Clave admin</label>
+        <input id="admin-secret" type="password" placeholder="ADMIN_SECRET">
       </div>
-      <button id="btn-load" class="primary">🔓 Cargar Sistema</button>
-      <button id="btn-refresh" class="secondary">🔄 Refrescar</button>
+      <button id="btn-load">Cargar</button>
+      <button id="btn-refresh">Refrescar</button>
     </div>
-
     <div id="db-status" class="info"></div>
     <div id="error" class="error"></div>
-
-    <!-- 📊 KPI DASHBOARD EXECUTIVO -->
-    <div class="kpi-executive">
-      <div class="kpi-card">
-        <div class="num" id="sum-total">0</div>
-        <div class="label">Locales Totales</div>
-      </div>
-      <div class="kpi-card">
-        <div class="num" id="sum-active">0</div>
-        <div class="label">Locales Activos</div>
-      </div>
-      <div class="kpi-card">
-        <div class="num" id="sum-credits">0</div>
-        <div class="label">Créditos Totales</div>
-      </div>
-      <div class="kpi-card">
-        <div class="num" id="sum-sessions">0</div>
-        <div class="label">Sesiones Activas</div>
-      </div>
-    </div>
-
-    <!-- 🔍 FILTER BAR PREMIUM -->
-    <div class="filter-bar">
-      <input id="filter-text" type="text" placeholder="🔍 Buscar por nombre, ID o email" class="form-input-executive">
-      <button id="btn-clear-filter" class="secondary">🗑️ Limpiar</button>
-    </div>
-
-    <!-- 🎴 VENUES GRID PREMIUM -->
-    <h2 style="font-family: var(--font-heading); color: var(--accent-gold); margin-bottom: var(--spacing-lg);">Gestión de Locales</h2>
-    <div id="venues-list" class="venues-grid"></div>
-
-    <!-- 💎 CREDIT MANAGEMENT SECTION -->
-    <div class="credit-section">
-      <h3>Gestión de Créditos</h3>
-      
-      <div class="credit-form">
-        <div>
-          <label style="display: block; margin-bottom: var(--spacing-xs); color: var(--text-secondary);">Agregar Créditos</label>
-          <input id="venue-new-id" type="text" placeholder="ID del Local" class="form-input-executive">
-          <input id="venue-new-amount" type="number" min="1" value="1" placeholder="Cantidad" class="form-input-executive" style="margin-top: var(--spacing-sm);">
-          <button id="btn-add-credit" class="primary" style="margin-top: var(--spacing-sm); width: 100%;">💰 Agregar</button>
-        </div>
-        
-        <div>
-          <label style="display: block; margin-bottom: var(--spacing-xs); color: var(--text-secondary);">Eliminar Créditos</label>
-          <input id="venue-del-id" type="text" placeholder="ID del Local" class="form-input-executive">
-          <input id="venue-del-amount" type="number" min="1" value="1" placeholder="Cantidad" class="form-input-executive" style="margin-top: var(--spacing-sm);">
-          <button id="btn-del-credit" class="danger" style="margin-top: var(--spacing-sm); width: 100%;">➖ Eliminar</button>
-        </div>
-        
-        <div>
-          <label style="display: block; margin-bottom: var(--spacing-xs); color: var(--text-secondary);">Resetear Créditos</label>
-          <input id="venue-reset-id" type="text" placeholder="ID del Local" class="form-input-executive">
-          <button id="btn-reset-credit" class="warning" style="margin-top: var(--spacing-sm); width: 100%;">🔄 Resetear</button>
+    <div id="modal" class="modal">
+      <div class="modal-inner">
+        <div id="modal-text"></div>
+        <div class="row">
+          <button id="modal-close">Cerrar</button>
         </div>
       </div>
     </div>
   </div>
-
-  <!-- 🎭 MODAL PREMIUM -->
-  <div id="modal" class="modal">
-    <div class="modal-inner glass" style="max-width: 500px; border-radius: var(--radius-xl); border: 1px solid var(--border-accent);">
-      <div id="modal-text" style="padding: var(--spacing-xl); font-size: 1.1rem; text-align: center;"></div>
-      <div style="padding: var(--spacing-lg); border-top: 1px solid var(--border-primary); text-align: center;">
-        <button id="modal-close" class="primary" style="min-width: 120px;">Cerrar</button>
-      </div>
+  <div class="card">
+    <h3>Locales</h3>
+    <div id="summary">
+      <div class="kpi"><div>Total</div><div class="num" id="sum-total">0</div></div>
+      <div class="kpi"><div>Activos</div><div class="num" id="sum-active">0</div></div>
+      <div class="kpi"><div>Créditos</div><div class="num" id="sum-credits">0</div></div>
+    </div>
+    <div class="filter">
+      <input id="filter-text" type="text" placeholder="Buscar por nombre o ID">
+      <button id="btn-clear-filter" class="secondary">Limpiar</button>
+    </div>
+    <div id="venues-list" class="grid"></div>
+  </div>
+  <div class="card">
+    <h3>Créditos</h3>
+    <div class="row">
+      <input id="venue-new-id" type="text" placeholder="venueId">
+      <input id="venue-new-amount" type="number" min="1" value="1" placeholder="cantidad">
+      <button id="btn-add-credit">Agregar crédito</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input id="venue-del-id" type="text" placeholder="venueId">
+      <input id="venue-del-amount" type="number" min="1" value="1" placeholder="cantidad">
+      <button id="btn-del-credit">Eliminar crédito</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input id="venue-reset-id" type="text" placeholder="venueId">
+      <button id="btn-reset-credit">Reset créditos</button>
     </div>
   </div>
   <script>
@@ -496,292 +92,183 @@
     }
     function showError(msg) {
       if (!msg) return
-      showNotification(msg, 'error')
-    }
-
-    function showNotification(message, type = 'info') {
-      const notification = document.createElement('div')
-      notification.className = `notification notification-${type}`
-      notification.textContent = message
-      
-      document.body.appendChild(notification)
-      
-      setTimeout(() => {
-        notification.classList.add('show')
-        setTimeout(() => {
-          notification.classList.remove('show')
-          setTimeout(() => {
-            notification.remove()
-          }, 300)
-        }, 3000)
-      }, 100)
-    }
-
-    function setLoading(button, isLoading) {
-      if (isLoading) {
-        button.classList.add('loading')
-        button.disabled = true
-      } else {
-        button.classList.remove('loading')
-        button.disabled = false
-      }
+      const m = document.getElementById('modal')
+      const t = document.getElementById('modal-text')
+      const tt = document.getElementById('modal-title')
+      if (!m || !t) return
+      m.classList.remove('type-error','type-info','type-success')
+      m.classList.add('type-error')
+      if (tt) tt.textContent = 'Error'
+      t.textContent = msg || ''
+      m.classList.add('show')
     }
     let VENUES_CACHE = []
     function renderSummary(list) {
       const total = list.length
       const active = list.filter(v => v.active).length
       const credits = list.reduce((a, v) => a + Number(v.credits || 0), 0)
-      const sessions = list.reduce((a, v) => a + Number(v.sessions || 0), 0)
-      
       const st = document.getElementById('sum-total'); if (st) st.textContent = String(total)
       const sa = document.getElementById('sum-active'); if (sa) sa.textContent = String(active)
       const sc = document.getElementById('sum-credits'); if (sc) sc.textContent = String(credits)
-      const ss = document.getElementById('sum-sessions'); if (ss) ss.textContent = String(sessions)
-      
-      // Update KPI cards with animations
-      const kpiCards = document.querySelectorAll('.kpi-card')
-      kpiCards.forEach(card => {
-        card.style.transform = 'scale(1.02)'
-        setTimeout(() => {
-          card.style.transform = 'scale(1)'
-        }, 300)
-      })
     }
     function renderVenues(list) {
       const container = document.getElementById('venues-list')
       container.innerHTML = ''
-      
-      if (!list.length) {
-        const emptyState = document.createElement('div')
-        emptyState.className = 'venue-card-executive'
-        emptyState.style.textAlign = 'center'
-        emptyState.style.padding = 'var(--spacing-2xl)'
-        emptyState.innerHTML = `
-          <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">🏢</div>
-          <h3 style="color: var(--text-secondary); margin-bottom: var(--spacing-sm);">No hay locales</h3>
-          <p style="color: var(--text-muted);">Comienza creando tu primer local</p>
-        `
-        container.appendChild(emptyState)
-        return
-      }
-      
+      if (!list.length) { container.textContent = 'No hay locales'; return }
       for (const v of list) {
         const card = document.createElement('div')
-        card.className = 'venue-card-executive'
-        
-        const header = document.createElement('div')
-        header.className = 'venue-header'
-        
+        card.className = 'venue-card'
+        const head = document.createElement('div')
+        head.className = 'venue-head'
         const title = document.createElement('div')
-        title.className = 'venue-title'
-        title.textContent = v.name || v.venueId
-        
+        title.textContent = `${v.name} (${v.venueId})`
         const badge = document.createElement('span')
-        badge.className = 'venue-badge ' + (v.active ? 'active' : 'inactive')
-        badge.textContent = v.active ? '🟢 Activo' : '⚫ Inactivo'
-        
-        header.appendChild(title)
-        header.appendChild(badge)
-        
+        badge.className = 'badge ' + (v.active ? 'active' : 'inactive')
+        badge.textContent = v.active ? 'Activo' : 'Inactivo'
+        head.appendChild(title)
+        head.appendChild(badge)
         const info = document.createElement('div')
-        info.className = 'venue-info'
         const url = `${location.origin}/?venueId=${encodeURIComponent(v.venueId)}`
-        info.innerHTML = `
-          <div style="margin-bottom: var(--spacing-xs);"><strong>ID:</strong> ${v.venueId}</div>
-          <div style="margin-bottom: var(--spacing-xs);"><strong>Créditos:</strong> <span style="color: var(--accent-gold); font-weight: 600;">${v.credits || 0}</span> noches</div>
-          <div style="margin-bottom: var(--spacing-xs);"><strong>PIN:</strong> ${v.pin ? '••••' : 'No configurado'}</div>
-          <div><strong>Email:</strong> ${v.email || 'No configurado'}</div>
-        `
-        
+        info.textContent = `Créditos: ${v.credits} • PIN: ${v.pin ? v.pin : '-'} • Email: ${v.email ? v.email : '-'}`
         const link = document.createElement('a')
-        link.href = url
-        link.target = '_blank'
-        link.rel = 'noopener'
-        link.className = 'venue-link'
-        link.textContent = '🌐 Abrir Local'
-        
-        const formGrid = document.createElement('div')
-        formGrid.className = 'form-grid'
-        
-        // Name Update
-        const nameGroup = document.createElement('div')
-        nameGroup.innerHTML = `
-          <label style="display: block; margin-bottom: var(--spacing-xs); color: var(--text-secondary); font-size: 0.8rem;">Nombre del Local</label>
-          <input type="text" placeholder="Nombre del venue" value="${v.name || ''}" class="form-input-executive" data-venue="${v.venueId}" data-field="name">
-        `
-        
+        link.href = url; link.target = '_blank'; link.rel = 'noopener'; link.textContent = 'Abrir'
+        const inputs = document.createElement('div')
+        inputs.className = 'row compact'
+        const nameInput = document.createElement('input')
+        nameInput.type = 'text'; nameInput.placeholder = 'Nombre del venue'; nameInput.value = v.name || ''
         const nameBtn = document.createElement('button')
-        nameBtn.textContent = '💾 Guardar Nombre'
-        nameBtn.className = 'secondary'
+        nameBtn.textContent = 'Guardar nombre'
         nameBtn.onclick = async () => {
           try {
             const secret = document.getElementById('admin-secret').value.trim()
-            const input = nameGroup.querySelector('input')
-            const name = input.value.trim()
+            const name = nameInput.value.trim()
             if (!secret) { showError('Ingresa clave admin'); return }
             if (!name) { showError('Ingresa un nombre'); return }
-            setLoading(nameBtn, true)
             await api('/api/admin/venues/name', { method: 'POST', headers: { 'X-Admin-Secret': secret }, body: JSON.stringify({ venueId: v.venueId, name }) })
-            showNotification('Nombre actualizado correctamente', 'success')
             await loadVenues()
           } catch (e) { showError(String(e.message)) }
-          finally { setLoading(nameBtn, false) }
         }
-        
-        // PIN Update
-        const pinGroup = document.createElement('div')
-        pinGroup.innerHTML = `
-          <label style="display: block; margin-bottom: var(--spacing-xs); color: var(--text-secondary); font-size: 0.8rem;">PIN (4 dígitos)</label>
-          <input type="password" placeholder="Nuevo PIN" class="form-input-executive" data-venue="${v.venueId}" data-field="pin">
-        `
-        
+        const pinInput = document.createElement('input')
+        pinInput.type = 'password'; pinInput.placeholder = 'PIN (4 dígitos)'
         const pinBtn = document.createElement('button')
-        pinBtn.textContent = '🔒 Guardar PIN'
-        pinBtn.className = 'secondary'
+        pinBtn.textContent = 'Guardar PIN'
         pinBtn.onclick = async () => {
           try {
             const secret = document.getElementById('admin-secret').value.trim()
-            const input = pinGroup.querySelector('input')
-            const pin = input.value.trim()
+            const pin = pinInput.value.trim()
             if (!secret) { showError('Ingresa clave admin'); return }
-            if (!pin || pin.length !== 4) { showError('PIN debe tener 4 dígitos'); return }
-            setLoading(pinBtn, true)
+            if (!pin) { showError('Ingresa un PIN'); return }
             await api('/api/admin/venues/pin', { method: 'POST', headers: { 'X-Admin-Secret': secret }, body: JSON.stringify({ venueId: v.venueId, pin }) })
-            showNotification('PIN actualizado correctamente', 'success')
-            input.value = ''
             await loadVenues()
           } catch (e) { showError(String(e.message)) }
-          finally { setLoading(pinBtn, false) }
         }
-        
-        // Email Update
-        const emailGroup = document.createElement('div')
-        emailGroup.innerHTML = `
-          <label style="display: block; margin-bottom: var(--spacing-xs); color: var(--text-secondary); font-size: 0.8rem;">Email</label>
-          <input type="email" placeholder="email@ejemplo.com" value="${v.email || ''}" class="form-input-executive" data-venue="${v.venueId}" data-field="email">
-        `
-        
+        const emailInput = document.createElement('input')
+        emailInput.type = 'email'; emailInput.placeholder = 'Email del venue'
         const emailBtn = document.createElement('button')
-        emailBtn.textContent = '📧 Guardar Email'
-        emailBtn.className = 'secondary'
+        emailBtn.textContent = 'Guardar email'
         emailBtn.onclick = async () => {
           try {
             const secret = document.getElementById('admin-secret').value.trim()
-            const input = emailGroup.querySelector('input')
-            const email = input.value.trim()
+            const email = emailInput.value.trim()
             if (!secret) { showError('Ingresa clave admin'); return }
-            if (!email) { showError('Ingresa un email válido'); return }
-            setLoading(emailBtn, true)
+            if (!email) { showError('Ingresa un email'); return }
             await api('/api/admin/venues/email', { method: 'POST', headers: { 'X-Admin-Secret': secret }, body: JSON.stringify({ venueId: v.venueId, email }) })
-            showNotification('Email actualizado correctamente', 'success')
             await loadVenues()
           } catch (e) { showError(String(e.message)) }
-          finally { setLoading(emailBtn, false) }
         }
-        
-        // Actions Grid
-        const actionsGrid = document.createElement('div')
-        actionsGrid.className = 'actions-grid'
-        
+        inputs.appendChild(pinInput)
+        inputs.appendChild(pinBtn)
+        inputs.appendChild(emailInput)
+        inputs.appendChild(emailBtn)
+        inputs.appendChild(nameInput)
+        inputs.appendChild(nameBtn)
+        const actions = document.createElement('div')
+        actions.className = 'actions'
         const addBtn = document.createElement('button')
-        addBtn.textContent = '💰 +1 Noche'
-        addBtn.className = 'success'
+        addBtn.textContent = '+1 noche'
         addBtn.onclick = async () => {
           try {
             const secret = document.getElementById('admin-secret').value.trim()
             if (!secret) { showError('Ingresa clave admin'); return }
-            setLoading(addBtn, true)
             await api('/api/admin/venues/credit', { method: 'POST', headers: { 'X-Admin-Secret': secret }, body: JSON.stringify({ venueId: v.venueId, amount: 1 }) })
-            showNotification('+1 crédito agregado', 'success')
             await loadVenues()
           } catch (e) { showError(String(e.message)) }
-          finally { setLoading(addBtn, false) }
         }
-        
         const subBtn = document.createElement('button')
-        subBtn.textContent = '➖ -1 Noche'
-        subBtn.className = 'warning'
+        subBtn.textContent = '-1 noche'
         subBtn.onclick = async () => {
           try {
             const secret = document.getElementById('admin-secret').value.trim()
             if (!secret) { showError('Ingresa clave admin'); return }
-            if (!confirm('¿Restar 1 crédito de este local?')) return
-            setLoading(subBtn, true)
             await api('/api/admin/venues/credit', { method: 'POST', headers: { 'X-Admin-Secret': secret }, body: JSON.stringify({ venueId: v.venueId, amount: -1 }) })
-            showNotification('-1 crédito restado', 'success')
             await loadVenues()
           } catch (e) { showError(String(e.message)) }
-          finally { setLoading(subBtn, false) }
         }
-        
+        const resetBtn = document.createElement('button')
+        resetBtn.textContent = 'Reset créditos'
+        resetBtn.onclick = async () => {
+          try {
+            const secret = document.getElementById('admin-secret').value.trim()
+            if (!secret) { showError('Ingresa clave admin'); return }
+            const amount = -Number(v.credits || 0)
+            await api('/api/admin/venues/credit', { method: 'POST', headers: { 'X-Admin-Secret': secret }, body: JSON.stringify({ venueId: v.venueId, amount }) })
+            await loadVenues()
+          } catch (e) { showError(String(e.message)) }
+        }
+        const actBtn = document.createElement('button')
+        actBtn.textContent = v.active ? 'Desactivar' : 'Activar'
+        actBtn.onclick = async () => {
+          try {
+            const secret = document.getElementById('admin-secret').value.trim()
+            if (!secret) { showError('Ingresa clave admin'); return }
+            await api('/api/admin/venues/active', { method: 'POST', headers: { 'X-Admin-Secret': secret }, body: JSON.stringify({ venueId: v.venueId, active: !v.active }) })
+            await loadVenues()
+          } catch (e) { showError(String(e.message)) }
+        }
         const delBtn = document.createElement('button')
-        delBtn.textContent = '🗑️ Eliminar'
-        delBtn.className = 'danger'
+        delBtn.textContent = 'Eliminar'
         delBtn.onclick = async () => {
           try {
             const secret = document.getElementById('admin-secret').value.trim()
             if (!secret) { showError('Ingresa clave admin'); return }
-            if (!confirm('¿Eliminar local permanentemente? Esta acción no se puede deshacer.')) return
-            setLoading(delBtn, true)
+            const ok = await confirmModal(`¿Eliminar el local "${v.name}" (${v.venueId})?`)
+            if (!ok) return
             await api('/api/admin/venues/delete', { method: 'POST', headers: { 'X-Admin-Secret': secret }, body: JSON.stringify({ venueId: v.venueId }) })
-            showNotification('Local eliminado correctamente', 'success')
             await loadVenues()
           } catch (e) { showError(String(e.message)) }
-          finally { setLoading(delBtn, false) }
         }
-        
-        // Assemble the card
-        actionsGrid.appendChild(addBtn)
-        actionsGrid.appendChild(subBtn)
-        actionsGrid.appendChild(delBtn)
-        
-        // Assemble form grid
-        formGrid.appendChild(nameGroup)
-        formGrid.appendChild(nameBtn)
-        formGrid.appendChild(pinGroup)
-        formGrid.appendChild(pinBtn)
-        formGrid.appendChild(emailGroup)
-        formGrid.appendChild(emailBtn)
-        
-        card.appendChild(header)
+        actions.appendChild(addBtn)
+        actions.appendChild(subBtn)
+        actions.appendChild(resetBtn)
+        actions.appendChild(actBtn)
+        actions.appendChild(delBtn)
+        card.appendChild(head)
         card.appendChild(info)
         card.appendChild(link)
-        card.appendChild(formGrid)
-        card.appendChild(actionsGrid)
-        
+        card.appendChild(inputs)
+        card.appendChild(actions)
         container.appendChild(card)
       }
     }
     async function loadVenues() {
+      showError('')
+      const secret = document.getElementById('admin-secret').value.trim()
+      if (!secret) { showError('Ingresa clave admin'); return }
       try {
-        const secret = document.getElementById('admin-secret').value.trim()
-        if (!secret) { showError('Ingresa clave admin'); return }
-        
-        const loadBtn = document.getElementById('btn-load')
-        setLoading(loadBtn, true)
-        
         const st = await api('/api/admin/db-status?admin_secret=' + encodeURIComponent(secret))
         const el = document.getElementById('db-status')
         if (el) {
           el.textContent = st.connected ? 'DB conectada: los cambios persisten entre reinicios y deploys' : 'Sin DB: los cambios se guardan en archivo y pueden perderse en reinicios/deploys'
           el.className = 'info ' + (st.connected ? 'ok' : 'warn')
         }
-        
-        const r = await api('/api/admin/venues?admin_secret=' + encodeURIComponent(secret))
-        VENUES_CACHE = r.venues || []
-        renderSummary(VENUES_CACHE)
-        const f = document.getElementById('filter-text')
-        const q = f ? f.value.trim().toLowerCase() : ''
-        const filtered = q ? VENUES_CACHE.filter(v => (String(v.name || '').toLowerCase().includes(q) || String(v.venueId || '').toLowerCase().includes(q))) : VENUES_CACHE
-        renderVenues(filtered)
-        
-        showNotification(`Sistema cargado: ${VENUES_CACHE.length} locales`, 'success')
-      } catch (e) { 
-        showError(String(e.message))
-      } finally {
-        const loadBtn = document.getElementById('btn-load')
-        setLoading(loadBtn, false)
-      }
+      } catch {}
+      const r = await api('/api/admin/venues?admin_secret=' + encodeURIComponent(secret))
+      VENUES_CACHE = r.venues || []
+      renderSummary(VENUES_CACHE)
+      const f = document.getElementById('filter-text')
+      const q = f ? f.value.trim().toLowerCase() : ''
+      const filtered = q ? VENUES_CACHE.filter(v => (String(v.name || '').toLowerCase().includes(q) || String(v.venueId || '').toLowerCase().includes(q))) : VENUES_CACHE
+      renderVenues(filtered)
     }
     document.getElementById('btn-load').onclick = () => loadVenues().catch(e => showError(String(e.message)))
     document.getElementById('btn-refresh').onclick = () => loadVenues().catch(e => showError(String(e.message)))
