@@ -254,12 +254,10 @@ function openInviteModal(expiresAt) {
   const t = q('modal-text')
   const row = document.querySelector('#modal .row')
   if (!t || !row) return
-  S.skipConfirmInvite = true
   try { t.innerHTML = '' } catch {}
   try { row.innerHTML = '' } catch {}
-  const ring = document.createElement('div')
-  ring.id = 'invite-ring-modal'
-  ring.className = 'ring'
+  const wrap = document.createElement('div')
+  wrap.className = 'ring-wrap'
   const selfie = (S.currentInvite && S.currentInvite.from && S.currentInvite.from.selfie) ? S.currentInvite.from.selfie
                : (S.consumptionReq && S.consumptionReq.from && S.consumptionReq.from.selfie) ? S.consumptionReq.from.selfie
                : ''
@@ -267,12 +265,16 @@ function openInviteModal(expiresAt) {
     const pic = document.createElement('img')
     pic.id = 'invite-ring-selfie'
     pic.src = selfie
-    ring.append(pic)
+    wrap.append(pic)
   }
+  const ring = document.createElement('div')
+  ring.id = 'invite-ring-modal'
+  ring.className = 'ring-overlay'
   const txt = document.createElement('span')
   txt.id = 'invite-ring-modal-txt'
-  ring.append(txt)
-  t.append(ring)
+  wrap.append(ring)
+  wrap.append(txt)
+  t.append(wrap)
   const bA = document.createElement('button')
   bA.id = 'btn-invite-accept'
   bA.textContent = 'Aceptar'
@@ -760,9 +762,6 @@ function chooseMsg(e) {
 
 async function sendInvite() {
   if (!S.currentInvite) return
-  const name = S.currentInvite.alias || S.currentInvite.id
-  const ok = await confirmAction(`Vas a invitar a ${name} con el mensaje "${inviteMsgType}". ¿Confirmas?`)
-  if (!ok) return
   await api('/api/invite/dance', { method: 'POST', body: JSON.stringify({ fromId: S.user.id, toId: S.currentInvite.id, messageType: inviteMsgType }) })
   show('screen-user-home')
 }
@@ -774,9 +773,6 @@ async function sendInviteQuick(u) {
   setReceiver(u)
   S.currentInvite = u
   inviteMsgType = 'bailamos'
-  const name = u.alias || u.id
-  const ok = await confirmAction(`Vas a invitar a ${name} con el mensaje "bailamos". ¿Confirmas?`)
-  if (!ok) return
   await api('/api/invite/dance', { method: 'POST', body: JSON.stringify({ fromId: S.user.id, toId: u.id, messageType: 'bailamos' }) })
   show('screen-disponibles')
 }
@@ -797,11 +793,6 @@ function startEvents() {
       S.missed.push(msg)
     }
     if (!S.inInviteFlow) { showNextInvite() }
-  })
-  S.sse.addEventListener('match', e => {
-    const data = JSON.parse(e.data)
-    showError(`Match con ${data.with.alias}`)
-    setTimeout(() => showError(''), 1500)
   })
   S.sse.addEventListener('dance_status', e => {
     const data = JSON.parse(e.data)
@@ -858,7 +849,6 @@ function startEvents() {
                       : ''
         el.textContent = planTxt ? `Plan: ${planTxt}` : ''
       }
-      show('screen-meeting')
     }
   })
   S.sse.addEventListener('consumption_invite', e => {
@@ -945,10 +935,6 @@ async function respondInvite(accept) {
   if (S.consumptionReq) {
     const hasItems = Array.isArray(S.consumptionReq.items) && S.consumptionReq.items.length > 0
     const listTxt = hasItems ? S.consumptionReq.items.map(it => `${it.quantity} x ${it.product}`).join(', ') : S.consumptionReq.product
-    const phr = accept ? `Vas a aceptar invitación de consumo de ${S.consumptionReq.from.alias} (${listTxt}). ¿Confirmas?`
-                       : `Vas a ignorar invitación de consumo. ¿Confirmas?`
-    const ok = S.skipConfirmInvite ? true : await confirmAction(phr)
-    if (!ok) return
     if (accept) {
       if (hasItems) {
         await api('/api/consumption/respond/bulk', { method: 'POST', body: JSON.stringify({ fromId: S.consumptionReq.from.id, toId: S.user.id, items: S.consumptionReq.items, action: 'accept', requestId: S.consumptionReq.requestId || '' }) })
@@ -967,17 +953,13 @@ async function respondInvite(accept) {
   if (!S.currentInvite) return
   const id = S.currentInvite.id
   const action = accept ? 'accept' : 'pass'
-  const phr2 = accept ? `Vas a aceptar invitación de baile. ¿Confirmas?` : `Vas a pasar la invitación de baile. ¿Confirmas?`
-  const ok2 = S.skipConfirmInvite ? true : await confirmAction(phr2)
-  if (!ok2) return
   stopInviteCountdown()
   const note = (q('invite-response') ? q('invite-response').value.trim().slice(0, 120) : '')
   await api('/api/invite/respond', { method: 'POST', body: JSON.stringify({ inviteId: id, action, note }) })
-  S.notifications.invites = Math.max(0, (S.notifications.invites || 0) - 1)
+  { const cur = (S.notifications.invites || 0) - 1; S.notifications.invites = cur < 0 ? 0 : cur }
   setBadgeNav('disponibles', S.notifications.invites)
   if (!accept) show('screen-user-home')
   if (!accept) { S.inInviteFlow = false; showNextInvite() }
-  S.skipConfirmInvite = false
 }
 
 function openThanks(toId, context) {
@@ -1918,8 +1900,6 @@ async function passAllDanceInvites() {
   if (S.currentInvite && S.currentInvite.id) ids.push(S.currentInvite.id)
   for (const it of S.invitesQueue) if (it.type === 'dance' && it.id) ids.push(it.id)
   if (ids.length === 0) { showModal('Invitaciones', 'No hay invitaciones de baile para pasar', 'info'); return }
-  const ok = await confirmAction(`Vas a pasar ${ids.length} invitación${ids.length > 1 ? 'es' : ''} de baile. ¿Confirmas?`)
-  if (!ok) return
   for (const id of ids) { try { await api('/api/invite/respond', { method: 'POST', body: JSON.stringify({ inviteId: id, action: 'pass', note: '' }) }) } catch {} }
   S.invitesQueue = S.invitesQueue.filter(x => x.type !== 'dance')
   stopInviteCountdown()
@@ -1934,8 +1914,6 @@ async function passAllConsumptionInvites() {
   if (S.consumptionReq) items.push(S.consumptionReq)
   for (const it of S.invitesQueue) if (it.type === 'consumption' && it.data) items.push(it.data)
   if (items.length === 0) { showModal('Invitaciones', 'No hay invitaciones de consumo para pasar', 'info'); return }
-  const ok = await confirmAction(`Vas a pasar ${items.length} invitación${items.length > 1 ? 'es' : ''} de consumo. ¿Confirmas?`)
-  if (!ok) return
   for (const data of items) {
     try {
       if (Array.isArray(data.items) && data.items.length) {
@@ -1959,10 +1937,11 @@ function startInviteCountdown(expiresAt) {
   const el = q('invite-ring-modal') || q('invite-ring')
   const txt = q('invite-ring-modal-txt') || q('invite-ring-txt')
   if (!el || !txt) return
-  S.inviteTTL = Math.max(1, Math.ceil((target - Date.now()) / 1000))
+  S.inviteTTL = (((target - Date.now() + 999) / 1000) | 0); if (S.inviteTTL < 1) S.inviteTTL = 1
   const tick = () => {
     const remMs = target - Date.now()
-    const remSec = Math.max(0, Math.ceil(remMs / 1000))
+    let remSec = ((remMs + 999) / 1000) | 0
+    if (remSec < 0) remSec = 0
     if (remSec <= 0) {
       txt.textContent = '00:00'
       el.style.setProperty('--deg', '360deg')
@@ -1970,11 +1949,11 @@ function startInviteCountdown(expiresAt) {
       S.timers.inviteCountdown = 0
       return
     }
-    const mm = String(Math.floor(remSec / 60)).padStart(2, '0')
+    const mm = String((remSec / 60) | 0).padStart(2, '0')
     const ss = String(remSec % 60).padStart(2, '0')
     txt.textContent = `${mm}:${ss}`
-    const pct = (remSec / Math.max(1, S.inviteTTL))
-    const deg = Math.floor(pct * 360)
+    const base = S.inviteTTL > 0 ? S.inviteTTL : 1
+    const deg = ((remSec * 360) / base) | 0
     el.style.setProperty('--deg', `${deg}deg`)
   }
   tick()

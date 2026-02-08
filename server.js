@@ -1025,14 +1025,6 @@ const server = http.createServer(async (req, res) => {
       state.invites.set(invId, inv)
       const fromSelfie = from.selfie || ''
       sendToUser(to.id, 'dance_invite', { invite: { id: invId, from: { id: from.id, alias: from.alias, selfie: fromSelfie, tableId: from.tableId || '', zone: from.zone || '' } , msg, expiresAt: inv.expiresAt } })
-      for (const other of state.invites.values()) {
-        if (other.sessionId === inv.sessionId && other.fromId === to.id && other.toId === from.id) {
-          if (within(10*60*1000, other.createdAt)) {
-            sendToUser(from.id, 'match', { with: { id: to.id, alias: to.alias } })
-            sendToUser(to.id, 'match', { with: { id: from.id, alias: from.alias } })
-          }
-        }
-      }
       json(res, 200, { inviteId: invId })
       return
     }
