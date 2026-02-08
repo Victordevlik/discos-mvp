@@ -260,6 +260,15 @@ function openInviteModal(expiresAt) {
   const ring = document.createElement('div')
   ring.id = 'invite-ring-modal'
   ring.className = 'ring'
+  const selfie = (S.currentInvite && S.currentInvite.from && S.currentInvite.from.selfie) ? S.currentInvite.from.selfie
+               : (S.consumptionReq && S.consumptionReq.from && S.consumptionReq.from.selfie) ? S.consumptionReq.from.selfie
+               : ''
+  if (selfie) {
+    const pic = document.createElement('img')
+    pic.id = 'invite-ring-selfie'
+    pic.src = selfie
+    ring.append(pic)
+  }
   const txt = document.createElement('span')
   txt.id = 'invite-ring-modal-txt'
   ring.append(txt)
@@ -267,11 +276,11 @@ function openInviteModal(expiresAt) {
   const bA = document.createElement('button')
   bA.id = 'btn-invite-accept'
   bA.textContent = 'Aceptar'
-  bA.onclick = () => respondInvite(true)
+  bA.onclick = () => { try { const m = q('modal'); if (m) m.classList.remove('show') } catch {}; respondInvite(true) }
   const bP = document.createElement('button')
   bP.id = 'btn-invite-pass'
   bP.textContent = 'Pasar'
-  bP.onclick = () => respondInvite(false)
+  bP.onclick = () => { try { const m = q('modal'); if (m) m.classList.remove('show') } catch {}; respondInvite(false) }
   row.append(bA, bP)
   startInviteCountdown(expiresAt)
 }

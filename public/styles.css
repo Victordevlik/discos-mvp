@@ -301,8 +301,9 @@ body[data-theme="light"] .modal-inner { background: #fff; border-color: #dbe1f3 
 @media (max-width: 480px) {
   .modal .menu.modal-grid { grid-template-columns: 1fr }
 }
-.modal .ring { --deg: 0deg; width: 220px; height: 220px; border-radius: 50%; background: conic-gradient(#7d88ff var(--deg), rgba(125,136,255,0.15) 0); -webkit-mask: radial-gradient(farthest-side,#0000 calc(50% - 12px), #000 calc(50% - 10px)); mask: radial-gradient(farthest-side,#0000 calc(50% - 12px), #000 calc(50% - 10px)); display:flex; align-items:center; justify-content:center; margin: 12px auto }
-#modal .ring .txt, #modal #invite-ring-modal-txt { font-size: 26px; font-weight: 700; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.35) }
+.modal .ring { --deg: 0deg; width: 220px; height: 220px; border-radius: 50%; background: conic-gradient(#7d88ff var(--deg), rgba(125,136,255,0.15) 0); -webkit-mask: radial-gradient(farthest-side,#0000 calc(50% - 12px), #000 calc(50% - 10px)); mask: radial-gradient(farthest-side,#0000 calc(50% - 12px), #000 calc(50% - 10px)); display:flex; align-items:center; justify-content:center; margin: 12px auto; position: relative }
+.modal .ring img { width: 64%; height: 64%; border-radius: 50%; object-fit: cover; border: 1px solid #333 }
+#modal .ring .txt, #modal #invite-ring-modal-txt { position: absolute; font-size: 22px; font-weight: 700; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.35) }
 body[data-theme="light"] #modal .ring .txt, body[data-theme="light"] #modal #invite-ring-modal-txt { color: #111; text-shadow: none }
 #modal .row #btn-invite-accept { background: linear-gradient(180deg, #38d49c, #2cab83); color:#fff; border:0 }
 #modal .row #btn-invite-pass { background: linear-gradient(180deg, #ffb84b, #e0a33d); color:#111; border:0 }
