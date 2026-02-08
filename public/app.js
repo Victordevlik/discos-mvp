@@ -2197,20 +2197,19 @@ function init() {
     if (sid && q('join-code')) q('join-code').value = sid
     const aj = u.searchParams.get('aj')
     const staffParam = u.searchParams.get('staff')
-    restoreLocalUser().then(ok => {
-      if (ok) return
-      if (sid && aj === '1') { setTimeout(() => join('user', sid), 50) }
-      else if (staffParam === '1') {
-        show('screen-staff-welcome')
-        if (sid) {
-          setTimeout(async () => {
-            const pin = await promptInput('Ingresa el PIN de sesión', 'PIN de venue')
-            if (pin) { await join('staff', sid, pin) }
-          }, 80)
-        }
+    if (sid && aj === '1') {
+      setTimeout(() => join('user', sid), 50)
+    } else if (staffParam === '1') {
+      show('screen-staff-welcome')
+      if (sid) {
+        setTimeout(async () => {
+          const pin = await promptInput('Ingresa el PIN de sesión', 'PIN de venue')
+          if (pin) { await join('staff', sid, pin) }
+        }, 80)
       }
-      else { show('screen-welcome') }
-    })
+    } else {
+      restoreLocalUser().then(ok => { if (!ok) show('screen-welcome') })
+    }
   } catch {}
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js')
   try {
