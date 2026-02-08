@@ -1638,7 +1638,7 @@ function openEditProfile() {
   q('edit-table').value = S.user.tableId || ''
   show('screen-edit-profile')
 }
-function renderUserHeader() {
+async function renderUserHeader() {
   const ua = q('user-alias'), us = q('user-selfie'), ut = q('user-table')
   if (ua) ua.textContent = S.user?.alias || S.user?.id || ''
   if (us) us.src = S.user?.selfie || ''
@@ -1673,6 +1673,16 @@ function renderUserHeader() {
   if (header) header.classList.toggle('party', st2 === 'dancing')
   if (eq) eq.style.display = st2 === 'dancing' ? '' : 'none'
   if (heq) heq.style.display = st2 === 'dancing' ? '' : 'none'
+  const vf = q('user-venue-footer')
+  if (vf) {
+    try {
+      if (!S.venueName) {
+        const sess = await api(`/api/session/active${S.venueId ? ('?venueId=' + encodeURIComponent(S.venueId)) : ''}`)
+        S.venueName = sess.venueName || S.venueId || ''
+      }
+      vf.textContent = S.venueName || S.venueId || ''
+    } catch {}
+  }
 }
 function openEditProfileFocus(field) {
   openEditProfile()
