@@ -52,6 +52,31 @@ const GMAIL_SMTP_HOST = String(process.env.GMAIL_SMTP_HOST || 'smtp.gmail.com')
 const GMAIL_SMTP_PORT = Number(process.env.GMAIL_SMTP_PORT || 465)
 const GMAIL_SMTP_SECURE = String(process.env.GMAIL_SMTP_SECURE || 'true') === 'true'
 
+const QR_SECRET = String(process.env.QR_SECRET || '')
+const DEFAULT_TTL_DANCE = 60
+const DEFAULT_TTL_CONSUMPTION = 60
+
+function hashPin(pin, salt) {
+  const s = salt || crypto.randomBytes(16).toString('hex')
+  const h = crypto.createHash('sha256').update(String(pin) + ':' + s).digest('hex')
+  return { salt: s, hash: h }
+}
+function verifyPin(pin, hash, salt) {
+  if (!hash || !salt) return false
+  const h = crypto.createHash('sha256').update(String(pin) + ':' + String(salt)).digest('hex')
+  return h === String(hash)
+}
+function makeSig(venueId, sessionId, exp) {
+  const msg = `${venueId}:${sessionId}:${exp}`
+  return crypto.createHmac('sha256', QR_SECRET).update(msg).digest('hex')
+}
+function verifyQR(venueId, sessionId, exp, sig) {
+  if (!QR_SECRET) return true
+  const e = Number(exp || 0)
+  if (!e || now() > e) return false
+  const expected = makeSig(String(venueId || ''), String(sessionId || ''), e)
+  return String(sig || '') === expected
+}
 // Créditos por venue: persistidos en /data/venues.json
 const venuesPath = path.join(dataDir, 'venues.json')
 let db = null
@@ -79,6 +104,10 @@ async function initDB() {
   await db.query('CREATE TABLE IF NOT EXISTS venues (venue_id TEXT PRIMARY KEY, name TEXT NOT NULL, credits INTEGER NOT NULL, active BOOLEAN NOT NULL, pin TEXT, email TEXT)')
   await db.query('ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS pin TEXT')
   await db.query('ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS email TEXT')
+  await db.query('ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS invite_ttl_dance_sec INTEGER')
+  await db.query('ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS invite_ttl_consumption_sec INTEGER')
+  await db.query('ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS pin_hash TEXT')
+  await db.query('ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS pin_salt TEXT')
   await db.query('CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, role TEXT NOT NULL, alias TEXT, selfie TEXT, selfie_approved BOOLEAN, available BOOLEAN, prefs_json TEXT, zone TEXT, muted BOOLEAN, receive_mode TEXT, table_id TEXT, visibility TEXT, paused_until BIGINT, silenced BOOLEAN)')
   await db.query('CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, emitter_id TEXT NOT NULL, receiver_id TEXT NOT NULL, product TEXT NOT NULL, quantity INTEGER NOT NULL, price INTEGER NOT NULL, total INTEGER NOT NULL, status TEXT NOT NULL, created_at BIGINT NOT NULL, expires_at BIGINT NOT NULL, emitter_table TEXT, receiver_table TEXT, mesa_entrega TEXT, is_invitation BOOLEAN)')
   await db.query('CREATE TABLE IF NOT EXISTS table_closures (session_id TEXT NOT NULL, table_id TEXT NOT NULL, closed BOOLEAN NOT NULL, PRIMARY KEY (session_id, table_id))')
@@ -86,6 +115,8 @@ async function initDB() {
   await db.query('CREATE TABLE IF NOT EXISTS catalog_items (session_id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, category TEXT, subcategory TEXT, PRIMARY KEY (session_id, name))')
   await db.query('ALTER TABLE IF EXISTS catalog_items ADD COLUMN IF NOT EXISTS category TEXT')
   await db.query('ALTER TABLE IF EXISTS catalog_items ADD COLUMN IF NOT EXISTS subcategory TEXT')
+  await db.query('CREATE TABLE IF NOT EXISTS invites (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, from_id TEXT NOT NULL, to_id TEXT NOT NULL, msg TEXT, status TEXT NOT NULL, created_at BIGINT NOT NULL, expires_at BIGINT NOT NULL, seen_at BIGINT, not_seen_notified BOOLEAN)')
+  await db.query('CREATE TABLE IF NOT EXISTS meetings (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, invite_id TEXT NOT NULL, point TEXT, expires_at BIGINT NOT NULL, cancelled BOOLEAN NOT NULL)')
   dbReady = true
   return true
 }
@@ -131,9 +162,19 @@ async function readVenues() {
   if (db) {
     try {
       await initDB()
-      const r = await db.query('SELECT venue_id, name, credits, active, pin, email FROM venues')
+      const r = await db.query('SELECT venue_id, name, credits, active, pin, email, invite_ttl_dance_sec, invite_ttl_consumption_sec, pin_hash, pin_salt FROM venues')
       const obj = {}
-      for (const row of r.rows) obj[row.venue_id] = { name: row.name, credits: Number(row.credits || 0), active: !!row.active, pin: row.pin || '', email: row.email || '' }
+      for (const row of r.rows) obj[row.venue_id] = {
+        name: row.name,
+        credits: Number(row.credits || 0),
+        active: !!row.active,
+        pin: row.pin || '',
+        email: row.email || '',
+        ttlDance: Number(row.invite_ttl_dance_sec || 0) || DEFAULT_TTL_DANCE,
+        ttlConsumption: Number(row.invite_ttl_consumption_sec || 0) || DEFAULT_TTL_CONSUMPTION,
+        pinHash: row.pin_hash || '',
+        pinSalt: row.pin_salt || ''
+      }
       return obj
     } catch {}
   }
@@ -150,9 +191,18 @@ async function writeVenues(obj) {
       await initDB()
       const entries = Object.entries(obj)
       for (const [id, v] of entries) {
+        let pinHash = String(v.pinHash || '')
+        let pinSalt = String(v.pinSalt || '')
+        if (String(v.pin || '')) {
+          const h = hashPin(String(v.pin || ''), pinSalt || undefined)
+          pinHash = h.hash
+          pinSalt = h.salt
+        }
+        const ttlDance = Number(v.ttlDance || 0) || DEFAULT_TTL_DANCE
+        const ttlCons = Number(v.ttlConsumption || 0) || DEFAULT_TTL_CONSUMPTION
         await db.query(
-          'INSERT INTO venues (venue_id, name, credits, active, pin, email) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (venue_id) DO UPDATE SET name=EXCLUDED.name, credits=EXCLUDED.credits, active=EXCLUDED.active, pin=EXCLUDED.pin, email=EXCLUDED.email',
-          [String(id), String(v.name || id), Number(v.credits || 0), v.active !== false, String(v.pin || ''), String(v.email || '')]
+          'INSERT INTO venues (venue_id, name, credits, active, pin, email, invite_ttl_dance_sec, invite_ttl_consumption_sec, pin_hash, pin_salt) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (venue_id) DO UPDATE SET name=EXCLUDED.name, credits=EXCLUDED.credits, active=EXCLUDED.active, pin=EXCLUDED.pin, email=EXCLUDED.email, invite_ttl_dance_sec=EXCLUDED.invite_ttl_dance_sec, invite_ttl_consumption_sec=EXCLUDED.invite_ttl_consumption_sec, pin_hash=EXCLUDED.pin_hash, pin_salt=EXCLUDED.pin_salt',
+          [String(id), String(v.name || id), Number(v.credits || 0), v.active !== false, String(v.pin || ''), String(v.email || ''), ttlDance, ttlCons, pinHash, pinSalt]
         )
       }
       return
@@ -304,6 +354,33 @@ async function dbGetWaiterCalls(sessionId) {
   await initDB()
   const r = await db.query('SELECT id, session_id, user_id, table_id, reason, status, ts FROM waiter_calls WHERE session_id=$1', [String(sessionId)])
   return r.rows
+}
+async function dbUpsertInvite(inv) {
+  if (!db) return
+  await initDB()
+  const vals = [String(inv.id), String(inv.sessionId), String(inv.fromId), String(inv.toId), String(inv.msg || ''), String(inv.status || 'pendiente'), Number(inv.createdAt || now()), Number(inv.expiresAt || 0), Number(inv.seenAt || 0), !!inv.notSeenNotified]
+  await db.query('INSERT INTO invites (id, session_id, from_id, to_id, msg, status, created_at, expires_at, seen_at, not_seen_notified) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status, expires_at=EXCLUDED.expires_at, seen_at=EXCLUDED.seen_at, not_seen_notified=EXCLUDED.not_seen_notified', vals)
+}
+async function dbUpdateInviteSeen(id, seenAt) {
+  if (!db) return
+  await initDB()
+  await db.query('UPDATE invites SET seen_at=$2 WHERE id=$1', [String(id), Number(seenAt || now())])
+}
+async function dbUpdateInviteStatus(id, status) {
+  if (!db) return
+  await initDB()
+  await db.query('UPDATE invites SET status=$2 WHERE id=$1', [String(id), String(status)])
+}
+async function dbInsertMeeting(m) {
+  if (!db) return
+  await initDB()
+  const vals = [String(m.id), String(m.sessionId), String(m.inviteId), String(m.point || ''), Number(m.expiresAt || 0), !!m.cancelled]
+  await db.query('INSERT INTO meetings (id, session_id, invite_id, point, expires_at, cancelled) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO UPDATE SET cancelled=EXCLUDED.cancelled, expires_at=EXCLUDED.expires_at', vals)
+}
+async function dbUpdateMeetingCancelled(id, cancelled) {
+  if (!db) return
+  await initDB()
+  await db.query('UPDATE meetings SET cancelled=$2 WHERE id=$1', [String(id), !!cancelled])
 }
 
 // Autorización admin: requiere ADMIN_SECRET por header o query
@@ -667,6 +744,18 @@ const server = http.createServer(async (req, res) => {
       json(res, 200, { active: false, error: 'no_active' })
       return
     }
+    if (pathname === '/api/session/qr' && req.method === 'GET') {
+      const sessionId = String(query.sessionId || '')
+      const s = ensureSession(sessionId)
+      if (!s) { json(res, 404, { error: 'no_session' }); return }
+      const exp = now() + 5 * 60 * 1000
+      const sig = QR_SECRET ? makeSig(s.venueId, s.id, exp) : ''
+      const base = s.publicBaseUrl || ''
+      const pathOnly = `/?venueId=${encodeURIComponent(s.venueId)}&sessionId=${encodeURIComponent(s.id)}&aj=1&exp=${exp}${sig ? `&sig=${encodeURIComponent(sig)}` : ''}`
+      const urlFull = base ? `${base}${pathOnly}` : pathOnly
+      json(res, 200, { url: urlFull, exp, sig })
+      return
+    }
     if (pathname === '/api/session/end' && req.method === 'POST') {
       const body = await parseBody(req)
       const s = ensureSession(body.sessionId)
@@ -680,6 +769,7 @@ const server = http.createServer(async (req, res) => {
         const venues = await readVenues()
         const v = venues[s.venueId]
         if (v && String(v.pin || '') && pinStr === String(v.pin)) okVenuePin = true
+        else if (v && String(v.pinHash || '') && String(v.pinSalt || '') && verifyPin(pinStr, v.pinHash, v.pinSalt)) okVenuePin = true
       } catch {}
       if (!okAdmin && !okSessionPin && !okVenuePin) { json(res, 403, { error: 'forbidden' }); return }
       endAndArchive(body.sessionId)
@@ -727,11 +817,18 @@ const server = http.createServer(async (req, res) => {
           const venues = await readVenues()
           const v = venues[s.venueId]
           if (v && String(v.pin || '') && pinStr === String(v.pin)) okVenuePin = true
+          else if (v && String(v.pinHash || '') && String(v.pinSalt || '') && verifyPin(pinStr, v.pinHash, v.pinSalt)) okVenuePin = true
         } catch {}
         if (!pinStr || (!okSessionPin && !okGlobalPin && !okVenuePin)) { json(res, 403, { error: 'bad_pin' }); return }
       } else {
         const alias = String(body.alias || '').trim().slice(0, 32)
         if (!alias) { json(res, 400, { error: 'alias_required' }); return }
+        const exp = Number(body.qrExp || 0)
+        const sig = String(body.qrSig || '')
+        if (sig) {
+          const ok = verifyQR(s.venueId, s.id, exp, sig)
+          if (!ok) { json(res, 403, { error: 'bad_qr' }); return }
+        }
       }
       const id = genId(role === 'staff' ? 'staff' : 'user')
       const user = { id, sessionId: body.sessionId, role, alias: role === 'user' ? String(body.alias || '').trim().slice(0, 32) : '', selfie: '', selfieApproved: false, available: false, prefs: { tags: [] }, zone: '', muted: false, receiveMode: 'all', allowedSenders: new Set(), tableId: '', visibility: 'visible', pausedUntil: 0, silenced: false, danceState: 'idle', dancePartnerId: '', meetingId: '' }
@@ -953,6 +1050,55 @@ const server = http.createServer(async (req, res) => {
       json(res, 200, { ok: true, tables })
       return
     }
+    if (pathname === '/api/admin/analytics' && req.method === 'GET') {
+      if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      await initDB()
+      const sessionId = String(query.sessionId || '')
+      let invitesTotal = 0
+      let invitesAccepted = 0
+      let invitesPassed = 0
+      let invitesExpired = 0
+      let ordersTotal = 0
+      let ordersPending = 0
+      let ordersServed = 0
+      let usersTotal = 0
+      let topProducts = []
+      try {
+        if (sessionId) {
+          const ri = await db.query('SELECT status FROM invites WHERE session_id=$1', [String(sessionId)])
+          invitesTotal = ri.rows.length
+          invitesAccepted = ri.rows.filter(r => r.status === 'aceptado').length
+          invitesPassed = ri.rows.filter(r => r.status === 'pasado').length
+          invitesExpired = ri.rows.filter(r => r.status === 'expirado').length
+          const ro = await db.query('SELECT product, status FROM orders WHERE session_id=$1', [String(sessionId)])
+          ordersTotal = ro.rows.length
+          ordersPending = ro.rows.filter(r => r.status === 'pendiente' || r.status === 'pendiente_cobro').length
+          ordersServed = ro.rows.filter(r => r.status === 'servido' || r.status === 'cobrado').length
+          const ru = await db.query('SELECT id FROM users WHERE session_id=$1 AND role=$2', [String(sessionId), 'user'])
+          usersTotal = ru.rows.length
+          const rp = await db.query('SELECT product, COUNT(*) as c FROM orders WHERE session_id=$1 GROUP BY product ORDER BY c DESC LIMIT 10', [String(sessionId)])
+          topProducts = rp.rows.map(r => ({ product: r.product, count: Number(r.c || 0) }))
+        } else {
+          const ri = await db.query('SELECT status FROM invites')
+          invitesTotal = ri.rows.length
+          invitesAccepted = ri.rows.filter(r => r.status === 'aceptado').length
+          invitesPassed = ri.rows.filter(r => r.status === 'pasado').length
+          invitesExpired = ri.rows.filter(r => r.status === 'expirado').length
+          const ro = await db.query('SELECT product, status FROM orders')
+          ordersTotal = ro.rows.length
+          ordersPending = ro.rows.filter(r => r.status === 'pendiente' || r.status === 'pendiente_cobro').length
+          ordersServed = ro.rows.filter(r => r.status === 'servido' || r.status === 'cobrado').length
+          const ru = await db.query('SELECT id FROM users WHERE role=$1', ['user'])
+          usersTotal = ru.rows.length
+          const rp = await db.query('SELECT product, COUNT(*) as c FROM orders GROUP BY product ORDER BY c DESC LIMIT 10')
+          topProducts = rp.rows.map(r => ({ product: r.product, count: Number(r.c || 0) }))
+        }
+      } catch {}
+      const conversions = { invites: { total: invitesTotal, accepted: invitesAccepted, rate: invitesTotal ? (invitesAccepted / invitesTotal) : 0 } }
+      json(res, 200, { sessionId: sessionId || null, invites: { total: invitesTotal, accepted: invitesAccepted, passed: invitesPassed, expired: invitesExpired }, orders: { total: ordersTotal, pending: ordersPending, served: ordersServed }, users: { total: usersTotal }, topProducts, conversions })
+      return
+    }
     if (pathname === '/api/user/update' && req.method === 'POST') {
       const body = await parseBody(req)
       const u = state.users.get(body.userId)
@@ -1090,8 +1236,16 @@ const server = http.createServer(async (req, res) => {
       const msg = body.messageType === 'invitoCancion' ? 'invitoCancion' : 'bailamos'
       if (!rateCanInvite(from.id, to.id)) { json(res, 429, { error: 'rate' }); return }
       const invId = genId('inv')
-      const inv = { id: invId, sessionId: from.sessionId, fromId: from.id, toId: to.id, msg, status: 'pendiente', createdAt: now(), expiresAt: now() + 60 * 1000 }
+      let ttlDance = DEFAULT_TTL_DANCE
+      try {
+        const sFrom = ensureSession(from.sessionId)
+        const venues = await readVenues()
+        const v = venues[sFrom.venueId]
+        ttlDance = Number(v && v.ttlDance || DEFAULT_TTL_DANCE) || DEFAULT_TTL_DANCE
+      } catch {}
+      const inv = { id: invId, sessionId: from.sessionId, fromId: from.id, toId: to.id, msg, status: 'pendiente', createdAt: now(), expiresAt: now() + ttlDance * 1000 }
       state.invites.set(invId, inv)
+      try { await dbUpsertInvite(inv) } catch {}
       const fromSelfie = from.selfie || ''
       sendToUser(to.id, 'dance_invite', { invite: { id: invId, from: { id: from.id, alias: from.alias, selfie: fromSelfie, tableId: from.tableId || '', zone: from.zone || '' } , msg, expiresAt: inv.expiresAt } })
       json(res, 200, { inviteId: invId, expiresAt: inv.expiresAt })
@@ -1103,6 +1257,7 @@ const server = http.createServer(async (req, res) => {
       if (!inv) { json(res, 404, { error: 'no_invite' }); return }
       if (String(inv.toId) !== String(body.toId)) { json(res, 403, { error: 'forbidden' }); return }
       inv.seenAt = now()
+      try { await dbUpdateInviteSeen(inv.id, inv.seenAt) } catch {}
       const uTo = state.users.get(inv.toId)
       try { sendToUser(inv.fromId, 'invite_seen', { inviteId: inv.id, to: { id: inv.toId, alias: uTo ? (uTo.alias || uTo.id) : inv.toId } }) } catch {}
       json(res, 200, { ok: true })
@@ -1126,6 +1281,7 @@ const server = http.createServer(async (req, res) => {
           }
         }
         sendToUser(inv.fromId, 'invite_result', { inviteId: inv.id, status: 'pasado', note })
+        try { await dbUpdateInviteStatus(inv.id, 'pasado') } catch {}
         json(res, 200, { ok: true })
         return
       }
@@ -1139,6 +1295,8 @@ const server = http.createServer(async (req, res) => {
       const expiresAt = now() + minutes * 60 * 1000
       const meeting = { id: meetingId, sessionId: inv.sessionId, inviteId: inv.id, point, expiresAt, cancelled: false }
       state.meetings.set(meetingId, meeting)
+      try { await dbUpdateInviteStatus(inv.id, 'aceptado') } catch {}
+      try { await dbInsertMeeting(meeting) } catch {}
       // Marcar estado "esperando" para ambos
       const uFrom = state.users.get(inv.fromId); const uTo = state.users.get(inv.toId)
       if (uFrom) { uFrom.danceState = 'waiting'; uFrom.dancePartnerId = inv.toId; uFrom.meetingId = meetingId }
@@ -1156,6 +1314,7 @@ const server = http.createServer(async (req, res) => {
       const m = state.meetings.get(body.meetingId)
       if (!m) { json(res, 404, { error: 'no_meeting' }); return }
       m.cancelled = true
+      try { await dbUpdateMeetingCancelled(m.id, true) } catch {}
       try {
         const inv = state.invites.get(m.inviteId)
         const uFrom = inv ? state.users.get(inv.fromId) : null
@@ -1227,8 +1386,15 @@ const server = http.createServer(async (req, res) => {
       const reqId = genId('cinv')
       const note = String(body.note || '').slice(0, 140)
       const qty = Math.max(1, Number(body.quantity || 1))
-      state.consumptionInvites.set(reqId, { id: reqId, sessionId: from.sessionId, fromId: from.id, toId: to.id, createdAt: now(), expiresAt: now() + 60 * 1000, seenAt: 0, notSeenNotified: false })
-      sendToUser(to.id, 'consumption_invite', { requestId: reqId, from: { id: from.id, alias: from.alias, tableId: from.tableId || '' }, product: body.product, quantity: qty, note, expiresAt: now() + 60 * 1000 })
+      let ttlCons = DEFAULT_TTL_CONSUMPTION
+      try {
+        const sFrom = ensureSession(from.sessionId)
+        const venues = await readVenues()
+        const v = venues[sFrom.venueId]
+        ttlCons = Number(v && v.ttlConsumption || DEFAULT_TTL_CONSUMPTION) || DEFAULT_TTL_CONSUMPTION
+      } catch {}
+      state.consumptionInvites.set(reqId, { id: reqId, sessionId: from.sessionId, fromId: from.id, toId: to.id, createdAt: now(), expiresAt: now() + ttlCons * 1000, seenAt: 0, notSeenNotified: false })
+      sendToUser(to.id, 'consumption_invite', { requestId: reqId, from: { id: from.id, alias: from.alias, tableId: from.tableId || '' }, product: body.product, quantity: qty, note, expiresAt: now() + ttlCons * 1000 })
       json(res, 200, { requestId: reqId })
       return
     }
@@ -1248,8 +1414,15 @@ const server = http.createServer(async (req, res) => {
       if (!filtered.length) { json(res, 400, { error: 'no_items' }); return }
       const reqId = genId('cinv')
       const note = String(body.note || '').slice(0, 140)
-      state.consumptionInvites.set(reqId, { id: reqId, sessionId: from.sessionId, fromId: from.id, toId: to.id, createdAt: now(), expiresAt: now() + 60 * 1000, seenAt: 0, notSeenNotified: false })
-      sendToUser(to.id, 'consumption_invite_bulk', { requestId: reqId, from: { id: from.id, alias: from.alias, tableId: from.tableId || '' }, items: filtered, note, expiresAt: now() + 60 * 1000 })
+      let ttlConsB = DEFAULT_TTL_CONSUMPTION
+      try {
+        const sFrom = ensureSession(from.sessionId)
+        const venues = await readVenues()
+        const v = venues[sFrom.venueId]
+        ttlConsB = Number(v && v.ttlConsumption || DEFAULT_TTL_CONSUMPTION) || DEFAULT_TTL_CONSUMPTION
+      } catch {}
+      state.consumptionInvites.set(reqId, { id: reqId, sessionId: from.sessionId, fromId: from.id, toId: to.id, createdAt: now(), expiresAt: now() + ttlConsB * 1000, seenAt: 0, notSeenNotified: false })
+      sendToUser(to.id, 'consumption_invite_bulk', { requestId: reqId, from: { id: from.id, alias: from.alias, tableId: from.tableId || '' }, items: filtered, note, expiresAt: now() + ttlConsB * 1000 })
       json(res, 200, { requestId: reqId })
       return
     }
@@ -2094,7 +2267,7 @@ server.on('request', (req, res) => {
   }
 })
 
-setInterval(() => {
+setInterval(async () => {
   const nowTs = now()
   for (const o of state.orders.values()) {
     if (o.status === 'pendiente_cobro' && nowTs > o.expiresAt) {
@@ -2109,6 +2282,7 @@ setInterval(() => {
   for (const inv of state.invites.values()) {
     if (inv.status === 'pendiente' && inv.expiresAt && nowTs > inv.expiresAt) {
       inv.status = 'expirado'
+      try { await dbUpdateInviteStatus(inv.id, 'expirado') } catch {}
       try {
         const reason = inv.seenAt ? '' : 'unseen'
         sendToUser(inv.fromId, 'invite_result', { inviteId: inv.id, status: 'expirado', reason })
@@ -2119,6 +2293,7 @@ setInterval(() => {
   for (const inv of state.invites.values()) {
     if (inv.status === 'pendiente' && !inv.seenAt && !inv.notSeenNotified && inv.expiresAt && nowTs > inv.expiresAt) {
       inv.notSeenNotified = true
+      try { await dbUpsertInvite(inv) } catch {}
       const uTo = state.users.get(inv.toId)
       try {
         sendToUser(inv.toId, 'invite_suppress', { inviteId: inv.id })
@@ -2141,6 +2316,7 @@ setInterval(() => {
   for (const m of state.meetings.values()) {
     if (!m.cancelled && nowTs > m.expiresAt) {
       m.cancelled = true
+      try { await dbUpdateMeetingCancelled(m.id, true) } catch {}
       sendToStaff(m.sessionId, 'meeting_expired', { meetingId: m.id })
       const inv = state.invites.get(m.inviteId)
       if (inv) {

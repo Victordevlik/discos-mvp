@@ -163,9 +163,11 @@ async function loadSessionInfo() {
       baseCandidate = (pb.publicBaseUrl || '').trim()
       const inp = q('public-base'); if (inp && baseCandidate) inp.value = baseCandidate
     } catch {}
-    let base = baseCandidate || location.origin
-    // QR y link de sesión incluyen venueId + sessionId
-    const url = `${base}/?venueId=${encodeURIComponent(S.venueId || 'default')}&sessionId=${encodeURIComponent(S.sessionId)}&aj=1`
+    let url = ''
+    try {
+      const rqr = await api(`/api/session/qr?sessionId=${encodeURIComponent(S.sessionId)}`)
+      url = rqr.url || ''
+    } catch {}
     const pd = q('pin-display'); if (pd) pd.textContent = pin
     const qrImg = q('qr-session'); if (qrImg) qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`
     const share = q('share-url'); if (share) { share.href = url; share.title = url }
@@ -635,14 +637,18 @@ async function join(role, codeOverride = '', pinOverride = '') {
     S.sessionId = code
     let r = null
     try {
-      r = await api('/api/join', { method: 'POST', body: JSON.stringify({ sessionId: code, role, pin, alias }) })
+      const body = { sessionId: code, role, pin, alias }
+      if (role === 'user' && S.qrExp && S.qrSig) { body.qrExp = S.qrExp; body.qrSig = S.qrSig }
+      r = await api('/api/join', { method: 'POST', body: JSON.stringify(body) })
     } catch (e) {
       if (role === 'user' && String(e.message) === 'no_session') {
         let active = null
         try { active = await api(`/api/session/active${S.venueId ? ('?venueId=' + encodeURIComponent(S.venueId)) : ''}`) } catch {}
         if (active && active.sessionId) {
           S.sessionId = active.sessionId
-          r = await api('/api/join', { method: 'POST', body: JSON.stringify({ sessionId: active.sessionId, role, pin: '', alias }) })
+          const body2 = { sessionId: active.sessionId, role, pin: '', alias }
+          if (role === 'user' && S.qrExp && S.qrSig) { body2.qrExp = S.qrExp; body2.qrSig = S.qrSig }
+          r = await api('/api/join', { method: 'POST', body: JSON.stringify(body2) })
         } else {
           showError('Sin sesión activa para este local'); return
         }
@@ -997,6 +1003,18 @@ function startEvents() {
   S.sse = new EventSource(`/api/events/user?userId=${encodeURIComponent(S.user.id)}`)
   S.sse.onopen = () => { if (S.timers.userReconnect) { try { clearTimeout(S.timers.userReconnect) } catch {}; S.timers.userReconnect = 0 } }
   S.sse.onerror = () => { scheduleUserSSEReconnect() }
+  async function notify(title, body) {
+    try {
+      if (!('Notification' in window)) { if (navigator.vibrate) navigator.vibrate([80,40,80]); return }
+      if (Notification.permission === 'default') { try { await Notification.requestPermission() } catch {} }
+      const reg = await navigator.serviceWorker.getRegistration()
+      if (Notification.permission === 'granted' && reg) {
+        reg.showNotification(title, { body, vibrate: [80,40,80] })
+      } else if (navigator.vibrate) {
+        navigator.vibrate([80,40,80])
+      }
+    } catch {}
+  }
   S.sse.addEventListener('dance_invite', e => {
     const data = JSON.parse(e.data)
     playNotify('dance')
@@ -1008,6 +1026,7 @@ function startEvents() {
     if (document.hidden) {
       const msg = `Invitación de baile de ${data.invite.from.alias}`
       S.missed.push(msg)
+      notify('Invitación de baile', msg)
     }
     if (!S.inInviteFlow) { showNextInvite() }
   })
@@ -1084,6 +1103,7 @@ function startEvents() {
     if (document.hidden) {
       const msg = `Invitación de consumo de ${data.from.alias}: ${data.product}`
       S.missed.push(msg)
+       notify('Invitación de consumo', msg)
     }
     if (!S.inInviteFlow) { showNextInvite() }
   })
@@ -2719,6 +2739,9 @@ function init() {
     if (vid) S.venueId = vid
     const sid = u.searchParams.get('sessionId') || u.searchParams.get('s')
     if (sid && q('join-code')) q('join-code').value = sid
+    const exp = u.searchParams.get('exp')
+    const sig = u.searchParams.get('sig')
+    if (exp && sig) { S.qrExp = Number(exp); S.qrSig = String(sig) }
     const aj = u.searchParams.get('aj')
     const staffParam = u.searchParams.get('staff')
     const djParam = u.searchParams.get('dj')
