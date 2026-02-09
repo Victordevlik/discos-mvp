@@ -210,6 +210,7 @@ body[data-theme="light"] #screen-disponibles-select .party-hero, body[data-theme
 body[data-theme="light"] .party-hero { background: linear-gradient(135deg, rgba(55,71,255,0.12) 0%, rgba(166,176,255,0.18) 100%) }
 .party-hero .hero-text { position: relative; z-index: 2 }
 .party-hero .hero-main { font-size: 28px; font-weight: 800; letter-spacing: .4px }
+.party-hero .hero-main.hero-main-half { font-size: 14px }
 .party-hero .hero-sub { color: var(--muted); margin-top: 4px }
 .party-hero .equalizer { position: absolute; right: 18px; bottom: 18px; display: flex; gap: 4px; align-items: flex-end; z-index: 2 }
 .party-hero .equalizer span { width: 6px; height: 12px; border-radius: 4px; background: linear-gradient(180deg, #7d88ff, #5868ff); animation: equalize 1.1s ease-in-out infinite }
