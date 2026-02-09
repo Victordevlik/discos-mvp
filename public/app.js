@@ -163,11 +163,8 @@ async function loadSessionInfo() {
       baseCandidate = (pb.publicBaseUrl || '').trim()
       const inp = q('public-base'); if (inp && baseCandidate) inp.value = baseCandidate
     } catch {}
-    let url = ''
-    try {
-      const rqr = await api(`/api/session/qr?sessionId=${encodeURIComponent(S.sessionId)}`)
-      url = rqr.url || ''
-    } catch {}
+    let base = baseCandidate || location.origin
+    const url = `${base}/?venueId=${encodeURIComponent(S.venueId || 'default')}&sessionId=${encodeURIComponent(S.sessionId)}&aj=1`
     const pd = q('pin-display'); if (pd) pd.textContent = pin
     const qrImg = q('qr-session'); if (qrImg) qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`
     const share = q('share-url'); if (share) { share.href = url; share.title = url }
@@ -637,18 +634,14 @@ async function join(role, codeOverride = '', pinOverride = '') {
     S.sessionId = code
     let r = null
     try {
-      const body = { sessionId: code, role, pin, alias }
-      if (role === 'user' && S.qrExp && S.qrSig) { body.qrExp = S.qrExp; body.qrSig = S.qrSig }
-      r = await api('/api/join', { method: 'POST', body: JSON.stringify(body) })
+      r = await api('/api/join', { method: 'POST', body: JSON.stringify({ sessionId: code, role, pin, alias }) })
     } catch (e) {
       if (role === 'user' && String(e.message) === 'no_session') {
         let active = null
         try { active = await api(`/api/session/active${S.venueId ? ('?venueId=' + encodeURIComponent(S.venueId)) : ''}`) } catch {}
         if (active && active.sessionId) {
           S.sessionId = active.sessionId
-          const body2 = { sessionId: active.sessionId, role, pin: '', alias }
-          if (role === 'user' && S.qrExp && S.qrSig) { body2.qrExp = S.qrExp; body2.qrSig = S.qrSig }
-          r = await api('/api/join', { method: 'POST', body: JSON.stringify(body2) })
+          r = await api('/api/join', { method: 'POST', body: JSON.stringify({ sessionId: active.sessionId, role, pin: '', alias }) })
         } else {
           showError('Sin sesión activa para este local'); return
         }
@@ -2739,9 +2732,6 @@ function init() {
     if (vid) S.venueId = vid
     const sid = u.searchParams.get('sessionId') || u.searchParams.get('s')
     if (sid && q('join-code')) q('join-code').value = sid
-    const exp = u.searchParams.get('exp')
-    const sig = u.searchParams.get('sig')
-    if (exp && sig) { S.qrExp = Number(exp); S.qrSig = String(sig) }
     const aj = u.searchParams.get('aj')
     const staffParam = u.searchParams.get('staff')
     const djParam = u.searchParams.get('dj')

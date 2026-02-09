@@ -52,31 +52,9 @@ const GMAIL_SMTP_HOST = String(process.env.GMAIL_SMTP_HOST || 'smtp.gmail.com')
 const GMAIL_SMTP_PORT = Number(process.env.GMAIL_SMTP_PORT || 465)
 const GMAIL_SMTP_SECURE = String(process.env.GMAIL_SMTP_SECURE || 'true') === 'true'
 
-const QR_SECRET = String(process.env.QR_SECRET || '')
 const DEFAULT_TTL_DANCE = 60
 const DEFAULT_TTL_CONSUMPTION = 60
 
-function hashPin(pin, salt) {
-  const s = salt || crypto.randomBytes(16).toString('hex')
-  const h = crypto.createHash('sha256').update(String(pin) + ':' + s).digest('hex')
-  return { salt: s, hash: h }
-}
-function verifyPin(pin, hash, salt) {
-  if (!hash || !salt) return false
-  const h = crypto.createHash('sha256').update(String(pin) + ':' + String(salt)).digest('hex')
-  return h === String(hash)
-}
-function makeSig(venueId, sessionId, exp) {
-  const msg = `${venueId}:${sessionId}:${exp}`
-  return crypto.createHmac('sha256', QR_SECRET).update(msg).digest('hex')
-}
-function verifyQR(venueId, sessionId, exp, sig) {
-  if (!QR_SECRET) return true
-  const e = Number(exp || 0)
-  if (!e || now() > e) return false
-  const expected = makeSig(String(venueId || ''), String(sessionId || ''), e)
-  return String(sig || '') === expected
-}
 // Créditos por venue: persistidos en /data/venues.json
 const venuesPath = path.join(dataDir, 'venues.json')
 let db = null
@@ -162,7 +140,7 @@ async function readVenues() {
   if (db) {
     try {
       await initDB()
-      const r = await db.query('SELECT venue_id, name, credits, active, pin, email, invite_ttl_dance_sec, invite_ttl_consumption_sec, pin_hash, pin_salt FROM venues')
+      const r = await db.query('SELECT venue_id, name, credits, active, pin, email, invite_ttl_dance_sec, invite_ttl_consumption_sec FROM venues')
       const obj = {}
       for (const row of r.rows) obj[row.venue_id] = {
         name: row.name,
@@ -171,9 +149,7 @@ async function readVenues() {
         pin: row.pin || '',
         email: row.email || '',
         ttlDance: Number(row.invite_ttl_dance_sec || 0) || DEFAULT_TTL_DANCE,
-        ttlConsumption: Number(row.invite_ttl_consumption_sec || 0) || DEFAULT_TTL_CONSUMPTION,
-        pinHash: row.pin_hash || '',
-        pinSalt: row.pin_salt || ''
+        ttlConsumption: Number(row.invite_ttl_consumption_sec || 0) || DEFAULT_TTL_CONSUMPTION
       }
       return obj
     } catch {}
@@ -191,18 +167,11 @@ async function writeVenues(obj) {
       await initDB()
       const entries = Object.entries(obj)
       for (const [id, v] of entries) {
-        let pinHash = String(v.pinHash || '')
-        let pinSalt = String(v.pinSalt || '')
-        if (String(v.pin || '')) {
-          const h = hashPin(String(v.pin || ''), pinSalt || undefined)
-          pinHash = h.hash
-          pinSalt = h.salt
-        }
         const ttlDance = Number(v.ttlDance || 0) || DEFAULT_TTL_DANCE
         const ttlCons = Number(v.ttlConsumption || 0) || DEFAULT_TTL_CONSUMPTION
         await db.query(
-          'INSERT INTO venues (venue_id, name, credits, active, pin, email, invite_ttl_dance_sec, invite_ttl_consumption_sec, pin_hash, pin_salt) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (venue_id) DO UPDATE SET name=EXCLUDED.name, credits=EXCLUDED.credits, active=EXCLUDED.active, pin=EXCLUDED.pin, email=EXCLUDED.email, invite_ttl_dance_sec=EXCLUDED.invite_ttl_dance_sec, invite_ttl_consumption_sec=EXCLUDED.invite_ttl_consumption_sec, pin_hash=EXCLUDED.pin_hash, pin_salt=EXCLUDED.pin_salt',
-          [String(id), String(v.name || id), Number(v.credits || 0), v.active !== false, String(v.pin || ''), String(v.email || ''), ttlDance, ttlCons, pinHash, pinSalt]
+          'INSERT INTO venues (venue_id, name, credits, active, pin, email, invite_ttl_dance_sec, invite_ttl_consumption_sec) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (venue_id) DO UPDATE SET name=EXCLUDED.name, credits=EXCLUDED.credits, active=EXCLUDED.active, pin=EXCLUDED.pin, email=EXCLUDED.email, invite_ttl_dance_sec=EXCLUDED.invite_ttl_dance_sec, invite_ttl_consumption_sec=EXCLUDED.invite_ttl_consumption_sec',
+          [String(id), String(v.name || id), Number(v.credits || 0), v.active !== false, String(v.pin || ''), String(v.email || ''), ttlDance, ttlCons]
         )
       }
       return
@@ -744,18 +713,6 @@ const server = http.createServer(async (req, res) => {
       json(res, 200, { active: false, error: 'no_active' })
       return
     }
-    if (pathname === '/api/session/qr' && req.method === 'GET') {
-      const sessionId = String(query.sessionId || '')
-      const s = ensureSession(sessionId)
-      if (!s) { json(res, 404, { error: 'no_session' }); return }
-      const exp = now() + 5 * 60 * 1000
-      const sig = QR_SECRET ? makeSig(s.venueId, s.id, exp) : ''
-      const base = s.publicBaseUrl || ''
-      const pathOnly = `/?venueId=${encodeURIComponent(s.venueId)}&sessionId=${encodeURIComponent(s.id)}&aj=1&exp=${exp}${sig ? `&sig=${encodeURIComponent(sig)}` : ''}`
-      const urlFull = base ? `${base}${pathOnly}` : pathOnly
-      json(res, 200, { url: urlFull, exp, sig })
-      return
-    }
     if (pathname === '/api/session/end' && req.method === 'POST') {
       const body = await parseBody(req)
       const s = ensureSession(body.sessionId)
@@ -769,7 +726,7 @@ const server = http.createServer(async (req, res) => {
         const venues = await readVenues()
         const v = venues[s.venueId]
         if (v && String(v.pin || '') && pinStr === String(v.pin)) okVenuePin = true
-        else if (v && String(v.pinHash || '') && String(v.pinSalt || '') && verifyPin(pinStr, v.pinHash, v.pinSalt)) okVenuePin = true
+        // verificación del PIN del venue solo por texto plano
       } catch {}
       if (!okAdmin && !okSessionPin && !okVenuePin) { json(res, 403, { error: 'forbidden' }); return }
       endAndArchive(body.sessionId)
@@ -817,18 +774,13 @@ const server = http.createServer(async (req, res) => {
           const venues = await readVenues()
           const v = venues[s.venueId]
           if (v && String(v.pin || '') && pinStr === String(v.pin)) okVenuePin = true
-          else if (v && String(v.pinHash || '') && String(v.pinSalt || '') && verifyPin(pinStr, v.pinHash, v.pinSalt)) okVenuePin = true
+          // verificación del PIN del venue solo por texto plano
         } catch {}
         if (!pinStr || (!okSessionPin && !okGlobalPin && !okVenuePin)) { json(res, 403, { error: 'bad_pin' }); return }
       } else {
         const alias = String(body.alias || '').trim().slice(0, 32)
         if (!alias) { json(res, 400, { error: 'alias_required' }); return }
-        const exp = Number(body.qrExp || 0)
-        const sig = String(body.qrSig || '')
-        if (sig) {
-          const ok = verifyQR(s.venueId, s.id, exp, sig)
-          if (!ok) { json(res, 403, { error: 'bad_qr' }); return }
-        }
+        // sin verificación de firma QR; flujo simple
       }
       const id = genId(role === 'staff' ? 'staff' : 'user')
       const user = { id, sessionId: body.sessionId, role, alias: role === 'user' ? String(body.alias || '').trim().slice(0, 32) : '', selfie: '', selfieApproved: false, available: false, prefs: { tags: [] }, zone: '', muted: false, receiveMode: 'all', allowedSenders: new Set(), tableId: '', visibility: 'visible', pausedUntil: 0, silenced: false, danceState: 'idle', dancePartnerId: '', meetingId: '' }
