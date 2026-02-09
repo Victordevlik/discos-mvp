@@ -1793,6 +1793,8 @@ const server = http.createServer(async (req, res) => {
         if (status === 'programado') {
           const u = state.users.get(r.userId)
           const alias = u ? u.alias : ''
+          const s = ensureSession(r.sessionId)
+          if (s) s.djCurrent = { song: r.song, tableId: r.tableId, alias, state: 'programado', ts: now() }
           sendToAllUsersInSession(r.sessionId, 'dj_now_programmed', { song: r.song, tableId: r.tableId, alias })
         }
       } else if (status === 'sonando' || status === 'terminado' || status === 'descartado') {
@@ -1801,7 +1803,7 @@ const server = http.createServer(async (req, res) => {
           const u = state.users.get(r.userId)
           const alias = u ? u.alias : ''
           const s = ensureSession(r.sessionId)
-          if (s) s.djCurrent = { song: r.song, tableId: r.tableId, alias, ts: now() }
+          if (s) s.djCurrent = { song: r.song, tableId: r.tableId, alias, state: 'sonando', ts: now() }
           sendToAllUsersInSession(r.sessionId, 'dj_now_playing', { song: r.song, tableId: r.tableId, alias })
         } else if (status === 'terminado') {
           const s = ensureSession(r.sessionId)
