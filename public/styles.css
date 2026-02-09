@@ -297,7 +297,13 @@ body[data-theme="light"] #user-header.party { background: linear-gradient(135deg
   .navbar { gap: 6px; padding: 8px 10px }
   .nav-item { padding: 8px 6px }
   .hero h1 { font-size: 22px }
-  #available-list .item { grid-template-columns: 36px 1fr; gap: 10px }
+  #available-list .item { grid-template-columns: 36px 1fr; gap: 10px; align-items: start }
+  #available-list .item img { grid-row: 1 / span 4 }
+  #available-list .item .alias,
+  #available-list .item .zone,
+  #available-list .item .tags { grid-column: 2 }
+  #available-list .item .tags { display: flex; flex-wrap: wrap; gap: 6px }
+  #available-list .item .row { grid-column: 1 / -1 }
   #mesa-people .item { grid-template-columns: 36px 1fr }
   .grid { grid-template-columns: repeat(auto-fill,minmax(130px,1fr)); gap: 6px }
   #catalog-list h3 { font-size: 15px; margin: 2px 0 6px 0 }
