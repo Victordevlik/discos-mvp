@@ -1299,6 +1299,7 @@ function updateTipSticker() {
         const who = data.alias ? ` • ${data.alias}` : ''
         const mesa = data.tableId ? ` • Mesa ${data.tableId}` : ''
         chip.textContent = data.song ? `Está sonando: ${data.song}${who}${mesa}` : 'Está sonando'
+        chip.classList.remove('dj-programado')
         chip.style.display = 'inline-block'
       }
     } catch {}
@@ -1311,6 +1312,7 @@ function updateTipSticker() {
         const who = data.alias ? ` • ${data.alias}` : ''
         const mesa = data.tableId ? ` • Mesa ${data.tableId}` : ''
         chip.textContent = data.song ? `Programado: ${data.song}${who}${mesa}` : 'Programado'
+        chip.classList.add('dj-programado')
         chip.style.display = 'inline-block'
       }
     } catch {}
@@ -1318,7 +1320,10 @@ function updateTipSticker() {
   S.sse.addEventListener('dj_now_stopped', e => {
     try {
       const chip = q('dj-now-playing')
-      if (chip) chip.style.display = 'none'
+      if (chip) {
+        chip.style.display = 'none'
+        chip.classList.remove('dj-programado')
+      }
     } catch {}
   })
   S.sse.addEventListener('session_end', e => {
@@ -2134,6 +2139,7 @@ async function startDJUserCountdown() {
       const mesa = r.current.tableId ? ` • Mesa ${r.current.tableId}` : ''
       const base = (r.current.state === 'programado') ? 'Programado' : 'Está sonando'
       chip.textContent = `${base}: ${r.current.song}${who}${mesa}`
+      chip.classList.toggle('dj-programado', r.current.state === 'programado')
       chip.style.display = 'inline-block'
     }
   } catch { renderUserDJStatus(false, 0) }
@@ -2430,10 +2436,12 @@ async function renderUserHeader() {
         const mesa = st.current.tableId ? ` • Mesa ${st.current.tableId}` : ''
         const base = (st.current.state === 'programado') ? 'Programado' : 'Está sonando'
         chip.textContent = `${base}: ${st.current.song}${who}${mesa}`
+        chip.classList.toggle('dj-programado', st.current.state === 'programado')
         chip.style.display = 'inline-block'
       } else {
         chip.style.display = 'none'
         chip.textContent = ''
+        chip.classList.remove('dj-programado')
       }
     }
   } catch {}
