@@ -1147,8 +1147,7 @@ function updateTipSticker() {
   })
   S.sse.addEventListener('consumption_not_seen', e => {
     const data = JSON.parse(e.data)
-    const u = data.to && data.to.alias ? data.to.alias : (data.to && data.to.id ? data.to.id : '')
-    const msg = `Tu invitación de consumo no le apareció a ${u}`
+    const msg = 'Consumo expirado: la persona no lo vio'
     if (document.hidden) { S.missed.push(msg) } else { showError(msg); setTimeout(() => showError(''), 1500) }
   })
   S.sse.addEventListener('consumption_suppress', e => {
