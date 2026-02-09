@@ -8,5 +8,6 @@
   "gender_male": "Male",
   "gender_female": "Female",
   "gender_other": "Other",
-  "gender_na": "Prefer not to say"
+  "gender_na": "Prefer not to say",
+  "language_label": "Language"
 }

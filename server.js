@@ -1049,7 +1049,7 @@ const server = http.createServer(async (req, res) => {
         const zoneOk = zoneQ ? (u.zone === zoneQ) : true
         const partner = (u.dancePartnerId && state.users.get(u.dancePartnerId)) || null
         const partnerAlias = partner ? (partner.alias || partner.id) : ''
-        arr.push({ id: u.id, alias: u.alias, selfie: u.selfie || '', tags: u.prefs.tags || [], zone: u.zone, available: u.available, tableId: u.tableId, danceState: u.danceState || 'idle', partnerAlias })
+        arr.push({ id: u.id, alias: u.alias, selfie: u.selfie || '', tags: u.prefs.tags || [], zone: u.zone, available: u.available, tableId: u.tableId, danceState: u.danceState || 'idle', partnerAlias, gender: (u.prefs && u.prefs.gender) ? u.prefs.gender : '' })
       }
       arr.sort((a, b) => {
         const sa = Number(state.behaviorScore.get(a.id) || 0)

@@ -646,6 +646,28 @@ function renderGenderSelect() {
   const lbl = q('label-gender')
   if (lbl) lbl.textContent = t('gender_label')
 }
+function renderLanguageSelect() {
+  const sel = q('lang-select')
+  if (!sel) return
+  sel.innerHTML = ''
+  const mk = (val, label) => {
+    const o = document.createElement('option')
+    o.value = val
+    o.textContent = label
+    return o
+  }
+  sel.append(mk('es', 'Español'), mk('en', 'English'))
+  sel.value = S.lang || 'es'
+  const lbl = q('label-lang')
+  if (lbl) lbl.textContent = t('language_label')
+}
+function setLanguage(lang) {
+  const v = (String(lang || '').toLowerCase() === 'en') ? 'en' : 'es'
+  S.lang = v
+  try { localStorage.setItem('discos_lang', v) } catch {}
+  if (document && document.documentElement) document.documentElement.lang = v
+  loadI18n(v).then(() => { renderGenderSelect(); renderLanguageSelect() }).catch(() => { renderGenderSelect(); renderLanguageSelect() })
+}
 function startUserPolls() {
   if (S.timers.userPoll) { try { clearInterval(S.timers.userPoll) } catch {} }
   S.timers.userPoll = setInterval(() => {
@@ -834,6 +856,9 @@ async function viewAvailable() {
     const alias = document.createElement('div')
     alias.className = 'alias'
     alias.textContent = u.alias || u.id
+    const gender = document.createElement('div')
+    gender.className = 'zone'
+    gender.textContent = u.gender ? genderLabel(u.gender) : ''
     const tbl = document.createElement('div')
     tbl.className = 'zone'
     tbl.textContent = u.tableId ? `Mesa: ${u.tableId}` : ''
@@ -863,7 +888,7 @@ async function viewAvailable() {
                              u.danceState === 'waiting' ? `Esperando con ${u.partnerAlias || ''}` : ''
     const bConsumo = document.createElement('button'); bConsumo.textContent = 'Invitar'; bConsumo.onclick = () => { setReceiver(u); q('consumption-target').value = u.id; openConsumption() }
     row.append(bDance, bConsumo, statusChip)
-    div.append(img, alias, tbl, zone, tagsEl, row)
+    div.append(img, alias, gender, tbl, zone, tagsEl, row)
     container.append(div)
   }
   show('screen-disponibles')
@@ -887,6 +912,9 @@ async function refreshAvailableList() {
     const alias = document.createElement('div')
     alias.className = 'alias'
     alias.textContent = u.alias || u.id
+    const gender = document.createElement('div')
+    gender.className = 'zone'
+    gender.textContent = u.gender ? genderLabel(u.gender) : ''
     const tbl = document.createElement('div')
     tbl.className = 'zone'
     tbl.textContent = u.tableId ? `Mesa: ${u.tableId}` : ''
@@ -916,7 +944,7 @@ async function refreshAvailableList() {
                              u.danceState === 'waiting' ? `Esperando con ${u.partnerAlias || ''}` : ''
     const bConsumo = document.createElement('button'); bConsumo.textContent = 'Invitar'; bConsumo.onclick = () => { setReceiver(u); q('consumption-target').value = u.id; openConsumption() }
     row.append(bDance, bConsumo, statusChip)
-    div.append(img, alias, tbl, zone, tagsEl, row)
+    div.append(img, alias, gender, tbl, zone, tagsEl, row)
     container.append(div)
   }
   scheduleRefreshDanceList()
@@ -969,6 +997,9 @@ async function viewAvailableByTable() {
     const alias = document.createElement('div')
     alias.className = 'alias'
     alias.textContent = u.alias || u.id
+    const gender = document.createElement('div')
+    gender.className = 'zone'
+    gender.textContent = u.gender ? genderLabel(u.gender) : ''
     const tagsEl = document.createElement('div')
     tagsEl.className = 'tags'
     if (Array.isArray(u.tags)) {
@@ -987,7 +1018,7 @@ async function viewAvailableByTable() {
     const bDance = document.createElement('button'); bDance.textContent = 'Bailar'; bDance.onclick = () => sendInviteQuick(u)
     const bConsumo = document.createElement('button'); bConsumo.textContent = 'Invitar'; bConsumo.onclick = () => { setReceiver(u); q('consumption-target').value = u.id; openConsumption() }
     row.append(bDance, bConsumo)
-    div.append(img, alias, tagsEl, zone, row)
+    div.append(img, alias, gender, tagsEl, zone, row)
     container.append(div)
   }
   show('screen-disponibles')
@@ -1836,6 +1867,7 @@ function bind() {
   const btnJoinUser = q('btn-join-user'); if (btnJoinUser) btnJoinUser.onclick = () => join('user')
   const btnJoinStaff = q('btn-join-staff'); if (btnJoinStaff) btnJoinStaff.onclick = startStaffSession
   const btnSaveProfile = q('btn-save-profile'); if (btnSaveProfile) btnSaveProfile.onclick = saveProfile
+  const langSel = q('lang-select'); if (langSel) langSel.onchange = (e) => setLanguage(e.target.value)
   const swAvail = q('switch-available'); if (swAvail) swAvail.onchange = setAvailable
   const receiveModeEl = q('receive-mode'); if (receiveModeEl) receiveModeEl.onchange = setAvailable
   const zoneEl = q('zone'); if (zoneEl) zoneEl.oninput = setAvailable
@@ -2792,7 +2824,8 @@ function init() {
     const langParam = (u.searchParams.get('lang') || '').toLowerCase()
     const savedLang = (() => { try { return localStorage.getItem('discos_lang') || '' } catch { return '' } })()
     S.lang = langParam || savedLang || 'es'
-    loadI18n(S.lang).then(() => { renderGenderSelect() }).catch(() => { renderGenderSelect() })
+    if (document && document.documentElement) document.documentElement.lang = S.lang
+    loadI18n(S.lang).then(() => { renderGenderSelect(); renderLanguageSelect() }).catch(() => { renderGenderSelect(); renderLanguageSelect() })
     const vid = u.searchParams.get('venueId') || ''
     if (vid) S.venueId = vid
     const sid = u.searchParams.get('sessionId') || u.searchParams.get('s')
