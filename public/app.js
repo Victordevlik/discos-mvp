@@ -2673,8 +2673,30 @@ async function restoreLocalUser() {
     } catch {}
     const m = getLocalUsers()
     const lastVenue = (() => { try { return localStorage.getItem('discos_last_venue') || '' } catch { return '' } })()
-    const key = venueParam || lastVenue
-    const d = (key && m[key]) ? { sessionId: m[key].sessionId, userId: m[key].userId, role: m[key].role, venueId: key } : null
+    let key = ''
+    let d = null
+    if (venueParam && m[venueParam]) {
+      key = venueParam
+      d = { sessionId: m[key].sessionId, userId: m[key].userId, role: m[key].role, venueId: key }
+    }
+    if (!d && sidParam) {
+      const entries = Object.entries(m)
+      for (const [k, v] of entries) {
+        if (v && v.sessionId === sidParam) { key = k; d = { sessionId: v.sessionId, userId: v.userId, role: v.role, venueId: k }; break }
+      }
+    }
+    if (!d && lastVenue && m[lastVenue]) {
+      key = lastVenue
+      d = { sessionId: m[key].sessionId, userId: m[key].userId, role: m[key].role, venueId: key }
+    }
+    if (!d) {
+      const keys = Object.keys(m)
+      if (keys.length === 1) {
+        key = keys[0]
+        const v = m[key]
+        d = { sessionId: v.sessionId, userId: v.userId, role: v.role, venueId: key }
+      }
+    }
     if (!d || !d.sessionId || !d.userId || !d.role) return false
     if (sidParam && ajParam === '1' && sidParam !== d.sessionId) { return false }
     S.venueId = d.venueId || (S.venueId || 'default')
