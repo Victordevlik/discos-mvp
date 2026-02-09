@@ -432,6 +432,21 @@ function sendToStaff(sessionId, event, data) {
     state.sseStaffMeta.set(res, meta)
   }
 }
+function sendToAllUsersInSession(sessionId, event, data) {
+  const eid = String(now())
+  const payload = `id: ${eid}\n` + `event: ${event}\n` + `data: ${JSON.stringify(data)}\n\n`
+  for (const [uid, clients] of state.sseUsers.entries()) {
+    const u = state.users.get(uid)
+    if (!u || u.sessionId !== sessionId) continue
+    if (!clients) continue
+    for (const res of clients) {
+      try { res.write(payload) } catch {}
+      const meta = state.sseUserMeta.get(res) || { startedAt: now(), lastWrite: now() }
+      meta.lastWrite = now()
+      state.sseUserMeta.set(res, meta)
+    }
+  }
+}
 
 function within(ms, ts) { return now() - ts < ms }
 
@@ -1182,7 +1197,7 @@ const server = http.createServer(async (req, res) => {
       const reqId = genId('cinv')
       const note = String(body.note || '').slice(0, 140)
       const qty = Math.max(1, Number(body.quantity || 1))
-      sendToUser(to.id, 'consumption_invite', { requestId: reqId, from: { id: from.id, alias: from.alias, tableId: from.tableId || '' }, product: body.product, quantity: qty, note })
+      sendToUser(to.id, 'consumption_invite', { requestId: reqId, from: { id: from.id, alias: from.alias, tableId: from.tableId || '' }, product: body.product, quantity: qty, note, expiresAt: now() + 60 * 1000 })
       json(res, 200, { requestId: reqId })
       return
     }
@@ -1202,7 +1217,7 @@ const server = http.createServer(async (req, res) => {
       if (!filtered.length) { json(res, 400, { error: 'no_items' }); return }
       const reqId = genId('cinv')
       const note = String(body.note || '').slice(0, 140)
-      sendToUser(to.id, 'consumption_invite_bulk', { requestId: reqId, from: { id: from.id, alias: from.alias, tableId: from.tableId || '' }, items: filtered, note })
+      sendToUser(to.id, 'consumption_invite_bulk', { requestId: reqId, from: { id: from.id, alias: from.alias, tableId: from.tableId || '' }, items: filtered, note, expiresAt: now() + 60 * 1000 })
       json(res, 200, { requestId: reqId })
       return
     }
@@ -1740,6 +1755,7 @@ const server = http.createServer(async (req, res) => {
       s.djEnabled = enabled
       s.djEnabledUntil = enabled ? (ttlMin ? (now() + ttlMin * 60 * 1000) : 0) : 0
       sendToStaff(s.sessionId, 'dj_toggle', { enabled: s.djEnabled, until: s.djEnabledUntil })
+      sendToAllUsersInSession(s.sessionId, 'dj_toggle', { enabled: s.djEnabled, until: s.djEnabledUntil })
       json(res, 200, { ok: true, enabled: s.djEnabled, until: s.djEnabledUntil })
       return
     }
@@ -1773,8 +1789,20 @@ const server = http.createServer(async (req, res) => {
         }
         queue.sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0))
         sendToUser(r.userId, 'dj_update', { request: r, queue: queue.map(q => ({ tableId: q.tableId, song: q.song })) })
+        if (status === 'programado') {
+          const u = state.users.get(r.userId)
+          const alias = u ? u.alias : ''
+          sendToAllUsersInSession(r.sessionId, 'dj_now_programmed', { song: r.song, tableId: r.tableId, alias })
+        }
       } else if (status === 'sonando' || status === 'terminado' || status === 'descartado') {
         sendToUser(r.userId, 'dj_update', { request: r })
+        if (status === 'sonando') {
+          const u = state.users.get(r.userId)
+          const alias = u ? u.alias : ''
+          sendToAllUsersInSession(r.sessionId, 'dj_now_playing', { song: r.song, tableId: r.tableId, alias })
+        } else if (status === 'terminado') {
+          sendToAllUsersInSession(r.sessionId, 'dj_now_stopped', { song: r.song, tableId: r.tableId })
+        }
       } else {
         sendToUser(r.userId, 'dj_update', { request: r })
       }

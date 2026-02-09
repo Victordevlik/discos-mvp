@@ -33,6 +33,9 @@ function show(id) {
   if (fab) fab.style.display = isStaffView ? 'none' : ''
   if (fabLabel) fabLabel.style.display = isStaffView ? 'none' : ''
   if (isStaffView) { renderVenueTitle() }
+  if (id !== 'screen-dj-request') {
+    try { if (S.timers.djUserCountdown) { clearInterval(S.timers.djUserCountdown); S.timers.djUserCountdown = 0 } } catch {}
+  }
 }
 function goBack() {
   if (!S.nav || !S.nav.history.length) return
@@ -572,6 +575,7 @@ function scheduleStaffAnalyticsUpdate() { scheduleLater('staff_analytics', async
 function scheduleUserOrdersUpdate() { scheduleLater('user_orders', async () => { await loadUserOrders() }, 400) }
 function scheduleRenderUserHeader() { scheduleLater('user_header', async () => { renderUserHeader() }, 300) }
 function scheduleRefreshAvailableList() { scheduleLater('user_avail', async () => { await refreshAvailableList() }, 500) }
+function scheduleStaffDJUpdate() { scheduleLater('staff_dj', async () => { await loadDJRequests() }, 400) }
 function startUserPolls() {
   if (S.timers.userPoll) { try { clearInterval(S.timers.userPoll) } catch {} }
   S.timers.userPoll = setInterval(() => {
@@ -1080,6 +1084,46 @@ function startEvents() {
     const data = JSON.parse(e.data)
     showSuccess(`Mensaje de ${data.from.alias}: ${data.message}`)
   })
+  S.sse.addEventListener('dj_toggle', e => {
+    try {
+      const data = JSON.parse(e.data)
+      const enabled = !!data.enabled
+      const until = Number(data.until || 0)
+      S.djUserEnabled = enabled
+      S.djUserUntil = until
+      if (S.nav.current === 'screen-dj-request') renderUserDJStatus(enabled, until)
+    } catch {}
+  })
+  S.sse.addEventListener('dj_now_playing', e => {
+    try {
+      const data = JSON.parse(e.data)
+      const chip = q('dj-now-playing')
+      if (chip) {
+        const who = data.alias ? ` • ${data.alias}` : ''
+        const mesa = data.tableId ? ` • Mesa ${data.tableId}` : ''
+        chip.textContent = data.song ? `Está sonando: ${data.song}${who}${mesa}` : 'Está sonando'
+        chip.style.display = 'inline-block'
+      }
+    } catch {}
+  })
+  S.sse.addEventListener('dj_now_programmed', e => {
+    try {
+      const data = JSON.parse(e.data)
+      const chip = q('dj-now-playing')
+      if (chip) {
+        const who = data.alias ? ` • ${data.alias}` : ''
+        const mesa = data.tableId ? ` • Mesa ${data.tableId}` : ''
+        chip.textContent = data.song ? `Programado: ${data.song}${who}${mesa}` : 'Programado'
+        chip.style.display = 'inline-block'
+      }
+    } catch {}
+  })
+  S.sse.addEventListener('dj_now_stopped', e => {
+    try {
+      const chip = q('dj-now-playing')
+      if (chip) chip.style.display = 'none'
+    } catch {}
+  })
   S.sse.addEventListener('session_end', e => {
     try { if (S.sse) S.sse.close() } catch {}
     showModalAction('Sesión finalizada', 'La sesión de esta noche ha terminado', 'Aceptar', () => {
@@ -1120,13 +1164,19 @@ async function respondInvite(accept) {
     const hasItems = Array.isArray(S.consumptionReq.items) && S.consumptionReq.items.length > 0
     const listTxt = hasItems ? S.consumptionReq.items.map(it => `${it.quantity} x ${it.product}`).join(', ') : S.consumptionReq.product
     if (accept) {
-      if (hasItems) {
-        await api('/api/consumption/respond/bulk', { method: 'POST', body: JSON.stringify({ fromId: S.consumptionReq.from.id, toId: S.user.id, items: S.consumptionReq.items, action: 'accept', requestId: S.consumptionReq.requestId || '' }) })
-        openThanks(S.consumptionReq.from.id, 'consumption')
-      } else {
-        const qty = Math.max(1, Number(S.consumptionReq.quantity || 1))
-        await api('/api/consumption/respond', { method: 'POST', body: JSON.stringify({ fromId: S.consumptionReq.from.id, toId: S.user.id, product: S.consumptionReq.product, quantity: qty, action: 'accept', requestId: S.consumptionReq.requestId || '' }) })
-        openThanks(S.consumptionReq.from.id, 'consumption')
+      try {
+        if (hasItems) {
+          await api('/api/consumption/respond/bulk', { method: 'POST', body: JSON.stringify({ fromId: S.consumptionReq.from.id, toId: S.user.id, items: S.consumptionReq.items, action: 'accept', requestId: S.consumptionReq.requestId || '' }) })
+          openThanks(S.consumptionReq.from.id, 'consumption')
+        } else {
+          const qty = Math.max(1, Number(S.consumptionReq.quantity || 1))
+          await api('/api/consumption/respond', { method: 'POST', body: JSON.stringify({ fromId: S.consumptionReq.from.id, toId: S.user.id, product: S.consumptionReq.product, quantity: qty, action: 'accept', requestId: S.consumptionReq.requestId || '' }) })
+          openThanks(S.consumptionReq.from.id, 'consumption')
+        }
+      } catch (e) {
+        const msg = String(e.message || 'error')
+        if (msg === 'no_user') { showError('Usuario no disponible'); setTimeout(()=>showError(''),1000) }
+        else { showError('No se pudo aceptar la invitación'); setTimeout(()=>showError(''),1200) }
       }
     }
     S.consumptionReq = null
@@ -1230,17 +1280,26 @@ async function sendConsumption() {
                     : `Vas a invitar consumo: ${listTxt} para ${displayTo}. ¿Confirmas?`
   const ok = await confirmAction(phr)
   if (!ok) return
-  if (items.length > 1) {
-    await api('/api/consumption/invite/bulk', { method: 'POST', body: JSON.stringify({ fromId: S.user.id, toId, items, note }) })
-  } else {
-    await api('/api/consumption/invite', { method: 'POST', body: JSON.stringify({ fromId: S.user.id, toId, product: items[0].product, quantity: items[0].quantity, note }) })
+  try {
+    if (items.length > 1) {
+      await api('/api/consumption/invite/bulk', { method: 'POST', body: JSON.stringify({ fromId: S.user.id, toId, items, note }) })
+    } else {
+      await api('/api/consumption/invite', { method: 'POST', body: JSON.stringify({ fromId: S.user.id, toId, product: items[0].product, quantity: items[0].quantity, note }) })
+    }
+    S.cart = []
+    renderCart()
+    const inp = q('product'); if (inp) inp.value = ''
+    const qn = q('quantity'); if (qn) qn.value = '1'
+    const exp = Date.now() + 60 * 1000
+    openInviteWaitModal(exp, { id: toId, alias: displayTo, selfie: '' })
+    showSuccess('Invitación enviada')
+  } catch (e) {
+    const msg = String(e.message || 'error')
+    if (msg === 'blocked') { showError('No puedes invitar a esta persona (bloqueado)'); setTimeout(()=>showError(''),1000); return }
+    if (msg === 'rate_consumo') { showError('Límite alcanzado: 5 invitaciones/hora'); setTimeout(()=>showError(''),1000); return }
+    if (msg === 'no_user') { showError('Persona no encontrada'); setTimeout(()=>showError(''),1000); return }
+    showError('No se pudo enviar la invitación'); setTimeout(()=>showError(''),1200)
   }
-  S.cart = []
-  renderCart()
-  const inp = q('product'); if (inp) inp.value = ''
-  const qn = q('quantity'); if (qn) qn.value = '1'
-  const exp = Date.now() + 60 * 1000
-  openInviteWaitModal(exp, { id: toId, alias: displayTo, selfie: '' })
 }
 
 async function orderTable() {
@@ -1361,6 +1420,7 @@ function startStaffEvents() {
     scheduleStaffAnalyticsUpdate()
     scheduleStaffUsersUpdate()
     scheduleStaffWaiterUpdate()
+    scheduleStaffDJUpdate()
   }
   S.staffSSE.onerror = () => { scheduleStaffSSEReconnect() }
   S.staffSSE.addEventListener('order_new', e => {
@@ -1386,28 +1446,8 @@ function startStaffEvents() {
     scheduleStaffAnalyticsUpdate()
     viewStaffTableHistory()
   })
-  S.staffSSE.addEventListener('dj_request', e => {
-    try {
-      const data = JSON.parse(e.data)
-      S.notifications = S.notifications || {}
-      S.notifications.dj = (S.notifications.dj || 0) + 1
-      const b = q('badge-tab-dj')
-      if (b) { b.classList.add('show'); b.textContent = S.notifications.dj > 9 ? '9+' : String(S.notifications.dj) }
-    } catch {}
-  })
-  S.staffSSE.addEventListener('dj_update', e => {
-    try {
-      const data = JSON.parse(e.data)
-      const r = data.request || {}
-      if (r.status === 'atendido' || r.status === 'descartado') {
-        S.notifications = S.notifications || {}
-        const cur = (S.notifications.dj || 0) - 1
-        S.notifications.dj = cur < 0 ? 0 : cur
-        const b = q('badge-tab-dj')
-        if (b) { b.classList.toggle('show', S.notifications.dj > 0); b.textContent = S.notifications.dj > 9 ? '9+' : String(S.notifications.dj) }
-      }
-    } catch {}
-  })
+  S.staffSSE.addEventListener('dj_request', e => { scheduleStaffDJUpdate() })
+  S.staffSSE.addEventListener('dj_update', e => { scheduleStaffDJUpdate() })
   S.staffSSE.addEventListener('dj_toggle', e => {
     try {
       const data = JSON.parse(e.data)
@@ -1813,6 +1853,7 @@ function openDJRequest() {
   checkDJStatus().then(ok => {
     if (!ok) { showError('Pedidos al DJ desactivados por Staff'); setTimeout(() => showError(''), 1500); return }
     show('screen-dj-request')
+    startDJUserCountdown()
   })
 }
 async function sendDJRequest() {
@@ -1834,6 +1875,35 @@ async function checkDJStatus() {
     return !!(r && r.enabled && (!r.until || Date.now() < Number(r.until || 0)))
   } catch { return false }
 }
+async function startDJUserCountdown() {
+  try { if (S.timers.djUserCountdown) { clearInterval(S.timers.djUserCountdown); S.timers.djUserCountdown = 0 } } catch {}
+  try {
+    const r = await api(`/api/dj/status?sessionId=${encodeURIComponent(S.sessionId)}`)
+    renderUserDJStatus(!!r.enabled, Number(r.until || 0))
+  } catch { renderUserDJStatus(false, 0) }
+  S.timers.djUserCountdown = setInterval(() => {
+    renderUserDJStatus(!!S.djUserEnabled, Number(S.djUserUntil || 0))
+  }, 1000)
+}
+function renderUserDJStatus(enabled, until) {
+  S.djUserEnabled = !!enabled
+  S.djUserUntil = Number(until || 0)
+  const el = q('dj-request-ttl')
+  const btn = q('btn-dj-send')
+  if (!el || !btn) return
+  const now = Date.now()
+  const active = enabled && (!until || now < until)
+  btn.disabled = !active
+  el.style.display = active ? 'inline-block' : 'none'
+  if (active && until) {
+    let remSec = (((until - now) + 999) / 1000) | 0
+    if (remSec < 0) remSec = 0
+    const mm = ((remSec / 60) | 0)
+    const ss = (remSec % 60)
+    const txt = `${mm}:${ss < 10 ? ('0' + ss) : ss}`
+    el.textContent = `Tiempo para pedir: ${txt}`
+  }
+}
 async function loadDJRequests() {
   const tRaw = q('staff-dj-filter-table')?.value.trim() || ''
   const t = normalizeTableId(tRaw)
@@ -1843,11 +1913,16 @@ async function loadDJRequests() {
   renderDJStatus(!!st.enabled, Number(st.until || 0))
   const container = q('staff-dj-list')
   if (!container) return
-  container.innerHTML = ''
   const listAsc = (r.requests || []).slice().sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0))
+  const sig = JSON.stringify(listAsc.map(it => `${it.id}:${it.status}`))
+  if (S.djListSig && S.djListSig === sig) {
+    { const b = q('badge-tab-dj'); if (b) { const pending = listAsc.filter(it => it.status === 'pendiente').length; b.classList.toggle('show', pending > 0); b.textContent = pending > 9 ? '9+' : String(pending) } }
+    return
+  }
+  container.innerHTML = ''
   { const b = q('badge-tab-dj'); if (b) { const pending = listAsc.filter(it => it.status === 'pendiente').length; b.classList.toggle('show', pending > 0); b.textContent = pending > 9 ? '9+' : String(pending) } }
   for (const it of listAsc) {
-    if (it.status === 'sonando' || it.status === 'terminado') continue
+    if (it.status === 'terminado') continue
     const div = document.createElement('div')
     div.className = 'card'
     const info = document.createElement('div')
@@ -1858,15 +1933,13 @@ async function loadDJRequests() {
     info.append(chip)
     const row = document.createElement('div')
     row.className = 'row'
-    const b1 = document.createElement('button'); b1.textContent = 'Programar'; b1.onclick = async () => { await api(`/api/staff/dj/${it.id}`, { method: 'POST', body: JSON.stringify({ status: 'programado' }) }); loadDJRequests() }
-    const b2 = document.createElement('button'); b2.textContent = 'En cola'; b2.onclick = async () => { await api(`/api/staff/dj/${it.id}`, { method: 'POST', body: JSON.stringify({ status: 'atendido' }) }); loadDJRequests() }
-    const b3 = document.createElement('button'); b3.textContent = 'Tocar'; b3.onclick = async () => { await api(`/api/staff/dj/${it.id}`, { method: 'POST', body: JSON.stringify({ status: 'sonando' }) }); loadDJRequests() }
-    const b4 = document.createElement('button'); b4.textContent = 'Finalizar'; b4.onclick = async () => { await api(`/api/staff/dj/${it.id}`, { method: 'POST', body: JSON.stringify({ status: 'terminado' }) }); loadDJRequests() }
-    const b5 = document.createElement('button'); b5.textContent = 'Descartar'; b5.onclick = async () => { await api(`/api/staff/dj/${it.id}`, { method: 'POST', body: JSON.stringify({ status: 'descartado' }) }); loadDJRequests() }
-    row.append(b1, b2, b3, b4, b5)
+    const b1 = document.createElement('button'); b1.textContent = 'Programar'; b1.onclick = async () => { await api(`/api/staff/dj/${it.id}`, { method: 'POST', body: JSON.stringify({ status: 'programado' }) }); scheduleStaffDJUpdate() }
+    const b4 = document.createElement('button'); b4.textContent = 'Finalizar'; b4.onclick = async () => { await api(`/api/staff/dj/${it.id}`, { method: 'POST', body: JSON.stringify({ status: 'terminado' }) }); scheduleStaffDJUpdate() }
+    row.append(b1, b4)
     div.append(info, row)
     container.append(div)
   }
+  S.djListSig = sig
 }
 function renderDJStatus(enabled, until) {
   const statusEl = q('staff-dj-status')
