@@ -3,6 +3,7 @@ let S = { sessionId: '', venueId: '', user: null, staff: null, role: '', sse: nu
 
 function q(id) { return document.getElementById(id) }
 function show(id) {
+  maybeAutoCancelMeetingOnLeave(id)
   for (const el of document.querySelectorAll('.screen')) el.classList.remove('active')
   q(id).classList.add('active')
   if (S.nav && S.nav.current && S.nav.current !== id) S.nav.history.push(S.nav.current)
@@ -37,6 +38,22 @@ function show(id) {
   if (id !== 'screen-dj-request') {
     try { if (S.timers.djUserCountdown) { clearInterval(S.timers.djUserCountdown); S.timers.djUserCountdown = 0 } } catch {}
   }
+}
+function maybeAutoCancelMeetingOnLeave(nextId) {
+  try {
+    if (S.nav && S.nav.current === 'screen-meeting' && nextId !== 'screen-meeting' && S.meeting && S.isMeetingReceiver && String(S.user?.danceState || '') === 'waiting') {
+      const meetingId = S.meeting.id
+      S.meeting = null
+      S.meetingPlan = ''
+      S.isMeetingReceiver = false
+      S.inInviteFlow = false
+      if (S.user) { S.user.danceState = 'idle'; S.user.dancePartnerId = ''; S.user.meetingId = '' }
+      showError('Encuentro cancelado')
+      setTimeout(() => showError(''), 1200)
+      api('/api/meeting/cancel', { method: 'POST', body: JSON.stringify({ meetingId }) }).catch(() => {})
+      scheduleRefreshDanceList()
+    }
+  } catch {}
 }
 function goBack() {
   if (!S.nav || !S.nav.history.length) return
@@ -1088,6 +1105,20 @@ function startEvents() {
                       : ''
         el.textContent = planTxt ? `Plan: ${planTxt}` : ''
       }
+    }
+  })
+  S.sse.addEventListener('meeting_expired', e => {
+    const data = JSON.parse(e.data)
+    if (S.meeting && data.meetingId && data.meetingId === S.meeting.id) {
+      S.meeting = null
+      S.meetingPlan = ''
+      S.isMeetingReceiver = false
+      S.inInviteFlow = false
+      if (S.user) { S.user.danceState = 'idle'; S.user.dancePartnerId = ''; S.user.meetingId = '' }
+      showError('El encuentro expiró')
+      setTimeout(() => showError(''), 1500)
+      show('screen-user-home')
+      showNextInvite()
     }
   })
   S.sse.addEventListener('consumption_invite', e => {
@@ -2221,9 +2252,19 @@ async function loadMesasActive() {
   container.innerHTML = ''
   for (const m of r.mesas) {
     const div = document.createElement('div')
-    div.className = 'card'
+    div.className = 'item'
+    const top = document.createElement('div')
+    top.className = 'avail-top'
     const info = document.createElement('div')
-    info.textContent = `${m.tableId} • Personas ${m.people} • Disponibles ${m.disponibles}`
+    info.className = 'avail-info'
+    const alias = document.createElement('div')
+    alias.className = 'alias'
+    alias.textContent = `Mesa ${m.tableId}`
+    const sub = document.createElement('div')
+    sub.className = 'avail-sub'
+    sub.textContent = `Personas ${m.people} • Disponibles ${m.disponibles}`
+    info.append(alias, sub)
+    top.append(info)
     const tags = document.createElement('div')
     tags.className = 'tags'
     if (Array.isArray(m.tags)) {
@@ -2234,11 +2275,14 @@ async function loadMesasActive() {
         tags.append(chip)
       }
     }
+    const row = document.createElement('div')
+    row.className = 'row compact'
     const btn = document.createElement('button')
     btn.className = 'info'
     btn.textContent = 'Ver mesa'
     btn.onclick = () => openMesaView(m.tableId)
-    div.append(info, tags, btn)
+    row.append(btn)
+    div.append(top, tags, row)
     container.append(div)
   }
 }
