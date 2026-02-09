@@ -2116,14 +2116,20 @@ setInterval(() => {
     if (inv.status === 'pendiente' && !inv.seenAt && !inv.notSeenNotified && (nowTs - inv.createdAt) > 12000) {
       inv.notSeenNotified = true
       const uTo = state.users.get(inv.toId)
-      try { sendToUser(inv.fromId, 'invite_not_seen', { inviteId: inv.id, to: { id: inv.toId, alias: uTo ? (uTo.alias || uTo.id) : inv.toId } }) } catch {}
+      try {
+        sendToUser(inv.fromId, 'invite_not_seen', { inviteId: inv.id, to: { id: inv.toId, alias: uTo ? (uTo.alias || uTo.id) : inv.toId } })
+        sendToUser(inv.toId, 'invite_suppress', { inviteId: inv.id })
+      } catch {}
     }
   }
   for (const ci of state.consumptionInvites.values()) {
     if (!ci.seenAt && !ci.notSeenNotified && (nowTs - ci.createdAt) > 12000) {
       ci.notSeenNotified = true
       const uTo = state.users.get(ci.toId)
-      try { sendToUser(ci.fromId, 'consumption_not_seen', { requestId: ci.id, to: { id: ci.toId, alias: uTo ? (uTo.alias || uTo.id) : ci.toId } }) } catch {}
+      try {
+        sendToUser(ci.fromId, 'consumption_not_seen', { requestId: ci.id, to: { id: ci.toId, alias: uTo ? (uTo.alias || uTo.id) : ci.toId } })
+        sendToUser(ci.toId, 'consumption_suppress', { requestId: ci.id })
+      } catch {}
     }
     if (ci.expiresAt && nowTs > ci.expiresAt) {
       state.consumptionInvites.delete(ci.id)

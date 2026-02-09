@@ -1003,6 +1003,7 @@ function startEvents() {
     S.invitesQueue.push({ type: 'dance', id: data.invite.id, invite: data.invite })
     S.notifications.invites = (S.notifications.invites || 0) + 1
     setBadgeNav('disponibles', S.notifications.invites)
+    updateTipSticker()
     ;(async () => { try { await api('/api/invite/ack', { method: 'POST', body: JSON.stringify({ inviteId: data.invite.id, toId: S.user.id }) }) } catch {} })()
     if (document.hidden) {
       const msg = `Invitación de baile de ${data.invite.from.alias}`
@@ -1017,6 +1018,7 @@ function startEvents() {
     S.user.partnerAlias = data.partner ? (data.partner.alias || data.partner.id || '') : S.user.partnerAlias
     if (data.meeting && data.meeting.id) { S.meeting = data.meeting }
     scheduleRenderUserHeader()
+    updateTipSticker()
     scheduleRefreshDanceList()
   })
   S.sse.addEventListener('invite_result', e => {
@@ -1031,6 +1033,7 @@ function startEvents() {
       if (removed > 0) {
         S.notifications.invites = Math.max(0, (S.notifications.invites || 0) - removed)
         setBadgeNav('disponibles', S.notifications.invites)
+        updateTipSticker()
       }
     }
     if (data.status === 'aceptado') {
@@ -1076,6 +1079,7 @@ function startEvents() {
     S.invitesQueue.push({ type: 'consumption', data })
     S.notifications.invites = (S.notifications.invites || 0) + 1
     setBadgeNav('disponibles', S.notifications.invites)
+    updateTipSticker()
     ;(async () => { try { await api('/api/consumption/ack', { method: 'POST', body: JSON.stringify({ requestId: data.requestId, toId: S.user.id }) }) } catch {} })()
     if (document.hidden) {
       const msg = `Invitación de consumo de ${data.from.alias}: ${data.product}`
@@ -1089,6 +1093,7 @@ function startEvents() {
     S.invitesQueue.push({ type: 'consumption', data })
     S.notifications.invites = (S.notifications.invites || 0) + 1
     setBadgeNav('disponibles', S.notifications.invites)
+    updateTipSticker()
     ;(async () => { try { await api('/api/consumption/ack', { method: 'POST', body: JSON.stringify({ requestId: data.requestId, toId: S.user.id }) }) } catch {} })()
     if (document.hidden) {
       const listTxt = (Array.isArray(data.items) ? data.items.map(it => `${it.quantity} x ${it.product}`).join(', ') : '')
@@ -1097,6 +1102,12 @@ function startEvents() {
     }
     if (!S.inInviteFlow) { showNextInvite() }
   })
+function updateTipSticker() {
+  const el = q('tip-refresh-bailar'); if (!el) return
+  const show = Number(S.notifications.invites || 0) > 0 && String(S.user && S.user.danceState || 'idle') !== 'dancing'
+  el.style.display = show ? 'inline-block' : 'none'
+  el.classList.toggle('pulse', show)
+}
   S.sse.addEventListener('invite_seen', e => {
     const data = JSON.parse(e.data)
     const u = data.to && data.to.alias ? data.to.alias : (data.to && data.to.id ? data.to.id : '')
@@ -1109,6 +1120,25 @@ function startEvents() {
     const msg = `Tu invitación no le apareció a ${u}`
     if (document.hidden) { S.missed.push(msg) } else { showError(msg); setTimeout(() => showError(''), 1500) }
   })
+  S.sse.addEventListener('invite_suppress', e => {
+    const data = JSON.parse(e.data)
+    const invId = String(data.inviteId || '')
+    if (invId) {
+      const before = S.invitesQueue.length
+      S.invitesQueue = S.invitesQueue.filter(x => !(x.type === 'dance' && String(x.id || '') === invId))
+      const removed = before - S.invitesQueue.length
+      if (removed > 0) {
+        S.notifications.invites = Math.max(0, (S.notifications.invites || 0) - removed)
+        setBadgeNav('disponibles', S.notifications.invites)
+        updateTipSticker()
+        const m = q('modal'); if (m) m.classList.remove('show')
+        show('screen-user-home')
+        S.inInviteFlow = false
+        showNextInvite()
+        showError('Invitación no disponible'); setTimeout(() => showError(''), 1500)
+      }
+    }
+  })
   S.sse.addEventListener('consumption_seen', e => {
     const data = JSON.parse(e.data)
     const u = data.to && data.to.alias ? data.to.alias : (data.to && data.to.id ? data.to.id : '')
@@ -1120,6 +1150,25 @@ function startEvents() {
     const u = data.to && data.to.alias ? data.to.alias : (data.to && data.to.id ? data.to.id : '')
     const msg = `Tu invitación de consumo no le apareció a ${u}`
     if (document.hidden) { S.missed.push(msg) } else { showError(msg); setTimeout(() => showError(''), 1500) }
+  })
+  S.sse.addEventListener('consumption_suppress', e => {
+    const data = JSON.parse(e.data)
+    const reqId = String(data.requestId || '')
+    if (reqId) {
+      const before = S.invitesQueue.length
+      S.invitesQueue = S.invitesQueue.filter(x => !(x.type === 'consumption' && String(x.data && x.data.requestId || '') === reqId))
+      const removed = before - S.invitesQueue.length
+      if (removed > 0) {
+        S.notifications.invites = Math.max(0, (S.notifications.invites || 0) - removed)
+        setBadgeNav('disponibles', S.notifications.invites)
+        updateTipSticker()
+        const m = q('modal'); if (m) m.classList.remove('show')
+        show('screen-user-home')
+        S.inInviteFlow = false
+        showNextInvite()
+        showError('Invitación de consumo no disponible'); setTimeout(() => showError(''), 1500)
+      }
+    }
   })
   S.sse.addEventListener('consumption_accepted', e => {
     const data = JSON.parse(e.data)
