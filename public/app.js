@@ -833,6 +833,54 @@ async function setAvailable() {
   if (next) { setActiveNav('disponibles'); await viewAvailable(); show('screen-user-home') }
 }
 
+function buildAvailableItem(u) {
+  const div = document.createElement('div')
+  div.className = 'item'
+  const top = document.createElement('div')
+  top.className = 'avail-top'
+  const img = document.createElement('img')
+  img.className = 'avail-avatar'
+  img.width = 44; img.height = 44
+  img.src = u.selfie || ''
+  if (u.selfie) img.onclick = () => showImageModal(u.selfie)
+  const alias = document.createElement('div')
+  alias.className = 'alias'
+  alias.textContent = u.alias || u.id
+  top.append(img, alias)
+  const meta = document.createElement('div')
+  meta.className = 'avail-meta'
+  const addMeta = (txt) => {
+    if (!txt) return
+    const chip = document.createElement('span')
+    chip.className = 'chip mini'
+    chip.textContent = txt
+    meta.append(chip)
+  }
+  addMeta(u.gender ? genderLabel(u.gender) : '')
+  addMeta(u.tableId ? `Mesa ${u.tableId}` : '')
+  addMeta(u.zone ? `Zona ${u.zone}` : '')
+  const tagsEl = document.createElement('div')
+  tagsEl.className = 'tags'
+  if (Array.isArray(u.tags)) {
+    for (const t of u.tags) {
+      const chip = document.createElement('span')
+      chip.className = 'chip mini'
+      chip.textContent = t
+      tagsEl.append(chip)
+    }
+  }
+  const row = document.createElement('div')
+  row.className = 'row compact'
+  const bDance = document.createElement('button')
+  const busy = (u.danceState && u.danceState !== 'idle')
+  bDance.textContent = busy ? 'Ocupado' : 'Bailar'
+  bDance.disabled = !!busy
+  bDance.onclick = () => sendInviteQuick(u)
+  const bConsumo = document.createElement('button'); bConsumo.textContent = 'Invitar'; bConsumo.onclick = () => { setReceiver(u); q('consumption-target').value = u.id; openConsumption() }
+  row.append(bDance, bConsumo)
+  div.append(top, meta, tagsEl, row)
+  return div
+}
 async function viewAvailable() {
   if (!S.user || !S.user.available) {
     showError('Oye: debes poner modo activo antes de ver las personas disponibles')
@@ -846,48 +894,7 @@ async function viewAvailable() {
     if (u.id === S.user.id) continue
     if (u.danceState && u.danceState !== 'idle') continue
     if (u.id === S.user.id) continue
-    const div = document.createElement('div')
-    div.className = 'item'
-    const img = document.createElement('img')
-    img.width = 48; img.height = 48
-    img.src = u.selfie || ''
-    const alias = document.createElement('div')
-    alias.className = 'alias'
-    alias.textContent = u.alias || u.id
-    const gender = document.createElement('div')
-    gender.className = 'zone'
-    gender.textContent = u.gender ? genderLabel(u.gender) : ''
-    const tbl = document.createElement('div')
-    tbl.className = 'zone'
-    tbl.textContent = u.tableId ? `Mesa: ${u.tableId}` : ''
-    const zone = document.createElement('div')
-    zone.className = 'zone'
-    zone.textContent = u.zone ? `Zona: ${u.zone}` : ''
-    const tagsEl = document.createElement('div')
-    tagsEl.className = 'tags'
-    if (Array.isArray(u.tags)) {
-      for (const t of u.tags) {
-        const chip = document.createElement('span')
-        chip.className = 'chip'
-        chip.textContent = t
-        tagsEl.append(chip)
-      }
-    }
-    const row = document.createElement('div')
-    row.className = 'row'
-    const bDance = document.createElement('button')
-    const busy = (u.danceState && u.danceState !== 'idle')
-    bDance.textContent = busy ? 'Ocupado' : 'Bailar'
-    bDance.disabled = !!busy
-    bDance.onclick = () => sendInviteQuick(u)
-    const statusChip = document.createElement('span')
-    statusChip.className = 'chip ' + (u.danceState === 'dancing' ? 'success' : (u.danceState === 'waiting' ? 'pending' : ''))
-    statusChip.textContent = u.danceState === 'dancing' ? `Bailando con ${u.partnerAlias || ''}` :
-                             u.danceState === 'waiting' ? `Esperando con ${u.partnerAlias || ''}` : ''
-    const bConsumo = document.createElement('button'); bConsumo.textContent = 'Invitar'; bConsumo.onclick = () => { setReceiver(u); q('consumption-target').value = u.id; openConsumption() }
-    row.append(bDance, bConsumo, statusChip)
-    div.append(img, alias, gender, tbl, zone, tagsEl, row)
-    container.append(div)
+    container.append(buildAvailableItem(u))
   }
   show('screen-disponibles')
   await loadDanceSessionList()
@@ -904,48 +911,7 @@ async function refreshAvailableList() {
   S.ui.availableSig = sig
   container.innerHTML = ''
   for (const u of list) {
-    const div = document.createElement('div')
-    div.className = 'item'
-    const img = document.createElement('img')
-    img.width = 48; img.height = 48
-    img.src = u.selfie || ''
-    const alias = document.createElement('div')
-    alias.className = 'alias'
-    alias.textContent = u.alias || u.id
-    const gender = document.createElement('div')
-    gender.className = 'zone'
-    gender.textContent = u.gender ? genderLabel(u.gender) : ''
-    const tbl = document.createElement('div')
-    tbl.className = 'zone'
-    tbl.textContent = u.tableId ? `Mesa: ${u.tableId}` : ''
-    const zone = document.createElement('div')
-    zone.className = 'zone'
-    zone.textContent = u.zone ? `Zona: ${u.zone}` : ''
-    const tagsEl = document.createElement('div')
-    tagsEl.className = 'tags'
-    if (Array.isArray(u.tags)) {
-      for (const t of u.tags) {
-        const chip = document.createElement('span')
-        chip.className = 'chip'
-        chip.textContent = t
-        tagsEl.append(chip)
-      }
-    }
-    const row = document.createElement('div')
-    row.className = 'row'
-    const bDance = document.createElement('button')
-    const busy = (u.danceState && u.danceState !== 'idle')
-    bDance.textContent = busy ? 'Ocupado' : 'Bailar'
-    bDance.disabled = !!busy
-    bDance.onclick = () => sendInviteQuick(u)
-    const statusChip = document.createElement('span')
-    statusChip.className = 'chip ' + (u.danceState === 'dancing' ? 'success' : (u.danceState === 'waiting' ? 'pending' : ''))
-    statusChip.textContent = u.danceState === 'dancing' ? `Bailando con ${u.partnerAlias || ''}` :
-                             u.danceState === 'waiting' ? `Esperando con ${u.partnerAlias || ''}` : ''
-    const bConsumo = document.createElement('button'); bConsumo.textContent = 'Invitar'; bConsumo.onclick = () => { setReceiver(u); q('consumption-target').value = u.id; openConsumption() }
-    row.append(bDance, bConsumo, statusChip)
-    div.append(img, alias, gender, tbl, zone, tagsEl, row)
-    container.append(div)
+    container.append(buildAvailableItem(u))
   }
   scheduleRefreshDanceList()
 }
@@ -994,38 +960,7 @@ async function viewAvailableByTable() {
   const container = q('available-list')
   container.innerHTML = ''
   for (const u of list) {
-    const div = document.createElement('div')
-    div.className = 'item'
-    const img = document.createElement('img')
-    img.width = 48; img.height = 48
-    img.style.borderRadius = '50%'
-    img.src = u.selfie || ''
-    const alias = document.createElement('div')
-    alias.className = 'alias'
-    alias.textContent = u.alias || u.id
-    const gender = document.createElement('div')
-    gender.className = 'zone'
-    gender.textContent = u.gender ? genderLabel(u.gender) : ''
-    const tagsEl = document.createElement('div')
-    tagsEl.className = 'tags'
-    if (Array.isArray(u.tags)) {
-      for (const t of u.tags) {
-        const chip = document.createElement('span')
-        chip.className = 'chip'
-        chip.textContent = t
-        tagsEl.append(chip)
-      }
-    }
-    const zone = document.createElement('div')
-    zone.className = 'zone'
-    zone.textContent = u.zone ? `Zona: ${u.zone}` : ''
-    const row = document.createElement('div')
-    row.className = 'row'
-    const bDance = document.createElement('button'); bDance.textContent = 'Bailar'; bDance.onclick = () => sendInviteQuick(u)
-    const bConsumo = document.createElement('button'); bConsumo.textContent = 'Invitar'; bConsumo.onclick = () => { setReceiver(u); q('consumption-target').value = u.id; openConsumption() }
-    row.append(bDance, bConsumo)
-    div.append(img, alias, gender, tagsEl, zone, row)
-    container.append(div)
+    container.append(buildAvailableItem(u))
   }
   show('screen-disponibles')
 }
