@@ -70,6 +70,8 @@ body[data-theme="light"] .chip.entregado { background:#eaf6f7; color:#1b4b50; bo
 body[data-theme="light"] .chip.cancelado { background:#fbe9ea; color:#6b2727; border-color:#f3c1c4 }
 body[data-theme="light"] .chip.en_preparacion { background:#eef0ff; color:#2b2f6b; border-color:#d6daf8 }
 body[data-theme="light"] .chip.expirado { background:#faeded; color:#6b3c3c; border-color:#f2d1d1 }
+.chip.sticker { background:#2a2835; border-color:#42384f; font-size:12px; transform: rotate(-2deg); box-shadow: 0 3px 8px rgba(0,0,0,0.25); }
+body[data-theme="light"] .chip.sticker { background:#fff3a1; border-color:#e0a33d; color:#3a2f1b }
 .cta { display:flex; gap:12px; flex-wrap:wrap }
 .cta button { padding: 14px 20px; font-weight: 600 }
 .grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(180px,1fr)); gap: 8px }

@@ -884,6 +884,7 @@ async function loadDanceSessionList() {
     const t = document.createElement('div'); t.className = 'section-title'; t.textContent = title
     section.append(t)
     for (const u of list) {
+      if (S.user && u.id === S.user.id) continue
       const div = document.createElement('div')
       div.className = 'item'
       const img = document.createElement('img'); img.width = 48; img.height = 48; img.src = u.selfie || ''
@@ -1016,6 +1017,7 @@ function startEvents() {
     S.user.partnerAlias = data.partner ? (data.partner.alias || data.partner.id || '') : S.user.partnerAlias
     if (data.meeting && data.meeting.id) { S.meeting = data.meeting }
     scheduleRenderUserHeader()
+    scheduleRefreshDanceList()
   })
   S.sse.addEventListener('invite_result', e => {
     const data = JSON.parse(e.data)
@@ -1052,6 +1054,7 @@ function startEvents() {
       S.inInviteFlow = false
       showNextInvite()
     }
+    scheduleRefreshDanceList()
   })
   S.sse.addEventListener('meeting_plan', e => {
     const data = JSON.parse(e.data)
@@ -1160,6 +1163,7 @@ function startEvents() {
     show('screen-user-home')
     S.inInviteFlow = false
     showNextInvite()
+    scheduleRefreshDanceList()
   })
   S.sse.addEventListener('thanks', e => {
     const data = JSON.parse(e.data)
