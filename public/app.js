@@ -602,6 +602,50 @@ function scheduleUserOrdersUpdate() { scheduleLater('user_orders', async () => {
 function scheduleRenderUserHeader() { scheduleLater('user_header', async () => { renderUserHeader() }, 300) }
 function scheduleRefreshAvailableList() { scheduleLater('user_avail', async () => { await refreshAvailableList() }, 500) }
 function scheduleStaffDJUpdate() { scheduleLater('staff_dj', async () => { await loadDJRequests() }, 400) }
+async function loadI18n(lang) {
+  try {
+    const r = await fetch(`/i18n/${lang}.json`)
+    if (r.ok) { S.i18n = await r.json(); return }
+  } catch {}
+  try {
+    const r = await fetch(`/i18n/es.json`)
+    if (r.ok) { S.i18n = await r.json(); return }
+  } catch {}
+  S.i18n = {}
+}
+function t(key) {
+  const m = S.i18n || {}
+  return m[key] || key
+}
+function genderLabel(code) {
+  const v = String(code || '').toLowerCase()
+  if (v === 'm') return t('gender_male')
+  if (v === 'f') return t('gender_female')
+  if (v === 'o') return t('gender_other')
+  if (v === 'na') return t('gender_na')
+  return ''
+}
+function renderGenderSelect() {
+  const sel = q('profile-gender')
+  if (!sel) return
+  sel.innerHTML = ''
+  const opt0 = document.createElement('option')
+  opt0.value = ''
+  opt0.textContent = t('gender_placeholder')
+  opt0.disabled = true
+  opt0.selected = true
+  const mk = (val, label) => {
+    const o = document.createElement('option')
+    o.value = val
+    o.textContent = label
+    return o
+  }
+  sel.append(opt0, mk('m', t('gender_male')), mk('f', t('gender_female')), mk('o', t('gender_other')), mk('na', t('gender_na')))
+  const cur = (S.user && S.user.prefs && S.user.prefs.gender) ? S.user.prefs.gender : ''
+  if (cur) sel.value = cur
+  const lbl = q('label-gender')
+  if (lbl) lbl.textContent = t('gender_label')
+}
 function startUserPolls() {
   if (S.timers.userPoll) { try { clearInterval(S.timers.userPoll) } catch {} }
   S.timers.userPoll = setInterval(() => {
@@ -676,6 +720,7 @@ async function join(role, codeOverride = '', pinOverride = '') {
 async function saveProfile() {
   const alias = q('alias').value.trim()
   const tableId = (q('profile-table') ? q('profile-table').value.trim() : '')
+  const gender = (q('profile-gender') ? q('profile-gender').value : '')
   const file = q('selfie').files[0]
   let selfie = ''
   if (file) {
@@ -683,13 +728,16 @@ async function saveProfile() {
     if (!selfie) { showError('Selfie inválida o muy grande'); setTimeout(() => showError(''), 1400); return }
   }
   if (!alias) { showError('Ingresa tu alias'); setTimeout(() => showError(''), 1200); return }
+  if (!gender) { showError(t('gender_required')); setTimeout(() => showError(''), 1200); return }
   if (!tableId) { showError('Ingresa tu mesa'); setTimeout(() => showError(''), 1200); return }
   if (!file) { showError('Debes subir tu selfie'); setTimeout(() => showError(''), 1400); return }
-  await api('/api/user/profile', { method: 'POST', body: JSON.stringify({ userId: S.user.id, alias, selfie }) })
+  await api('/api/user/profile', { method: 'POST', body: JSON.stringify({ userId: S.user.id, alias, selfie, gender }) })
   await api('/api/user/change-table', { method: 'POST', body: JSON.stringify({ userId: S.user.id, newTable: tableId }) })
   S.user.alias = alias
   S.user.selfie = selfie
   S.user.tableId = tableId
+  if (!S.user.prefs) S.user.prefs = {}
+  S.user.prefs.gender = gender
   try { saveLocalUser() } catch {}
   q('selfie-note').textContent = 'Selfie cargada'
   const ua = q('user-alias'), us = q('user-selfie'); if (ua) ua.textContent = S.user.alias || S.user.id; if (us) us.src = S.user.selfie || ''
@@ -962,13 +1010,15 @@ function chooseMsg(e) {
 
 async function sendInvite() {
   if (!S.currentInvite) return
+  const ok = await confirmAction(`¿Te gustaría invitar a ${S.currentInvite.alias || S.currentInvite.id}?`)
+  if (!ok) return
   try {
     const r = await api('/api/invite/dance', { method: 'POST', body: JSON.stringify({ fromId: S.user.id, toId: S.currentInvite.id, messageType: inviteMsgType }) })
     const exp = Number(r.expiresAt || (Date.now() + 60 * 1000))
     openInviteWaitModal(exp, S.currentInvite)
   } catch (e) {
     const msg = String(e && e.message || '')
-    if (msg === 'blocked') showError('No puedes invitar a esta persona por ahora'); else if (msg === 'rate') showError('Demasiadas invitaciones recientes'); else if (msg === 'busy_target') showError('La persona ya está ocupada'); else showError('No se pudo enviar la invitación')
+    if (msg === 'blocked') showError('No puedes invitar a esta persona por ahora'); else if (msg === 'rate') showError('Demasiadas invitaciones recientes'); else if (msg === 'busy_target') showError('Está bailando ahora, te avisamos si vuelve'); else showError('No se pudo enviar la invitación')
     setTimeout(() => showError(''), 1500)
   }
 }
@@ -980,13 +1030,15 @@ async function sendInviteQuick(u) {
   setReceiver(u)
   S.currentInvite = u
   inviteMsgType = 'bailamos'
+  const ok = await confirmAction(`¿Te gustaría invitar a ${u.alias || u.id}?`)
+  if (!ok) return
   try {
     const r = await api('/api/invite/dance', { method: 'POST', body: JSON.stringify({ fromId: S.user.id, toId: u.id, messageType: 'bailamos' }) })
     const exp = Number(r.expiresAt || (Date.now() + 60 * 1000))
     openInviteWaitModal(exp, u)
   } catch (e) {
     const msg = String(e && e.message || '')
-    if (msg === 'blocked') showError('No puedes invitar a esta persona por ahora'); else if (msg === 'rate') showError('Demasiadas invitaciones recientes'); else if (msg === 'busy_target') showError('La persona ya está ocupada'); else showError('No se pudo enviar la invitación')
+    if (msg === 'blocked') showError('No puedes invitar a esta persona por ahora'); else if (msg === 'rate') showError('Demasiadas invitaciones recientes'); else if (msg === 'busy_target') showError('Está bailando ahora, te avisamos si vuelve'); else showError('No se pudo enviar la invitación')
     setTimeout(() => showError(''), 1500)
   }
 }
@@ -1043,15 +1095,13 @@ function startEvents() {
       if (data.note) { const noteEl = q('meeting-note'); if (noteEl) noteEl.textContent = `Respuesta: ${data.note}`; showError(`Respuesta: ${data.note}`); setTimeout(() => showError(''), 1500) }
       renderMeeting()
     } else if (data.status === 'pasado') {
-      if (data.note) {
-        const msg = `Respuesta: ${data.note}`
-        if (document.hidden) { S.missed.push(msg) } else { showError(msg); setTimeout(() => showError(''), 1500) }
-      }
+      const msg = data.note ? `Respuesta: ${data.note}` : 'Vio tu invitación pero decidió pasar'
+      if (document.hidden) { S.missed.push(msg) } else { showError(msg); setTimeout(() => showError(''), 1500) }
       show('screen-user-home')
       S.inInviteFlow = false
       showNextInvite()
     } else if (data.status === 'expirado') {
-      const msg = String(data.reason || '') === 'unseen' ? 'Expiró: la persona no la vio' : 'Invitación expirada (60s)'
+      const msg = String(data.reason || '') === 'unseen' ? 'No estaba mirando el teléfono' : 'Invitación expirada'
       if (document.hidden) { S.missed.push(msg) } else { showError(msg); setTimeout(() => showError(''), 1500) }
       show('screen-user-home')
       S.inInviteFlow = false
@@ -1082,7 +1132,9 @@ function startEvents() {
     updateTipSticker()
     ;(async () => { try { await api('/api/consumption/ack', { method: 'POST', body: JSON.stringify({ requestId: data.requestId, toId: S.user.id }) }) } catch {} })()
     if (document.hidden) {
-      const msg = `Invitación de consumo de ${data.from.alias}: ${data.product}`
+      const g = genderLabel(data.from.gender)
+      const gTxt = g ? ` • ${g}` : ''
+      const msg = `Invitación de consumo de ${data.from.alias}${gTxt}: ${data.product}`
       S.missed.push(msg)
     }
     if (!S.inInviteFlow) { showNextInvite() }
@@ -1097,7 +1149,9 @@ function startEvents() {
     ;(async () => { try { await api('/api/consumption/ack', { method: 'POST', body: JSON.stringify({ requestId: data.requestId, toId: S.user.id }) }) } catch {} })()
     if (document.hidden) {
       const listTxt = (Array.isArray(data.items) ? data.items.map(it => `${it.quantity} x ${it.product}`).join(', ') : '')
-      const msg = `Invitación de consumo de ${data.from.alias}: ${listTxt}`
+      const g = genderLabel(data.from.gender)
+      const gTxt = g ? ` • ${g}` : ''
+      const msg = `Invitación de consumo de ${data.from.alias}${gTxt}: ${listTxt}`
       S.missed.push(msg)
     }
     if (!S.inInviteFlow) { showNextInvite() }
@@ -1117,7 +1171,7 @@ function updateTipSticker() {
   S.sse.addEventListener('invite_not_seen', e => {
     const data = JSON.parse(e.data)
     const u = data.to && data.to.alias ? data.to.alias : (data.to && data.to.id ? data.to.id : '')
-    const msg = `Tu invitación no le apareció a ${u}`
+    const msg = `No estaba mirando el teléfono`
     if (document.hidden) { S.missed.push(msg) } else { showError(msg); setTimeout(() => showError(''), 1500) }
   })
   S.sse.addEventListener('invite_suppress', e => {
@@ -1147,7 +1201,7 @@ function updateTipSticker() {
   })
   S.sse.addEventListener('consumption_not_seen', e => {
     const data = JSON.parse(e.data)
-    const msg = 'Consumo expirado: la persona no lo vio'
+    const msg = 'No estaba mirando el teléfono'
     if (document.hidden) { S.missed.push(msg) } else { showError(msg); setTimeout(() => showError(''), 1500) }
   })
   S.sse.addEventListener('consumption_suppress', e => {
@@ -1175,6 +1229,18 @@ function updateTipSticker() {
     stopInviteCountdown()
     const m = q('modal'); if (m) m.classList.remove('show')
     if (document.hidden) { S.missed.push(msg) } else { showSuccess(msg) }
+    ;(async () => {
+      try {
+        const r = await api(`/api/staff/analytics?sessionId=${encodeURIComponent(S.sessionId)}`)
+        const items = r.topItems || {}
+        const names = Object.keys(items).filter(name => name !== data.product)
+        const top = names.sort((a, b) => Number(items[b] || 0) - Number(items[a] || 0)).slice(0, 2)
+        if (top.length) {
+          const txt = top.length === 1 ? `Popular esta noche: ${top[0]}` : `Popular esta noche: ${top[0]} • ${top[1]}`
+          showSuccess(txt)
+        }
+      } catch {}
+    })()
   })
   S.sse.addEventListener('consumption_passed', e => {
     const data = JSON.parse(e.data)
@@ -2488,7 +2554,9 @@ function showNextInvite() {
     S.currentInvite = { id: next.invite.id, from: next.invite.from, expiresAt: Number(next.invite.expiresAt || 0) }
     const mesaTxt = S.currentInvite.from.tableId ? ` • Mesa ${S.currentInvite.from.tableId}` : ''
     const zoneTxt = S.currentInvite.from.zone ? ` • Zona ${S.currentInvite.from.zone}` : ''
-    const info = q('invite-received-info'); if (info) info.textContent = `${S.currentInvite.from.alias} te invita${mesaTxt}${zoneTxt}`
+    const g = genderLabel(S.currentInvite.from.gender)
+    const gTxt = g ? ` • ${g}` : ''
+    const info = q('invite-received-info'); if (info) info.textContent = `${S.currentInvite.from.alias}${gTxt} te invita${mesaTxt}${zoneTxt}`
     const img = q('invite-from-selfie'); if (img) img.src = S.currentInvite.from.selfie || ''
     show('screen-invite-received')
     openInviteModal(S.currentInvite.expiresAt)
@@ -2497,7 +2565,9 @@ function showNextInvite() {
     const msg = S.consumptionReq.note ? ` • Mensaje: ${S.consumptionReq.note}` : ''
     const mesaTxt = S.consumptionReq.from.tableId ? ` • Mesa ${S.consumptionReq.from.tableId}` : ''
     const listTxt = (Array.isArray(S.consumptionReq.items) ? S.consumptionReq.items.map(it => `${it.quantity} x ${it.product}`).join(', ') : S.consumptionReq.product)
-    const info = q('invite-received-info'); if (info) info.textContent = `${S.consumptionReq.from.alias} te invita ${listTxt}${mesaTxt}${msg}`
+    const g = genderLabel(S.consumptionReq.from.gender)
+    const gTxt = g ? ` • ${g}` : ''
+    const info = q('invite-received-info'); if (info) info.textContent = `${S.consumptionReq.from.alias}${gTxt} te invita ${listTxt}${mesaTxt}${msg}`
     stopInviteCountdown()
     show('screen-invite-received')
     S.skipConfirmInvite = true
@@ -2519,7 +2589,9 @@ function openInvitesInbox() {
     if (item.type === 'dance') {
       const from = item.invite.from || {}
       const ttl = item.invite.expiresAt ? ` • expira ${formatTimeShort(item.invite.expiresAt)}` : ''
-      div.textContent = `Baile de ${from.alias || from.id}${ttl}`
+      const g = genderLabel(from.gender)
+      const gTxt = g ? ` • ${g}` : ''
+      div.textContent = `Baile de ${from.alias || from.id}${gTxt}${ttl}`
       const row = document.createElement('div'); row.className = 'row'
       const bA = document.createElement('button'); bA.textContent = 'Aceptar'; bA.onclick = async () => { await api('/api/invite/respond', { method: 'POST', body: JSON.stringify({ inviteId: item.id, action: 'accept', note: '' }) }); show('screen-user-home') }
       const bP = document.createElement('button'); bP.textContent = 'Pasar'; bP.onclick = async () => { await api('/api/invite/respond', { method: 'POST', body: JSON.stringify({ inviteId: item.id, action: 'pass', note: '' }) }); S.invitesQueue = S.invitesQueue.filter(x => !(x.type === 'dance' && String(x.id || '') === String(item.id || ''))); openInvitesInbox() }
@@ -2527,7 +2599,9 @@ function openInvitesInbox() {
     } else if (item.type === 'consumption') {
       const data = item.data
       const listTxt = (Array.isArray(data.items) ? data.items.map(it => `${it.quantity} x ${it.product}`).join(', ') : `${data.quantity || 1} x ${data.product}`)
-      div.textContent = `Consumo de ${data.from.alias}: ${listTxt}`
+      const g = genderLabel(data.from.gender)
+      const gTxt = g ? ` • ${g}` : ''
+      div.textContent = `Consumo de ${data.from.alias}${gTxt}: ${listTxt}`
       const row = document.createElement('div'); row.className = 'row'
       const bA = document.createElement('button'); bA.textContent = 'Aceptar'; bA.onclick = async () => { if (Array.isArray(data.items) && data.items.length) { await api('/api/consumption/respond/bulk', { method: 'POST', body: JSON.stringify({ fromId: data.from.id, toId: S.user.id, items: data.items, action: 'accept', requestId: data.requestId || '' }) }) } else { const qty = Math.max(1, Number(data.quantity || 1)); await api('/api/consumption/respond', { method: 'POST', body: JSON.stringify({ fromId: data.from.id, toId: S.user.id, product: data.product, quantity: qty, action: 'accept', requestId: data.requestId || '' }) }) } show('screen-user-home') }
       const bP = document.createElement('button'); bP.textContent = 'Pasar'; bP.onclick = async () => { if (Array.isArray(data.items) && data.items.length) { await api('/api/consumption/respond/bulk', { method: 'POST', body: JSON.stringify({ fromId: data.from.id, toId: S.user.id, items: data.items, action: 'pass', requestId: data.requestId || '' }) }) } else { await api('/api/consumption/respond', { method: 'POST', body: JSON.stringify({ fromId: data.from.id, toId: S.user.id, product: data.product, action: 'pass', requestId: data.requestId || '' }) }) } S.invitesQueue = S.invitesQueue.filter(x => !(x.type === 'consumption' && x.data && x.data.requestId === data.requestId)); openInvitesInbox() }
@@ -2715,6 +2789,10 @@ function init() {
   bind()
   try {
     const u = new URL(location.href)
+    const langParam = (u.searchParams.get('lang') || '').toLowerCase()
+    const savedLang = (() => { try { return localStorage.getItem('discos_lang') || '' } catch { return '' } })()
+    S.lang = langParam || savedLang || 'es'
+    loadI18n(S.lang).then(() => { renderGenderSelect() }).catch(() => { renderGenderSelect() })
     const vid = u.searchParams.get('venueId') || ''
     if (vid) S.venueId = vid
     const sid = u.searchParams.get('sessionId') || u.searchParams.get('s')
@@ -2917,12 +2995,22 @@ async function loadAnalytics() {
   const top = q('an-top')
   if (top) {
     top.innerHTML = ''
+    const title = document.createElement('span')
+    title.className = 'chip'
+    title.textContent = t('top_night_drinks')
+    top.append(title)
     for (const name of Object.keys(r.topItems || {})) {
       const chip = document.createElement('span')
       chip.className = 'chip'
       chip.textContent = `${name}: ${r.topItems[name]}`
       top.append(chip)
     }
+    try {
+      const vh = await api(`/api/staff/venue_health?sessionId=${encodeURIComponent(S.sessionId)}&min=10`)
+      const addChip = (txt) => { const c = document.createElement('span'); c.className = 'chip'; c.textContent = txt; top.append(c) }
+      if (vh.mostActiveTable) addChip(`${t('most_active_table')}: ${vh.mostActiveTable}`)
+      if (vh.peakHourLabel) addChip(`${t('invite_peak_hour')}: ${vh.peakHourLabel}`)
+    } catch {}
   }
 }
 function addStaffPromo() {
@@ -3147,6 +3235,7 @@ function addToCart() {
   const inp = q('product'); if (inp) inp.value = ''
   const qn = q('quantity'); if (qn) qn.value = '1'
   renderCart()
+  maybeSuggestPairings(product)
 }
 function applyCatalogSearch() {
   const inp = q('catalog-search')
@@ -3168,6 +3257,10 @@ async function showCatalogTop() {
     const top = q('catalog-top')
     if (!top) return
     top.innerHTML = ''
+    const title = document.createElement('span')
+    title.className = 'chip'
+    title.textContent = t('top_night_drinks')
+    top.append(title)
     const items = r.topItems || {}
     const names = Object.keys(items)
     for (const name of names.slice(0, 8)) {
@@ -3176,6 +3269,22 @@ async function showCatalogTop() {
       chip.textContent = `${name} • ${items[name]}`
       chip.onclick = () => { const p = q('product'); if (p) p.value = name }
       top.append(chip)
+    }
+  } catch {}
+}
+function maybeSuggestPairings(product) {
+  try {
+    const name = String(product || '').trim()
+    if (!name) return
+    const all = []
+    for (const arr of Object.values(S.catalogGroups || {})) for (const it of arr || []) all.push(it)
+    const combos = all.filter(it => !!it.combo && Array.isArray(it.includes) && it.includes.includes(name))
+    const others = []
+    for (const c of combos) for (const inc of c.includes) if (inc !== name && !others.includes(inc)) others.push(inc)
+    if (others.length) {
+      const pick = others.slice(0, 2)
+      const msg = pick.length === 1 ? `Suele pedirse con: ${pick[0]}` : `Suele pedirse con: ${pick[0]} • ${pick[1]}`
+      showSuccess(msg)
     }
   } catch {}
 }
@@ -3213,12 +3322,31 @@ async function loadStaffCatalogEditor() {
       subInput.type = 'text'
       subInput.placeholder = 'Subcategoría'
       subInput.value = String(it.subcategory || '')
+      const combo = document.createElement('input')
+      combo.type = 'checkbox'
+      combo.checked = !!it.combo
+      combo.title = 'Combo'
+      const includes = document.createElement('input')
+      includes.type = 'text'
+      includes.placeholder = 'Incluye (coma)'
+      includes.value = Array.isArray(it.includes) ? it.includes.join(',') : ''
+      const discount = document.createElement('input')
+      discount.type = 'number'
+      discount.min = '0'
+      discount.max = '100'
+      discount.placeholder = '% desc'
+      discount.value = Number(it.discount || 0)
       name.oninput = scheduleCatalogSave
       price.oninput = scheduleCatalogSave
       category.oninput = scheduleCatalogSave
       subInput.oninput = scheduleCatalogSave
+      combo.onchange = scheduleCatalogSave
+      includes.oninput = scheduleCatalogSave
+      discount.oninput = scheduleCatalogSave
       const del = document.createElement('button'); del.textContent = 'Eliminar'; del.onclick = () => { try { row.remove(); scheduleCatalogSave() } catch {} }
-      row.append(name, price, category, subInput, del)
+      const lblCombo = document.createElement('label'); lblCombo.textContent = 'Combo'; lblCombo.style.marginLeft = '8px'
+      lblCombo.appendChild(combo)
+      row.append(name, price, category, subInput, lblCombo, includes, discount, del)
       container.append(row)
     }
   } catch {}
@@ -3233,18 +3361,23 @@ async function saveStaffCatalog() {
       const priceInput = row.querySelector('input[type="number"]')
       const catSelect = row.querySelector('select')
       const subInput = (() => { const arr = row.querySelectorAll('input[type=\"text\"]'); return arr.length > 1 ? arr[1] : null })()
+      const comboInput = row.querySelector('input[type="checkbox"]')
+      const includesInput = (() => { const arr = row.querySelectorAll('input[type=\"text\"]'); return arr.length > 2 ? arr[2] : null })()
+      const discInput = (() => { const arr = row.querySelectorAll('input[type=\"number\"]'); return arr.length > 1 ? arr[1] : null })()
       if (!nameInput || !priceInput || !catSelect) continue
       const name = nameInput.value.trim()
       const price = Number(priceInput.value || 0)
       const category = (catSelect.value || 'otros').toLowerCase()
       const subcategory = subInput ? String(subInput.value || '').trim() : ''
-      items.push({ name, price, category, subcategory })
+      const combo = !!(comboInput && comboInput.checked)
+      const includes = includesInput ? String(includesInput.value || '').split(',').map(s => s.trim()).filter(Boolean) : []
+      const discount = discInput ? Math.max(0, Math.min(100, Number(discInput.value || 0))) : 0
+      items.push({ name, price, category, subcategory, combo, includes, discount })
     }
-    await api('/api/staff/catalog', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, items }) })
-    showError('Carta guardada')
-    setTimeout(() => showError(''), 1000)
+    const s = await api('/api/staff/catalog', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, items }) })
+    if (s && s.ok) { showError('Carta guardada'); setTimeout(() => showError(''), 1000) }
     await loadStaffCatalogEditor()
-  } catch (e) { showError(String(e.message)) }
+  } catch (e) { showError(String(e.message || 'Error')) }
 }
 async function useGlobalCatalog() {
   try {

@@ -1,0 +1,12 @@
+{
+  "most_active_table": "Mesa más activa",
+  "top_night_drinks": "Top bebidas de la noche",
+  "invite_peak_hour": "Hora pico de invitaciones",
+  "gender_label": "Género (obligatorio)",
+  "gender_placeholder": "Selecciona tu género",
+  "gender_required": "Selecciona tu género",
+  "gender_male": "Hombre",
+  "gender_female": "Mujer",
+  "gender_other": "Otro",
+  "gender_na": "Prefiero no decir"
+}

@@ -24,6 +24,8 @@ const state = {
   // Meta para SSE: trackear actividad para cerrar conexiones inactivas
   sseUserMeta: new Map(),   // key: res, value: { startedAt, lastWrite }
   sseStaffMeta: new Map(),  // key: res, value: { startedAt, lastWrite }
+  behaviorScore: new Map(),
+  scoreLastDecay: 0,
   rate: {
     invitesByUserHour: new Map(),
     lastInvitePair: new Map(),
@@ -354,6 +356,7 @@ const defaultCatalog = [
   { name: 'Jugo natural', price: 12000, category: 'sodas', subcategory: '' },
 ]
 const allowedCategories = ['cervezas','botellas','cocteles','sodas','otros']
+const allowedGenders = ['m','f','o','na']
 function sanitizeItem(it) {
   const name = String(it.name || '').slice(0, 60)
   const price = Number(it.price || 0)
@@ -458,7 +461,7 @@ function rateCanInvite(fromId, toId) {
   if (fresh.length >= 5) return false
   const pairKey = `${fromId}:${toId}`
   const last = state.rate.lastInvitePair.get(pairKey)
-  if (last && within(30 * 60 * 1000, last.ts) && last.blocked) return false
+  if (last && Number(last.untilTs || 0) > now()) return false
   state.rate.invitesByUserHour.set(hourKey, [...fresh, now()])
   return true
 }
@@ -474,6 +477,21 @@ function markBlockedEvent(targetId) {
   state.rate.restrictedUsers.set(targetId, prev + 1)
 }
 
+function updateBehaviorScore(userId, delta) {
+  const cur = Number(state.behaviorScore.get(userId) || 0)
+  state.behaviorScore.set(userId, cur + Number(delta || 0))
+}
+
+function computeInviteTTL(toUser) {
+  try {
+    const nowTs = now()
+    const recentMeet = Number(toUser && toUser.lastMeetingEndedAt || 0)
+    if (recentMeet && (nowTs - recentMeet) < (10 * 60 * 1000)) return 45 * 1000
+    const lastActive = Number(toUser && toUser.lastActiveAt || 0)
+    if (!lastActive || (nowTs - lastActive) > (2 * 60 * 1000)) return 90 * 1000
+    return 60 * 1000
+  } catch { return 60 * 1000 }
+}
 function isBlockedPair(a, b) {
   return state.blocks.has(`${a}:${b}`) || state.blocks.has(`${b}:${a}`)
 }
@@ -734,7 +752,7 @@ const server = http.createServer(async (req, res) => {
         if (!alias) { json(res, 400, { error: 'alias_required' }); return }
       }
       const id = genId(role === 'staff' ? 'staff' : 'user')
-      const user = { id, sessionId: body.sessionId, role, alias: role === 'user' ? String(body.alias || '').trim().slice(0, 32) : '', selfie: '', selfieApproved: false, available: false, prefs: { tags: [] }, zone: '', muted: false, receiveMode: 'all', allowedSenders: new Set(), tableId: '', visibility: 'visible', pausedUntil: 0, silenced: false, danceState: 'idle', dancePartnerId: '', meetingId: '' }
+      const user = { id, sessionId: body.sessionId, role, alias: role === 'user' ? String(body.alias || '').trim().slice(0, 32) : '', selfie: '', selfieApproved: false, available: false, prefs: { tags: [], gender: '' }, zone: '', muted: false, receiveMode: 'all', allowedSenders: new Set(), tableId: '', visibility: 'visible', pausedUntil: 0, silenced: false, danceState: 'idle', dancePartnerId: '', meetingId: '' }
       state.users.set(id, user)
       try { await dbUpsertUser(user) } catch {}
       json(res, 200, { user })
@@ -757,6 +775,10 @@ const server = http.createServer(async (req, res) => {
       const u = state.users.get(body.userId)
       if (!u) { json(res, 404, { error: 'no_user' }); return }
       u.alias = String(body.alias || '').slice(0, 32)
+      const genderRaw = String(body.gender || '').toLowerCase()
+      if (!allowedGenders.includes(genderRaw)) { json(res, 400, { error: 'gender_required' }); return }
+      u.prefs = u.prefs || {}
+      u.prefs.gender = genderRaw
       const selfieStr = String(body.selfie || '')
       // Validaciones de imagen: tamaño ≤ 500KB, MIME permitido (jpeg/webp)
       let okImage = false, err = ''
@@ -997,7 +1019,7 @@ const server = http.createServer(async (req, res) => {
       if (!u) { json(res, 404, { error: 'no_user' }); return }
       u.available = !!body.available
       u.receiveMode = body.receiveMode || 'all'
-      u.prefs = body.prefs || {}
+      u.prefs = Object.assign({}, u.prefs || {}, (body.prefs || {}))
       u.zone = body.zone || ''
       try { await dbUpsertUser(u) } catch {}
       json(res, 200, { ok: true })
@@ -1029,6 +1051,13 @@ const server = http.createServer(async (req, res) => {
         const partnerAlias = partner ? (partner.alias || partner.id) : ''
         arr.push({ id: u.id, alias: u.alias, selfie: u.selfie || '', tags: u.prefs.tags || [], zone: u.zone, available: u.available, tableId: u.tableId, danceState: u.danceState || 'idle', partnerAlias })
       }
+      arr.sort((a, b) => {
+        const sa = Number(state.behaviorScore.get(a.id) || 0)
+        const sb = Number(state.behaviorScore.get(b.id) || 0)
+        if (sb !== sa) return sb - sa
+        const aa = String(a.alias || a.id), bb = String(b.alias || b.id)
+        return aa.localeCompare(bb)
+      })
       json(res, 200, { users: arr })
       return
     }
@@ -1090,10 +1119,11 @@ const server = http.createServer(async (req, res) => {
       const msg = body.messageType === 'invitoCancion' ? 'invitoCancion' : 'bailamos'
       if (!rateCanInvite(from.id, to.id)) { json(res, 429, { error: 'rate' }); return }
       const invId = genId('inv')
-      const inv = { id: invId, sessionId: from.sessionId, fromId: from.id, toId: to.id, msg, status: 'pendiente', createdAt: now(), expiresAt: now() + 60 * 1000 }
+      const ttlMs = computeInviteTTL(to)
+      const inv = { id: invId, sessionId: from.sessionId, fromId: from.id, toId: to.id, msg, status: 'pendiente', createdAt: now(), expiresAt: now() + ttlMs }
       state.invites.set(invId, inv)
       const fromSelfie = from.selfie || ''
-      sendToUser(to.id, 'dance_invite', { invite: { id: invId, from: { id: from.id, alias: from.alias, selfie: fromSelfie, tableId: from.tableId || '', zone: from.zone || '' } , msg, expiresAt: inv.expiresAt } })
+      sendToUser(to.id, 'dance_invite', { invite: { id: invId, from: { id: from.id, alias: from.alias, selfie: fromSelfie, tableId: from.tableId || '', zone: from.zone || '', gender: (from.prefs && from.prefs.gender) ? from.prefs.gender : '' } , msg, expiresAt: inv.expiresAt } })
       json(res, 200, { inviteId: invId, expiresAt: inv.expiresAt })
       return
     }
@@ -1104,6 +1134,7 @@ const server = http.createServer(async (req, res) => {
       if (String(inv.toId) !== String(body.toId)) { json(res, 403, { error: 'forbidden' }); return }
       inv.seenAt = now()
       const uTo = state.users.get(inv.toId)
+      try { if (uTo) uTo.lastActiveAt = now() } catch {}
       try { sendToUser(inv.fromId, 'invite_seen', { inviteId: inv.id, to: { id: inv.toId, alias: uTo ? (uTo.alias || uTo.id) : inv.toId } }) } catch {}
       json(res, 200, { ok: true })
       return
@@ -1121,15 +1152,21 @@ const server = http.createServer(async (req, res) => {
           const prev = Number(state.rate.passesByPair.get(pairKey) || 0)
           const next = prev + 1
           state.rate.passesByPair.set(pairKey, next)
-          if (next >= 2) {
-            state.rate.lastInvitePair.set(pairKey, { ts: now(), blocked: true })
-          }
+          let cooldownMs = 0
+          if (next === 1) cooldownMs = 5 * 60 * 1000
+          else if (next === 2) cooldownMs = 30 * 60 * 1000
+          else cooldownMs = 24 * 60 * 60 * 1000
+          const emitterScore = Number(state.behaviorScore.get(inv.fromId) || 0)
+          const mult = emitterScore < 0 ? Math.min(2, 1 + ((-emitterScore) / 10)) : 1
+          state.rate.lastInvitePair.set(pairKey, { ts: now(), blocked: true, untilTs: now() + Math.floor(cooldownMs * mult) })
         }
+        updateBehaviorScore(inv.toId, -1)
         sendToUser(inv.fromId, 'invite_result', { inviteId: inv.id, status: 'pasado', note })
         json(res, 200, { ok: true })
         return
       }
       inv.status = 'aceptado'
+      updateBehaviorScore(inv.toId, +1)
       const toUser = state.users.get(inv.toId)
       if (toUser && toUser.allowedSenders) toUser.allowedSenders.add(inv.fromId)
       const meetingId = genId('meet')
@@ -1227,8 +1264,9 @@ const server = http.createServer(async (req, res) => {
       const reqId = genId('cinv')
       const note = String(body.note || '').slice(0, 140)
       const qty = Math.max(1, Number(body.quantity || 1))
-      state.consumptionInvites.set(reqId, { id: reqId, sessionId: from.sessionId, fromId: from.id, toId: to.id, createdAt: now(), expiresAt: now() + 60 * 1000, seenAt: 0, notSeenNotified: false })
-      sendToUser(to.id, 'consumption_invite', { requestId: reqId, from: { id: from.id, alias: from.alias, tableId: from.tableId || '' }, product: body.product, quantity: qty, note, expiresAt: now() + 60 * 1000 })
+      const ttlMs = computeInviteTTL(to)
+      state.consumptionInvites.set(reqId, { id: reqId, sessionId: from.sessionId, fromId: from.id, toId: to.id, createdAt: now(), expiresAt: now() + ttlMs, seenAt: 0, notSeenNotified: false })
+      sendToUser(to.id, 'consumption_invite', { requestId: reqId, from: { id: from.id, alias: from.alias, tableId: from.tableId || '', gender: (from.prefs && from.prefs.gender) ? from.prefs.gender : '' }, product: body.product, quantity: qty, note, expiresAt: now() + ttlMs })
       json(res, 200, { requestId: reqId })
       return
     }
@@ -1248,8 +1286,9 @@ const server = http.createServer(async (req, res) => {
       if (!filtered.length) { json(res, 400, { error: 'no_items' }); return }
       const reqId = genId('cinv')
       const note = String(body.note || '').slice(0, 140)
-      state.consumptionInvites.set(reqId, { id: reqId, sessionId: from.sessionId, fromId: from.id, toId: to.id, createdAt: now(), expiresAt: now() + 60 * 1000, seenAt: 0, notSeenNotified: false })
-      sendToUser(to.id, 'consumption_invite_bulk', { requestId: reqId, from: { id: from.id, alias: from.alias, tableId: from.tableId || '' }, items: filtered, note, expiresAt: now() + 60 * 1000 })
+      const ttlMsBulk = computeInviteTTL(to)
+      state.consumptionInvites.set(reqId, { id: reqId, sessionId: from.sessionId, fromId: from.id, toId: to.id, createdAt: now(), expiresAt: now() + ttlMsBulk, seenAt: 0, notSeenNotified: false })
+      sendToUser(to.id, 'consumption_invite_bulk', { requestId: reqId, from: { id: from.id, alias: from.alias, tableId: from.tableId || '', gender: (from.prefs && from.prefs.gender) ? from.prefs.gender : '' }, items: filtered, note, expiresAt: now() + ttlMsBulk })
       json(res, 200, { requestId: reqId })
       return
     }
@@ -1686,7 +1725,7 @@ const server = http.createServer(async (req, res) => {
             msg: inv.msg,
             createdAt: inv.createdAt,
             expiresAt: inv.expiresAt,
-            from: { id: inv.fromId, alias: from ? (from.alias || '') : '', selfie: from ? (from.selfie || '') : '', tableId: from ? (from.tableId || '') : '', zone: from ? (from.zone || '') : '' }
+            from: { id: inv.fromId, alias: from ? (from.alias || '') : '', selfie: from ? (from.selfie || '') : '', tableId: from ? (from.tableId || '') : '', zone: from ? (from.zone || '') : '', gender: (from && from.prefs && from.prefs.gender) ? from.prefs.gender : '' }
           })
         }
       }
@@ -1941,6 +1980,89 @@ const server = http.createServer(async (req, res) => {
       json(res, 200, { usersCount, mesasActivas: mesasSet.size, invitesSent, invitesAccepted, orders, topItems })
       return
     }
+    if (pathname === '/api/staff/venue_health' && req.method === 'GET') {
+      const sessionId = query.sessionId
+      const minOld = Math.max(1, Number(query.min || 5))
+      const nowTs = now()
+      let invitesActive = 0
+      let invitesTotal = 0
+      let invitesSeen = 0
+      let invitesAccepted = 0
+      const tablesActivity = {}
+      for (const inv of state.invites.values()) {
+        if (inv.sessionId !== sessionId) continue
+        invitesTotal++
+        if (inv.status === 'pendiente') invitesActive++
+        if (inv.seenAt) invitesSeen++
+        if (inv.status === 'aceptado') invitesAccepted++
+        const toUser = state.users.get(inv.toId)
+        const t = toUser && toUser.tableId ? toUser.tableId : ''
+        if (t) {
+          const ent = tablesActivity[t] || { received: 0, accepted: 0 }
+          ent.received++
+          if (inv.status === 'aceptado') ent.accepted++
+          tablesActivity[t] = ent
+        }
+      }
+      for (const ci of state.consumptionInvites.values()) {
+        if (ci.sessionId !== sessionId) continue
+        if (ci.expiresAt && nowTs < ci.expiresAt) invitesActive++
+        const toUser = state.users.get(ci.toId)
+        const t = toUser && toUser.tableId ? toUser.tableId : ''
+        if (t) {
+          const ent = tablesActivity[t] || { received: 0, accepted: 0 }
+          ent.received++
+          tablesActivity[t] = ent
+        }
+      }
+      const ordersPendingOverX = []
+      for (const o of state.orders.values()) {
+        if (o.sessionId !== sessionId) continue
+        if (o.status === 'pendiente_cobro' && (nowTs - Number(o.createdAt || nowTs)) > (minOld * 60 * 1000)) ordersPendingOverX.push(o)
+      }
+      const alerts = []
+      const windowMs = 10 * 60 * 1000
+      const tablesWindow = {}
+      for (const inv of state.invites.values()) {
+        if (inv.sessionId !== sessionId) continue
+        if (!inv.createdAt || (nowTs - inv.createdAt) > windowMs) continue
+        const toUser = state.users.get(inv.toId)
+        const t = toUser && toUser.tableId ? toUser.tableId : ''
+        if (!t) continue
+        const entry = tablesWindow[t] || { received: 0, accepted: 0 }
+        entry.received++
+        if (inv.status === 'aceptado') entry.accepted++
+        tablesWindow[t] = entry
+      }
+      for (const t of Object.keys(tablesWindow)) {
+        const entry = tablesWindow[t]
+        if (entry.received >= 12 && entry.accepted === 0) alerts.push(`Mesa ${t} recibió ${entry.received} invitaciones en 10 min, 0 aceptadas`)
+      }
+      const seenRate = invitesTotal ? Math.round((invitesSeen / invitesTotal) * 100) : 0
+      const acceptedRate = invitesTotal ? Math.round((invitesAccepted / invitesTotal) * 100) : 0
+      const tables = Object.keys(tablesActivity).map(t => ({ tableId: t, received: tablesActivity[t].received, accepted: tablesActivity[t].accepted }))
+      tables.sort((a, b) => {
+        if (b.received !== a.received) return b.received - a.received
+        return a.tableId.localeCompare(b.tableId)
+      })
+      // Pico de invitaciones por hora (últimas 24h)
+      const buckets = new Map()
+      for (const inv of state.invites.values()) {
+        if (inv.sessionId !== sessionId) continue
+        const ts = Number(inv.createdAt || 0)
+        if (!ts || (nowTs - ts) > (24 * 60 * 60 * 1000)) continue
+        const d = new Date(ts)
+        const hr = d.getHours()
+        buckets.set(hr, (buckets.get(hr) || 0) + 1)
+      }
+      let peakHour = -1, peakCount = 0
+      for (const [hr, count] of buckets.entries()) { if (count > peakCount) { peakCount = count; peakHour = hr } }
+      const pad = (n) => String(n).padStart(2, '0')
+      const peakHourLabel = peakHour >= 0 ? `${pad(peakHour)}:00` : ''
+      const mostActiveTable = tables.length ? tables[0].tableId : ''
+      json(res, 200, { invitesActive, seenRate, acceptedRate, tablesActivity: tables, ordersPendingOverMin: ordersPendingOverX.length, alerts, peakHour, peakHourLabel, mostActiveTable })
+      return
+    }
     if (pathname === '/api/staff/catalog' && req.method === 'POST') {
       const body = await parseBody(req)
       const s = ensureSession(body.sessionId)
@@ -1952,8 +2074,11 @@ const server = http.createServer(async (req, res) => {
         const rawCat = String(it.category || '').toLowerCase().slice(0, 24)
         const category = allowedCategories.includes(rawCat) ? rawCat : 'otros'
         const subcategory = String(it.subcategory || '').slice(0, 60)
+        const combo = !!it.combo
+        const includes = Array.isArray(it.includes) ? it.includes.map(x => String(x || '').slice(0, 60)).filter(x => x) : []
+        const discount = Math.max(0, Math.min(100, Number(it.discount || 0)))
         if (!name) continue
-        clean.push({ name, price, category, subcategory })
+        clean.push({ name, price, category, subcategory, combo, includes, discount })
       }
       if (s) s.catalog = clean
       if (db) {
@@ -2035,6 +2160,7 @@ const server = http.createServer(async (req, res) => {
       const userId = query.userId
       const u = state.users.get(userId)
       if (!u) { res.writeHead(404); res.end(); return }
+      try { u.lastActiveAt = now() } catch {}
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'Access-Control-Allow-Origin': '*' })
       const arr = state.sseUsers.get(userId) || []
       arr.push(res)
@@ -2111,6 +2237,7 @@ setInterval(() => {
       inv.status = 'expirado'
       try {
         const reason = inv.seenAt ? '' : 'unseen'
+        if (reason === 'unseen') { try { updateBehaviorScore(inv.fromId, -2) } catch {} }
         sendToUser(inv.fromId, 'invite_result', { inviteId: inv.id, status: 'expirado', reason })
         sendToUser(inv.toId, 'invite_result', { inviteId: inv.id, status: 'expirado', reason })
       } catch {}
@@ -2146,8 +2273,8 @@ setInterval(() => {
       if (inv) {
         const uFrom = state.users.get(inv.fromId)
         const uTo = state.users.get(inv.toId)
-        if (uFrom) { uFrom.danceState = 'idle'; uFrom.dancePartnerId = ''; uFrom.meetingId = '' }
-        if (uTo) { uTo.danceState = 'idle'; uTo.dancePartnerId = ''; uTo.meetingId = '' }
+        if (uFrom) { uFrom.danceState = 'idle'; uFrom.dancePartnerId = ''; uFrom.meetingId = ''; uFrom.lastMeetingEndedAt = now() }
+        if (uTo) { uTo.danceState = 'idle'; uTo.dancePartnerId = ''; uTo.meetingId = ''; uTo.lastMeetingEndedAt = now() }
         try {
           sendToUser(inv.fromId, 'meeting_expired', { meetingId: m.id })
           sendToUser(inv.toId, 'meeting_expired', { meetingId: m.id })
@@ -2164,6 +2291,14 @@ setInterval(() => {
     }
     for (const sessId of state.sseStaff.keys()) {
       try { sendToStaff(sessId, 'ping', { ts: nowTs }) } catch {}
+    }
+  }
+  // Decaimiento de puntaje de comportamiento cada 10 minutos
+  if (!state.scoreLastDecay || (nowTs - state.scoreLastDecay) > (10 * 60 * 1000)) {
+    state.scoreLastDecay = nowTs
+    for (const [uid, score] of state.behaviorScore.entries()) {
+      if (score > 0) state.behaviorScore.set(uid, score - 1)
+      else if (score < 0) state.behaviorScore.set(uid, score + 1)
     }
   }
   // Cierre automático de SSE inactivas (>15 min sin eventos enviados)

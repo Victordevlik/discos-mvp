@@ -1,0 +1,12 @@
+{
+  "most_active_table": "Most active table",
+  "top_night_drinks": "Top drinks of the night",
+  "invite_peak_hour": "Invite peak hour",
+  "gender_label": "Gender (required)",
+  "gender_placeholder": "Select your gender",
+  "gender_required": "Select your gender",
+  "gender_male": "Male",
+  "gender_female": "Female",
+  "gender_other": "Other",
+  "gender_na": "Prefer not to say"
+}
