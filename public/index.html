@@ -16,7 +16,7 @@
       <div id="modal-title"></div>
       <div id="modal-text"></div>
       <div class="row">
-        <button id="modal-close">Cerrar</button>
+        <button id="modal-close" class="secondary">Cerrar</button>
       </div>
     </div>
   </div>
@@ -44,14 +44,14 @@
     <h2>Ingreso Staff</h2>
     <div class="card">
       <div class="cta">
-        <button class="secondary" id="btn-start-session-welcome">Iniciar sesión de la noche</button>
+        <button class="primary" id="btn-start-session-welcome">Iniciar sesión de la noche</button>
       </div>
       <div class="row">
         <input id="join-pin" type="password" inputmode="numeric" placeholder="PIN">
       </div>
       <div class="section-title">Recuperar PIN por email</div>
       <div class="row">
-        <button id="btn-welcome-venue-pin-send">Enviar PIN al email</button>
+        <button id="btn-welcome-venue-pin-send" class="info">Enviar PIN al email</button>
       </div>
     </div>
   </div>
@@ -67,7 +67,7 @@
       <label>Selfie (obligatorio)</label>
       <input id="selfie" type="file" accept="image/*" capture="user" required>
       <div class="row">
-        <button id="btn-save-profile">Guardar</button>
+        <button id="btn-save-profile" class="success">Guardar</button>
       </div>
       <div id="selfie-note"></div>
     </div>
@@ -96,11 +96,11 @@
       <label class="switch"><input id="switch-available" type="checkbox"><span>Disponible para bailar</span></label>
       <span id="tip-refresh-bailar" class="chip sticker" style="display:none">Tip: si ves notificación en la lupa de Bailar, refresca; puede ser una invitación perdida</span>
     </div>
-    <div class="row"><button id="btn-end-dance" style="display:none">Terminé de bailar</button></div>
+    <div class="row"><button id="btn-end-dance" class="warning" style="display:none">Terminé de bailar</button></div>
     <div class="section-title">Perfil</div>
     <div class="row">
-      <button id="btn-edit-profile" class="icon"><svg viewBox="0 0 24 24" fill="none"><path d="M15 4l5 5-9 9H6v-5z" stroke="#a6b0ff" stroke-width="1.5"/></svg><span>Editar perfil</span></button>
-      <button id="btn-select-table" class="icon"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="8" width="18" height="10" rx="2" stroke="#a6b0ff" stroke-width="1.5"/><path d="M12 12l3 3M12 12l-3 3" stroke="#a6b0ff" stroke-width="1.5"/></svg><span>Seleccionar mesa</span></button>
+      <button id="btn-edit-profile" class="icon info"><svg viewBox="0 0 24 24" fill="none"><path d="M15 4l5 5-9 9H6v-5z" stroke="#a6b0ff" stroke-width="1.5"/></svg><span>Editar perfil</span></button>
+      <button id="btn-select-table" class="icon info"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="8" width="18" height="10" rx="2" stroke="#a6b0ff" stroke-width="1.5"/><path d="M12 12l3 3M12 12l-3 3" stroke="#a6b0ff" stroke-width="1.5"/></svg><span>Seleccionar mesa</span></button>
     </div>
     <div class="party-hero">
       <div class="party-bg"></div>
@@ -138,8 +138,8 @@
     </div>
     <div class="card">
       <div class="row">
-        <button id="btn-avail-by-table" class="icon"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="8" width="18" height="10" rx="2" stroke="#a6b0ff" stroke-width="1.5"/><path d="M12 12l3 3M12 12l-3 3" stroke="#a6b0ff" stroke-width="1.5"/></svg><span>Ver por mesa (otras mesas)</span></button>
-        <button id="btn-avail-all" class="icon"><svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="6" stroke="#a6b0ff" stroke-width="1.5"/><path d="M21 21l-4.5-4.5" stroke="#a6b0ff" stroke-width="1.5"/></svg><span>Ver todos</span></button>
+        <button id="btn-avail-by-table" class="icon info"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="8" width="18" height="10" rx="2" stroke="#a6b0ff" stroke-width="1.5"/><path d="M12 12l3 3M12 12l-3 3" stroke="#a6b0ff" stroke-width="1.5"/></svg><span>Ver por mesa (otras mesas)</span></button>
+        <button id="btn-avail-all" class="icon info"><svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="6" stroke="#a6b0ff" stroke-width="1.5"/><path d="M21 21l-4.5-4.5" stroke="#a6b0ff" stroke-width="1.5"/></svg><span>Ver todos</span></button>
       </div>
     </div>
   </div>
@@ -158,7 +158,7 @@
     <div class="card">
       <div>Receptor (ID): <span id="avail-receiver-id">-</span></div>
       <div class="row">
-        <button id="btn-invite-show-all" class="secondary">Ver invitaciones</button>
+        <button id="btn-invite-show-all" class="info">Ver invitaciones</button>
       </div>
     </div>
     <div id="available-list"></div>
@@ -180,10 +180,10 @@
     <div class="card">
       <div id="invite-person"></div>
       <div class="row">
-        <button data-msg="bailamos" class="btn-invite-msg">¿Bailamos?</button>
-        <button data-msg="invitoCancion" class="btn-invite-msg">¿Te invito una canción?</button>
+        <button data-msg="bailamos" class="btn-invite-msg info">¿Bailamos?</button>
+        <button data-msg="invitoCancion" class="btn-invite-msg info">¿Te invito una canción?</button>
       </div>
-      <button id="btn-invite-send">Enviar</button>
+      <button id="btn-invite-send" class="success">Enviar</button>
     </div>
   </div>
 
@@ -213,8 +213,8 @@
     <h2 class="party-title">Invitaciones</h2>
     <div class="card">
       <div class="row">
-        <button id="btn-pass-all-invites" class="secondary">Pasar todas (baile)</button>
-        <button id="btn-pass-all-consumption" class="secondary">Pasar todas (consumo)</button>
+        <button id="btn-pass-all-invites" class="warning">Pasar todas (baile)</button>
+        <button id="btn-pass-all-consumption" class="warning">Pasar todas (consumo)</button>
       </div>
       <div id="invites-inbox"></div>
     </div>
@@ -235,16 +235,16 @@
     <div class="card">
       <div>Elige cómo nos encontramos</div>
       <div class="row">
-        <button id="btn-meet-come">Ven por mí</button>
-        <button id="btn-meet-go">Ya voy por ti</button>
-        <button id="btn-meet-pista">Nos vemos en la pista</button>
+        <button id="btn-meet-come" class="info">Ven por mí</button>
+        <button id="btn-meet-go" class="success">Ya voy por ti</button>
+        <button id="btn-meet-pista" class="warning">Nos vemos en la pista</button>
       </div>
       <div id="meeting-plan-display"></div>
       <div id="meeting-note" class="section-title"></div>
     </div>
     <div class="row">
-      <button id="btn-meeting-confirm">Confirmar</button>
-      <button id="btn-meeting-cancel">Cancelar</button>
+      <button id="btn-meeting-confirm" class="success">Confirmar</button>
+      <button id="btn-meeting-cancel" class="danger">Cancelar</button>
       <button id="btn-meeting-home" class="secondary">Ir al inicio</button>
     </div>
   </div>
@@ -253,7 +253,7 @@
     <h2 id="consumption-title">Invitar consumo</h2>
     <div class="card">
       <div class="row">
-        <button id="btn-catalog-back" class="primary" style="display:none">Volver a categorías</button>
+        <button id="btn-catalog-back" class="secondary" style="display:none">Volver a categorías</button>
       </div>
       <div class="section-title">Tip: selecciona un producto; se carga en “Producto”. Usa el buscador: escribe 2–3 letras para filtrar rápido.</div>
       <div class="row">
@@ -271,7 +271,7 @@
         <input id="quantity" type="number" min="1" value="1">
       </div>
       <div class="row">
-        <button id="btn-add-to-cart" class="primary">Agregar al carrito</button>
+        <button id="btn-add-to-cart" class="info">Agregar al carrito</button>
       </div>
       <div id="cart-section">
         <h3>Carrito</h3>
@@ -283,9 +283,9 @@
         <label>Mensaje (opcional)</label>
         <input id="consumption-note" placeholder="Ej. Te invito una bebida">
       </div>
-      <button id="btn-consumption-send">Enviar invitación</button>
+      <button id="btn-consumption-send" class="success">Enviar invitación</button>
       <div class="row">
-        <button id="btn-order-table" class="primary">Pedir para mi mesa</button>
+        <button id="btn-order-table" class="success">Pedir para mi mesa</button>
       </div>
     </div>
   </div>
@@ -335,7 +335,7 @@
       <label>Mesa</label>
       <input id="edit-table" placeholder="Número de mesa (ej. 8)">
       <div class="row">
-        <button id="btn-edit-save">Guardar</button>
+        <button id="btn-edit-save" class="success">Guardar</button>
       </div>
     </div>
   </div>
@@ -344,10 +344,10 @@
     <h2>Llamar mesero</h2>
     <div class="card">
       <div class="row">
-        <button class="btn-waiter-reason" data-reason="hielo">Traer hielo</button>
-        <button class="btn-waiter-reason" data-reason="pasabocas">Traer pasabocas</button>
-        <button class="btn-waiter-reason" data-reason="limpieza">Limpiar la mesa</button>
-        <button class="btn-waiter-reason" data-reason="otro">Otro…</button>
+        <button class="btn-waiter-reason warning" data-reason="hielo">Traer hielo</button>
+        <button class="btn-waiter-reason warning" data-reason="pasabocas">Traer pasabocas</button>
+        <button class="btn-waiter-reason warning" data-reason="limpieza">Limpiar la mesa</button>
+        <button class="btn-waiter-reason warning" data-reason="otro">Otro…</button>
       </div>
     </div>
   </div>
@@ -356,7 +356,7 @@
     <div class="card">
       <div class="row">
         <input id="dj-song" placeholder="Canción (ej. Artista - Título)">
-        <button id="btn-dj-send">Enviar</button>
+        <button id="btn-dj-send" class="success">Enviar</button>
       </div>
       <div class="section-title">Se enviará por mesa. Asegúrate de tener tu mesa seleccionada.</div>
       <div class="row" style="justify-content:center">
@@ -383,7 +383,7 @@
       <div id="select-table-list"></div>
       <div class="row">
         <input id="select-table-manual" placeholder="Número de mesa (ej. 8)">
-        <button id="btn-select-table-save">Guardar</button>
+        <button id="btn-select-table-save" class="success">Guardar</button>
       </div>
     </div>
   </div>
@@ -393,7 +393,7 @@
     <div class="card">
       <label>ID a bloquear</label>
       <input id="block-id">
-      <button id="btn-block">Bloquear</button>
+      <button id="btn-block" class="danger">Bloquear</button>
     </div>
     <div class="card">
       <label>Reportar ID</label>
@@ -402,7 +402,7 @@
       <input id="report-cat">
       <label>Nota</label>
       <input id="report-note">
-      <button id="btn-report">Reportar</button>
+      <button id="btn-report" class="danger">Reportar</button>
     </div>
   </div>
 
@@ -410,8 +410,8 @@
     <div class="row toolbar">
       <h2 id="staff-title">Panel de órdenes</h2>
       <div class="actions">
-        <button id="btn-staff-analytics" class="secondary">Analytics</button>
-        <button id="btn-end-session">Cerrar sesión</button>
+        <button id="btn-staff-analytics" class="info">Analytics</button>
+        <button id="btn-end-session" class="danger">Cerrar sesión</button>
       </div>
     </div>
     <div class="menu" id="staff-menu">
@@ -455,9 +455,9 @@
           <h3>Escanéame para unirte a la fiesta</h3>
           <img id="qr-session" alt="QR sesión" style="display:block;margin:12px auto;width:160px;height:160px;border:1px solid #333;border-radius:8px" />
           <div class="row">
-            <button id="btn-copy-link" class="secondary">Copiar link para usuarios</button>
-            <button id="btn-copy-link-staff" class="secondary">Copiar link Staff</button>
-            <button id="btn-copy-link-dj" class="secondary">Copiar link DJ</button>
+            <button id="btn-copy-link" class="info">Copiar link para usuarios</button>
+            <button id="btn-copy-link-staff" class="info">Copiar link Staff</button>
+            <button id="btn-copy-link-dj" class="info">Copiar link DJ</button>
           </div>
         </div>
       </div>
@@ -484,8 +484,8 @@
           <h3>Historial por mesa</h3>
           <div class="row">
             <input id="staff-table-id" placeholder="Número de mesa (ej. 8)">
-            <button id="btn-staff-table-view">Ver historial</button>
-            <button id="btn-staff-table-close">Cerrar cuenta mesa</button>
+            <button id="btn-staff-table-view" class="info">Ver historial</button>
+            <button id="btn-staff-table-close" class="danger">Cerrar cuenta mesa</button>
           </div>
           <div id="staff-table-orders"></div>
         </div>
@@ -514,8 +514,8 @@
           <div id="staff-promos-list"></div>
           <div class="row">
             <input id="staff-promos-input" placeholder="Ej: 2x1 Mojitos 22-23h">
-            <button id="btn-staff-promos-add">Agregar</button>
-            <button id="btn-staff-promos-save">Guardar promos</button>
+            <button id="btn-staff-promos-add" class="success">Agregar</button>
+            <button id="btn-staff-promos-save" class="success">Guardar promos</button>
           </div>
         </div>
       </div>
@@ -525,7 +525,7 @@
           <div id="staff-catalog-source" class="section-title"></div>
           <div class="row">
             <button id="btn-staff-catalog-use-global" class="secondary">Usar carta global</button>
-            <button id="btn-staff-catalog-copy-global">Copiar desde global</button>
+            <button id="btn-staff-catalog-copy-global" class="info">Copiar desde global</button>
           </div>
           <div id="staff-catalog-list"></div>
           <div class="row">
@@ -539,8 +539,8 @@
               <option value="otros">Otros</option>
             </select>
             <input id="staff-catalog-add-subcategory" placeholder="Subcategoría (ej. Club Colombia)">
-            <button id="btn-staff-catalog-add">Agregar producto</button>
-            <button id="btn-staff-catalog-save" class="secondary">Guardar carta</button>
+            <button id="btn-staff-catalog-add" class="success">Agregar producto</button>
+            <button id="btn-staff-catalog-save" class="success">Guardar carta</button>
           </div>
         </div>
       </div>
@@ -549,7 +549,7 @@
           <h3>DJ</h3>
           <div class="row">
             <input id="staff-dj-filter-table" placeholder="Mesa (opcional)">
-            <button id="btn-staff-dj-load">Ver solicitudes</button>
+            <button id="btn-staff-dj-load" class="info">Ver solicitudes</button>
           </div>
           <div class="row">
             <div id="staff-dj-status">DJ pedidos: desactivados</div>
@@ -557,7 +557,7 @@
             <span id="staff-dj-countdown" class="chip"></span>
             <span id="staff-dj-state-chip" class="chip">Desactivado</span>
             <input id="staff-dj-ttl" placeholder="Minutos (opcional)" style="width:120px">
-            <button id="btn-staff-dj-apply">Aplicar TTL</button>
+            <button id="btn-staff-dj-apply" class="success">Aplicar TTL</button>
           </div>
           <div id="staff-dj-list"></div>
         </div>

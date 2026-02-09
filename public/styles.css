@@ -37,6 +37,10 @@ button { background: linear-gradient(180deg, var(--surface2), var(--surface)); c
 button.primary { background: linear-gradient(180deg, var(--primary), #5868ff); border: 0 }
 button.secondary { background: linear-gradient(180deg, #2a2b43, #1d1f30); border: 0 }
 body[data-theme="light"] button.secondary { background: linear-gradient(180deg, #eff2fb, #e6ebf9); color: #1b1f2b; border: 1px solid #dbe1f3 }
+button.info { background: linear-gradient(180deg, var(--primary), #5868ff); border: 0; color: #fff }
+button.success { background: linear-gradient(180deg, var(--success), #2cab83); border: 0; color: #fff }
+button.warning { background: linear-gradient(180deg, var(--warning), #e0a33d); border: 0; color: #111 }
+button.danger { background: linear-gradient(180deg, var(--danger), #d43b5a); border: 0; color: #fff }
 button:active { transform: scale(0.98) }
 .switch { display: flex; align-items: center; gap: 8px }
 .switch { position: relative }
@@ -53,7 +57,7 @@ button:active { transform: scale(0.98) }
 .avail-avatar { border-radius: 50%; object-fit: cover; cursor: zoom-in }
 .avail-info { display: flex; flex-direction: column; gap: 2px }
 .avail-sub { font-size: 12px; color: var(--muted) }
-#available-list .row.compact { margin: 0; gap: 6px }
+#available-list .row.compact { margin: 0; gap: 6px; flex-wrap: nowrap }
 #available-list .row.compact button { padding: 6px 10px; font-size: 13px }
 .alias { font-weight: 600 }
 .zone { color: var(--muted) }
@@ -161,10 +165,10 @@ body[data-theme="light"] #screen-disponibles .card { background: #fff; border-co
 #screen-disponibles #available-list .item { background: rgba(27,28,44,0.7); border-color: #3a3b5c; box-shadow: 0 6px 16px rgba(0,0,0,0.25); transition: transform .08s ease, box-shadow .2s ease, border-color .18s ease }
 #screen-disponibles #available-list .item:hover { transform: translateY(-2px); border-color: #4a4c7a; box-shadow: 0 12px 24px rgba(0,0,0,0.35) }
 #screen-disponibles #available-list .alias { font-size: 16px; letter-spacing: .2px }
-#screen-disponibles #available-list .row button { background: linear-gradient(180deg, #7d88ff, #5868ff); border: 0; color: #fff }
-#screen-disponibles #available-list .row button:nth-child(2) { background: linear-gradient(180deg, #ff6b6b, #d43b5a) }
-#screen-disponibles #available-list .row button:nth-child(3) { background: linear-gradient(180deg, #ffb84b, #e0a33d) }
-#screen-disponibles #available-list .row button:nth-child(4) { background: linear-gradient(180deg, #38d49c, #2cab83) }
+#screen-disponibles #available-list .row button.info { background: linear-gradient(180deg, #7d88ff, #5868ff); border: 0; color: #fff }
+#screen-disponibles #available-list .row button.warning { background: linear-gradient(180deg, #ffb84b, #e0a33d); border: 0; color: #111 }
+#screen-disponibles #available-list .row button.success { background: linear-gradient(180deg, #38d49c, #2cab83); border: 0; color: #fff }
+#screen-disponibles #available-list .row button.danger { background: linear-gradient(180deg, #ff6b6b, #d43b5a); border: 0; color: #fff }
 /* Bailar: otras pantallas */
 #screen-user-invite, #screen-invite-received, #screen-meeting { position: relative }
 #screen-user-invite .party-title, #screen-invite-received .party-title, #screen-meeting .party-title { font-size: 28px; letter-spacing: .3px }
@@ -184,7 +188,7 @@ body[data-theme="light"] #screen-user-invite .party-hero, body[data-theme="light
 #screen-user-invite .party-bg, #screen-invite-received .party-bg, #screen-meeting .party-bg { position: absolute; inset: 0; background: radial-gradient(700px 300px at 15% 10%, rgba(125,136,255,0.32) 0%, rgba(88,104,255,0.18) 30%, rgba(23,24,38,0.0) 70%); filter: blur(18px); z-index: 1; animation: partyHue 8s linear infinite }
 #screen-user-invite .card, #screen-invite-received .card, #screen-meeting .card { background: rgba(23,24,38,0.75); border-color: #32345a }
 body[data-theme="light"] #screen-user-invite .card, body[data-theme="light"] #screen-invite-received .card, body[data-theme="light"] #screen-meeting .card { background: #fff; border-color: #dbe1f3 }
-#screen-user-invite .row button, #screen-invite-received .row button, #screen-meeting .row button { background: linear-gradient(180deg, #7d88ff, #5868ff); border: 0; color: #fff }
+#screen-user-invite .row button.info, #screen-invite-received .row button.info, #screen-meeting .row button.info { background: linear-gradient(180deg, #7d88ff, #5868ff); border: 0; color: #fff }
 #screen-invite-received .row #btn-invite-accept { background: linear-gradient(180deg, #38d49c, #2cab83) }
 #screen-invite-received .row #btn-invite-pass { background: linear-gradient(180deg, #ffb84b, #e0a33d) }
 #screen-invite-received .row #btn-invite-block { background: linear-gradient(180deg, #ff6b6b, #d43b5a) }
@@ -220,10 +224,10 @@ body[data-theme="light"] .party-hero { background: linear-gradient(135deg, rgba(
 #screen-user-home .party-hero .hero-footer .chip svg { margin-right:6px; vertical-align:-2px }
 #mesas-list .card { transition: transform .06s ease, box-shadow .2s ease }
 #mesas-list .card:hover { transform: translateY(-2px); box-shadow: 0 14px 28px rgba(0,0,0,0.3) }
-#mesa-people .row button { background: linear-gradient(180deg, #7d88ff, #5868ff); border: 0; color: #fff }
-#mesa-people .row button:nth-child(2) { background: linear-gradient(180deg, #ff6b6b, #d43b5a) }
-#mesa-people .row button:nth-child(3) { background: linear-gradient(180deg, #ffb84b, #e0a33d) }
-#mesa-people .row button:nth-child(4) { background: linear-gradient(180deg, #38d49c, #2cab83) }
+#mesa-people .row button.info { background: linear-gradient(180deg, #7d88ff, #5868ff); border: 0; color: #fff }
+#mesa-people .row button.warning { background: linear-gradient(180deg, #ffb84b, #e0a33d); border: 0; color: #111 }
+#mesa-people .row button.success { background: linear-gradient(180deg, #38d49c, #2cab83); border: 0; color: #fff }
+#mesa-people .row button.danger { background: linear-gradient(180deg, #ff6b6b, #d43b5a); border: 0; color: #fff }
 /* Staff tabs */
 .tabs { display:flex; gap:10px; flex-wrap:wrap; margin: 6px 0 10px 0 }
 .tab-item { position:relative; padding: 8px 12px; border-radius: 10px; border:1px solid #2b2c44; background: rgba(20,21,32,0.6); color: var(--muted) }
@@ -315,6 +319,8 @@ body[data-theme="light"] #user-header.party { background: linear-gradient(135deg
   #screen-disponibles-select .party-title,
   #screen-mesas .party-title,
   #screen-mesa-view .party-title { font-size: 24px }
+  #available-list .row.compact { flex-direction: row }
+  #available-list .row.compact button { width: auto; flex: 1 }
 }
 @media (max-width: 480px) {
   .screen { padding: 16px; padding-bottom: 88px }

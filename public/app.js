@@ -258,6 +258,7 @@ function showModal(title, msg, type = 'info') {
     if (!closeBtn) {
       closeBtn = document.createElement('button')
       closeBtn.id = 'modal-close'
+      closeBtn.className = 'secondary'
       closeBtn.textContent = 'Cerrar'
       closeBtn.onclick = () => {
         const mm = q('modal'); if (mm) mm.classList.remove('show')
@@ -365,10 +366,12 @@ function openInviteModal(expiresAt) {
     t.append(list)
     const bA = document.createElement('button')
     bA.id = 'modal-btn-invite-accept'
+    bA.className = 'success'
     bA.textContent = 'Aceptar'
     bA.onclick = () => { try { const m = q('modal'); if (m) m.classList.remove('show') } catch {}; respondInvite(true) }
     const bP = document.createElement('button')
     bP.id = 'modal-btn-invite-pass'
+    bP.className = 'warning'
     bP.textContent = 'Pasar'
     bP.onclick = () => { try { const m = q('modal'); if (m) m.classList.remove('show') } catch {}; respondInvite(false) }
     row.append(bA, bP)
@@ -395,10 +398,12 @@ function openInviteModal(expiresAt) {
     t.append(wrap)
     const bA = document.createElement('button')
     bA.id = 'modal-btn-invite-accept'
+    bA.className = 'success'
     bA.textContent = 'Aceptar'
     bA.onclick = () => { try { const m = q('modal'); if (m) m.classList.remove('show') } catch {}; respondInvite(true) }
     const bP = document.createElement('button')
     bP.id = 'modal-btn-invite-pass'
+    bP.className = 'warning'
     bP.textContent = 'Pasar'
     bP.onclick = () => { try { const m = q('modal'); if (m) m.classList.remove('show') } catch {}; respondInvite(false) }
     row.append(bA, bP)
@@ -507,6 +512,7 @@ function showModalAction(title, msg, btnText, handler, type = 'info') {
   if (btn) { try { btn.remove() } catch {} }
   btn = document.createElement('button')
   btn.id = 'modal-action'
+  btn.className = 'success'
   btn.textContent = btnText || 'Aceptar'
   btn.onclick = () => { try { const m = q('modal'); if (m) m.classList.remove('show') } catch {}; if (typeof handler === 'function') handler() }
   const closeBtn = q('modal-close')
@@ -549,6 +555,7 @@ async function promptInput(title, placeholder = '') {
     if (btn) { try { btn.remove() } catch {} }
     btn = document.createElement('button')
     btn.id = 'modal-action'
+    btn.className = 'success'
     btn.textContent = 'Aceptar'
     btn.onclick = () => { try { const m = q('modal'); if (m) m.classList.remove('show') } catch {}; resolve(String(inp.value || '').trim()) }
     if (closeBtn && closeBtn.parentElement === row) row.insertBefore(btn, closeBtn)
@@ -859,11 +866,12 @@ function buildAvailableItem(u) {
   const row = document.createElement('div')
   row.className = 'row compact'
   const bDance = document.createElement('button')
+  bDance.className = 'info'
   const busy = (u.danceState && u.danceState !== 'idle')
   bDance.textContent = busy ? 'Ocupado' : 'Invitar a bailar 💃'
   bDance.disabled = !!busy
   bDance.onclick = () => sendInviteQuick(u)
-  const bConsumo = document.createElement('button'); bConsumo.textContent = 'Invitar una copa 🥂'; bConsumo.onclick = () => { setReceiver(u); q('consumption-target').value = u.id; openConsumption() }
+  const bConsumo = document.createElement('button'); bConsumo.className = 'success'; bConsumo.textContent = 'Invitar una copa 🥂'; bConsumo.onclick = () => { setReceiver(u); q('consumption-target').value = u.id; openConsumption() }
   row.append(bDance, bConsumo)
   div.append(top, row)
   return div
@@ -1362,6 +1370,7 @@ function openThanks(toId, context) {
   const options = ['¡Gracias!', 'Mil gracias, cuando quieras', 'Gracias por la invitación']
   for (const txt of options) {
     const b = document.createElement('button')
+    b.className = 'info'
     b.textContent = txt
     b.onclick = async () => {
       try {
@@ -1719,10 +1728,10 @@ async function loadOrders(state = '') {
     }
     const row = document.createElement('div')
     row.className = 'row'
-    const b1 = document.createElement('button'); b1.textContent = 'Cobrado'; b1.onclick = () => updateOrder(o.id, 'cobrado')
-    const b0 = document.createElement('button'); b0.textContent = 'En preparación'; b0.onclick = () => updateOrder(o.id, 'en_preparacion')
-    const b2 = document.createElement('button'); b2.textContent = 'Entregado'; b2.onclick = () => updateOrder(o.id, 'entregado')
-    const b3 = document.createElement('button'); b3.textContent = 'Cancelar'; b3.onclick = () => updateOrder(o.id, 'cancelado')
+    const b1 = document.createElement('button'); b1.className = 'success'; b1.textContent = 'Cobrado'; b1.onclick = () => updateOrder(o.id, 'cobrado')
+    const b0 = document.createElement('button'); b0.className = 'warning'; b0.textContent = 'En preparación'; b0.onclick = () => updateOrder(o.id, 'en_preparacion')
+    const b2 = document.createElement('button'); b2.className = 'info'; b2.textContent = 'Entregado'; b2.onclick = () => updateOrder(o.id, 'entregado')
+    const b3 = document.createElement('button'); b3.className = 'danger'; b3.textContent = 'Cancelar'; b3.onclick = () => updateOrder(o.id, 'cancelado')
     row.append(b0, b1, b2, b3)
     div.append(info, row)
     container.append(div)
@@ -1764,7 +1773,7 @@ async function loadUsers() {
     info.textContent = `${u.alias || u.id} • Selfie cargada • ${u.muted ? 'silenciado' : 'activo'}`
     const row = document.createElement('div')
     row.className = 'row'
-    const mute = document.createElement('button'); mute.textContent = u.muted ? 'Activar' : 'Silenciar'; mute.onclick = () => moderateUser(u.id, !u.muted)
+    const mute = document.createElement('button'); mute.className = u.muted ? 'success' : 'warning'; mute.textContent = u.muted ? 'Activar' : 'Silenciar'; mute.onclick = () => moderateUser(u.id, !u.muted)
     row.append(mute)
     div.append(info, row)
     container.append(div)
@@ -1787,9 +1796,9 @@ async function loadWaiterCalls() {
     info.textContent = `Mesa ${c.tableId || '-'} • ${c.userAlias ? c.userAlias : c.userId} • ${c.reason} • ${c.status} • ${formatTimeShort(c.ts)}`
     const row = document.createElement('div')
     row.className = 'row'
-    const b1 = document.createElement('button'); b1.textContent = 'En camino'; b1.onclick = async () => { await api(`/api/staff/waiter/${c.id}`, { method: 'POST', body: JSON.stringify({ status: 'en_camino' }) }); loadWaiterCalls() }
-    const b2 = document.createElement('button'); b2.textContent = 'Atendido'; b2.onclick = async () => { await api(`/api/staff/waiter/${c.id}`, { method: 'POST', body: JSON.stringify({ status: 'atendido' }) }); loadWaiterCalls() }
-    const b3 = document.createElement('button'); b3.textContent = 'Cancelar'; b3.onclick = async () => { await api(`/api/staff/waiter/${c.id}`, { method: 'POST', body: JSON.stringify({ status: 'cancelado' }) }); loadWaiterCalls() }
+    const b1 = document.createElement('button'); b1.className = 'info'; b1.textContent = 'En camino'; b1.onclick = async () => { await api(`/api/staff/waiter/${c.id}`, { method: 'POST', body: JSON.stringify({ status: 'en_camino' }) }); loadWaiterCalls() }
+    const b2 = document.createElement('button'); b2.className = 'success'; b2.textContent = 'Atendido'; b2.onclick = async () => { await api(`/api/staff/waiter/${c.id}`, { method: 'POST', body: JSON.stringify({ status: 'atendido' }) }); loadWaiterCalls() }
+    const b3 = document.createElement('button'); b3.className = 'danger'; b3.textContent = 'Cancelar'; b3.onclick = async () => { await api(`/api/staff/waiter/${c.id}`, { method: 'POST', body: JSON.stringify({ status: 'cancelado' }) }); loadWaiterCalls() }
     row.append(b1, b2, b3)
     div.append(info, row)
     container.append(div)
@@ -1985,7 +1994,7 @@ function bind() {
     priceInput.oninput = scheduleCatalogSave
     category.oninput = scheduleCatalogSave
     subInput.oninput = scheduleCatalogSave
-    const del = document.createElement('button'); del.textContent = 'Eliminar'; del.onclick = () => { try { row.remove(); scheduleCatalogSave() } catch {} }
+    const del = document.createElement('button'); del.className = 'danger'; del.textContent = 'Eliminar'; del.onclick = () => { try { row.remove(); scheduleCatalogSave() } catch {} }
     row.append(nameInput, priceInput, category, subInput, del)
     container.append(row)
     const inpName = q('staff-catalog-add-name'); if (inpName) inpName.value = ''
@@ -2149,8 +2158,8 @@ async function loadDJRequests() {
     info.append(chip)
     const row = document.createElement('div')
     row.className = 'row'
-    const b1 = document.createElement('button'); b1.textContent = 'Programar'; b1.onclick = async () => { await api(`/api/staff/dj/${it.id}`, { method: 'POST', body: JSON.stringify({ status: 'programado' }) }); scheduleStaffDJUpdate() }
-    const b4 = document.createElement('button'); b4.textContent = 'Finalizar'; b4.onclick = async () => { await api(`/api/staff/dj/${it.id}`, { method: 'POST', body: JSON.stringify({ status: 'terminado' }) }); scheduleStaffDJUpdate() }
+    const b1 = document.createElement('button'); b1.className = 'info'; b1.textContent = 'Programar'; b1.onclick = async () => { await api(`/api/staff/dj/${it.id}`, { method: 'POST', body: JSON.stringify({ status: 'programado' }) }); scheduleStaffDJUpdate() }
+    const b4 = document.createElement('button'); b4.className = 'success'; b4.textContent = 'Finalizar'; b4.onclick = async () => { await api(`/api/staff/dj/${it.id}`, { method: 'POST', body: JSON.stringify({ status: 'terminado' }) }); scheduleStaffDJUpdate() }
     row.append(b1, b4)
     div.append(info, row)
     container.append(div)
@@ -2226,6 +2235,7 @@ async function loadMesasActive() {
       }
     }
     const btn = document.createElement('button')
+    btn.className = 'info'
     btn.textContent = 'Ver mesa'
     btn.onclick = () => openMesaView(m.tableId)
     div.append(info, tags, btn)
@@ -2278,8 +2288,8 @@ async function loadMesaPeople(tableId) {
     tagsEl.textContent = (Array.isArray(u.tags) && u.tags.length) ? `Tags: ${u.tags.join(', ')}` : ''
     const row = document.createElement('div')
     row.className = 'row'
-    const bInvite = document.createElement('button'); bInvite.textContent = 'Bailar'; bInvite.onclick = () => openInvite(u)
-    const bConsumo = document.createElement('button'); bConsumo.textContent = 'Invitar'; bConsumo.onclick = () => { q('consumption-target').value = u.id; openConsumption() }
+    const bInvite = document.createElement('button'); bInvite.className = 'info'; bInvite.textContent = 'Bailar'; bInvite.onclick = () => openInvite(u)
+    const bConsumo = document.createElement('button'); bConsumo.className = 'success'; bConsumo.textContent = 'Invitar'; bConsumo.onclick = () => { q('consumption-target').value = u.id; openConsumption() }
     row.append(bInvite, bConsumo)
     div.append(img, alias, tagsEl, row)
     container.append(div)
@@ -2600,8 +2610,8 @@ function openInvitesInbox() {
       const gTxt = g ? ` • ${g}` : ''
       div.textContent = `Baile de ${from.alias || from.id}${gTxt}${ttl}`
       const row = document.createElement('div'); row.className = 'row'
-      const bA = document.createElement('button'); bA.textContent = 'Aceptar'; bA.onclick = async () => { await api('/api/invite/respond', { method: 'POST', body: JSON.stringify({ inviteId: item.id, action: 'accept', note: '' }) }); show('screen-user-home') }
-      const bP = document.createElement('button'); bP.textContent = 'Pasar'; bP.onclick = async () => { await api('/api/invite/respond', { method: 'POST', body: JSON.stringify({ inviteId: item.id, action: 'pass', note: '' }) }); S.invitesQueue = S.invitesQueue.filter(x => !(x.type === 'dance' && String(x.id || '') === String(item.id || ''))); openInvitesInbox() }
+      const bA = document.createElement('button'); bA.className = 'success'; bA.textContent = 'Aceptar'; bA.onclick = async () => { await api('/api/invite/respond', { method: 'POST', body: JSON.stringify({ inviteId: item.id, action: 'accept', note: '' }) }); show('screen-user-home') }
+      const bP = document.createElement('button'); bP.className = 'warning'; bP.textContent = 'Pasar'; bP.onclick = async () => { await api('/api/invite/respond', { method: 'POST', body: JSON.stringify({ inviteId: item.id, action: 'pass', note: '' }) }); S.invitesQueue = S.invitesQueue.filter(x => !(x.type === 'dance' && String(x.id || '') === String(item.id || ''))); openInvitesInbox() }
       row.append(bA, bP); div.append(row)
     } else if (item.type === 'consumption') {
       const data = item.data
@@ -2610,8 +2620,8 @@ function openInvitesInbox() {
       const gTxt = g ? ` • ${g}` : ''
       div.textContent = `Consumo de ${data.from.alias}${gTxt}: ${listTxt}`
       const row = document.createElement('div'); row.className = 'row'
-      const bA = document.createElement('button'); bA.textContent = 'Aceptar'; bA.onclick = async () => { if (Array.isArray(data.items) && data.items.length) { await api('/api/consumption/respond/bulk', { method: 'POST', body: JSON.stringify({ fromId: data.from.id, toId: S.user.id, items: data.items, action: 'accept', requestId: data.requestId || '' }) }) } else { const qty = Math.max(1, Number(data.quantity || 1)); await api('/api/consumption/respond', { method: 'POST', body: JSON.stringify({ fromId: data.from.id, toId: S.user.id, product: data.product, quantity: qty, action: 'accept', requestId: data.requestId || '' }) }) } show('screen-user-home') }
-      const bP = document.createElement('button'); bP.textContent = 'Pasar'; bP.onclick = async () => { if (Array.isArray(data.items) && data.items.length) { await api('/api/consumption/respond/bulk', { method: 'POST', body: JSON.stringify({ fromId: data.from.id, toId: S.user.id, items: data.items, action: 'pass', requestId: data.requestId || '' }) }) } else { await api('/api/consumption/respond', { method: 'POST', body: JSON.stringify({ fromId: data.from.id, toId: S.user.id, product: data.product, action: 'pass', requestId: data.requestId || '' }) }) } S.invitesQueue = S.invitesQueue.filter(x => !(x.type === 'consumption' && x.data && x.data.requestId === data.requestId)); openInvitesInbox() }
+      const bA = document.createElement('button'); bA.className = 'success'; bA.textContent = 'Aceptar'; bA.onclick = async () => { if (Array.isArray(data.items) && data.items.length) { await api('/api/consumption/respond/bulk', { method: 'POST', body: JSON.stringify({ fromId: data.from.id, toId: S.user.id, items: data.items, action: 'accept', requestId: data.requestId || '' }) }) } else { const qty = Math.max(1, Number(data.quantity || 1)); await api('/api/consumption/respond', { method: 'POST', body: JSON.stringify({ fromId: data.from.id, toId: S.user.id, product: data.product, quantity: qty, action: 'accept', requestId: data.requestId || '' }) }) } show('screen-user-home') }
+      const bP = document.createElement('button'); bP.className = 'warning'; bP.textContent = 'Pasar'; bP.onclick = async () => { if (Array.isArray(data.items) && data.items.length) { await api('/api/consumption/respond/bulk', { method: 'POST', body: JSON.stringify({ fromId: data.from.id, toId: S.user.id, items: data.items, action: 'pass', requestId: data.requestId || '' }) }) } else { await api('/api/consumption/respond', { method: 'POST', body: JSON.stringify({ fromId: data.from.id, toId: S.user.id, product: data.product, action: 'pass', requestId: data.requestId || '' }) }) } S.invitesQueue = S.invitesQueue.filter(x => !(x.type === 'consumption' && x.data && x.data.requestId === data.requestId)); openInvitesInbox() }
       row.append(bA, bP); div.append(row)
     }
     container.append(div)
@@ -3220,6 +3230,7 @@ async function renderCart() {
     total += subtotal
     label.textContent = `${it.quantity} x ${it.product} • ${formatPriceShort(subtotal)}`
     const del = document.createElement('button')
+    del.className = 'danger'
     del.textContent = 'Eliminar'
     del.onclick = () => { try { S.cart.splice(i, 1); renderCart() } catch {} }
     row.append(label, del)
@@ -3348,7 +3359,7 @@ async function loadStaffCatalogEditor() {
       combo.onchange = scheduleCatalogSave
       includes.oninput = scheduleCatalogSave
       discount.oninput = scheduleCatalogSave
-      const del = document.createElement('button'); del.textContent = 'Eliminar'; del.onclick = () => { try { row.remove(); scheduleCatalogSave() } catch {} }
+      const del = document.createElement('button'); del.className = 'danger'; del.textContent = 'Eliminar'; del.onclick = () => { try { row.remove(); scheduleCatalogSave() } catch {} }
       const lblCombo = document.createElement('label'); lblCombo.textContent = 'Combo'; lblCombo.style.marginLeft = '8px'
       lblCombo.appendChild(combo)
       row.append(name, price, category, subInput, lblCombo, includes, discount, del)
