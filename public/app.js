@@ -163,8 +163,14 @@ async function loadSessionInfo() {
       baseCandidate = (pb.publicBaseUrl || '').trim()
       const inp = q('public-base'); if (inp && baseCandidate) inp.value = baseCandidate
     } catch {}
-    let base = baseCandidate || location.origin
-    const url = `${base}/?venueId=${encodeURIComponent(S.venueId || 'default')}&sessionId=${encodeURIComponent(S.sessionId)}&aj=1`
+    let url = ''
+    try {
+      const rqr = await api(`/api/session/qr?sessionId=${encodeURIComponent(S.sessionId)}`)
+      url = rqr.url || ''
+    } catch {
+      const base = baseCandidate || location.origin
+      url = `${base}/?venueId=${encodeURIComponent(S.venueId || 'default')}&sessionId=${encodeURIComponent(S.sessionId)}&aj=1`
+    }
     const pd = q('pin-display'); if (pd) pd.textContent = pin
     const qrImg = q('qr-session'); if (qrImg) qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`
     const share = q('share-url'); if (share) { share.href = url; share.title = url }
@@ -634,14 +640,22 @@ async function join(role, codeOverride = '', pinOverride = '') {
     S.sessionId = code
     let r = null
     try {
-      r = await api('/api/join', { method: 'POST', body: JSON.stringify({ sessionId: code, role, pin, alias }) })
+      const u = new URL(location.href)
+      const aj = u.searchParams.get('aj') || ''
+      const body = { sessionId: code, role, pin, alias }
+      if (role === 'user' && aj === '1' && S.qrSig && S.qrExp) { body.qrExp = S.qrExp; body.qrSig = S.qrSig }
+      r = await api('/api/join', { method: 'POST', body: JSON.stringify(body) })
     } catch (e) {
       if (role === 'user' && String(e.message) === 'no_session') {
         let active = null
         try { active = await api(`/api/session/active${S.venueId ? ('?venueId=' + encodeURIComponent(S.venueId)) : ''}`) } catch {}
         if (active && active.sessionId) {
           S.sessionId = active.sessionId
-          r = await api('/api/join', { method: 'POST', body: JSON.stringify({ sessionId: active.sessionId, role, pin: '', alias }) })
+          const u2 = new URL(location.href)
+          const aj2 = u2.searchParams.get('aj') || ''
+          const body2 = { sessionId: active.sessionId, role, pin: '', alias }
+          if (role === 'user' && aj2 === '1' && S.qrSig && S.qrExp) { body2.qrExp = S.qrExp; body2.qrSig = S.qrSig }
+          r = await api('/api/join', { method: 'POST', body: JSON.stringify(body2) })
         } else {
           showError('Sin sesión activa para este local'); return
         }
@@ -651,6 +665,14 @@ async function join(role, codeOverride = '', pinOverride = '') {
     }
     S.user = r.user
     S.role = role
+    if (role === 'user') {
+      try {
+        const u3 = new URL(location.href)
+        u3.searchParams.delete('exp'); u3.searchParams.delete('sig'); u3.searchParams.delete('aj')
+        history.replaceState({}, document.title, u3.pathname + (u3.searchParams.toString() ? ('?' + u3.searchParams.toString()) : '') + u3.hash)
+        S.qrSig = ''; S.qrExp = 0; S.qrAj = ''
+      } catch {}
+    }
     try { saveLocalUser() } catch {}
     if (role === 'user') {
       const aliasInput = q('alias'); if (aliasInput) aliasInput.value = S.user.alias || alias
@@ -2733,6 +2755,10 @@ function init() {
     const sid = u.searchParams.get('sessionId') || u.searchParams.get('s')
     if (sid && q('join-code')) q('join-code').value = sid
     const aj = u.searchParams.get('aj')
+    const exp = u.searchParams.get('exp')
+    const sig = u.searchParams.get('sig')
+    if (aj === '1' && exp && sig) { S.qrExp = Number(exp); S.qrSig = String(sig); S.qrAj = '1' }
+    const aj2 = u.searchParams.get('aj')
     const staffParam = u.searchParams.get('staff')
     const djParam = u.searchParams.get('dj')
     if (staffParam === '1') {
