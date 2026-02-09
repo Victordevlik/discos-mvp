@@ -3273,19 +3273,22 @@ async function showCatalogTop() {
     const top = q('catalog-top')
     if (!top) return
     top.innerHTML = ''
-    const title = document.createElement('span')
-    title.className = 'chip'
+    const title = document.createElement('div')
+    title.className = 'top-night-title'
     title.textContent = t('top_night_drinks')
     top.append(title)
+    const itemsRow = document.createElement('div')
+    itemsRow.className = 'top-night-items'
     const items = r.topItems || {}
-    const names = Object.keys(items)
-    for (const name of names.slice(0, 8)) {
+    const names = Object.keys(items).sort((a, b) => Number(items[b] || 0) - Number(items[a] || 0))
+    for (const name of names.slice(0, 2)) {
       const chip = document.createElement('span')
-      chip.className = 'chip'
+      chip.className = 'top-night-item'
       chip.textContent = `${name} • ${items[name]}`
       chip.onclick = () => { const p = q('product'); if (p) p.value = name }
-      top.append(chip)
+      itemsRow.append(chip)
     }
+    top.append(itemsRow)
   } catch {}
 }
 function maybeSuggestPairings(product) {
