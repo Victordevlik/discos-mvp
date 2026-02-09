@@ -1116,11 +1116,14 @@ const server = http.createServer(async (req, res) => {
       const note = String(body.note || '').slice(0, 140)
       if (action === 'pass') {
         inv.status = 'pasado'
-        state.rate.lastInvitePair.set(`${inv.fromId}:${inv.toId}`, { ts: now(), blocked: true })
         {
-          const k = `${inv.fromId}:${inv.toId}`
-          const prev = Number(state.rate.passesByPair.get(k) || 0)
-          state.rate.passesByPair.set(k, prev + 1)
+          const pairKey = `${inv.fromId}:${inv.toId}`
+          const prev = Number(state.rate.passesByPair.get(pairKey) || 0)
+          const next = prev + 1
+          state.rate.passesByPair.set(pairKey, next)
+          if (next >= 2) {
+            state.rate.lastInvitePair.set(pairKey, { ts: now(), blocked: true })
+          }
         }
         sendToUser(inv.fromId, 'invite_result', { inviteId: inv.id, status: 'pasado', note })
         json(res, 200, { ok: true })
@@ -2113,7 +2116,7 @@ setInterval(() => {
     }
   }
   for (const inv of state.invites.values()) {
-    if (inv.status === 'pendiente' && !inv.seenAt && !inv.notSeenNotified && (nowTs - inv.createdAt) > 12000) {
+    if (inv.status === 'pendiente' && !inv.seenAt && !inv.notSeenNotified && inv.expiresAt && nowTs > inv.expiresAt) {
       inv.notSeenNotified = true
       const uTo = state.users.get(inv.toId)
       try {
@@ -2123,7 +2126,7 @@ setInterval(() => {
     }
   }
   for (const ci of state.consumptionInvites.values()) {
-    if (!ci.seenAt && !ci.notSeenNotified && (nowTs - ci.createdAt) > 12000) {
+    if (!ci.seenAt && !ci.notSeenNotified && ci.expiresAt && nowTs > ci.expiresAt) {
       ci.notSeenNotified = true
       const uTo = state.users.get(ci.toId)
       try {
