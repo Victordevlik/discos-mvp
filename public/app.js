@@ -1051,7 +1051,7 @@ function startEvents() {
       S.inInviteFlow = false
       showNextInvite()
     } else if (data.status === 'expirado') {
-      const msg = 'Invitación expirada (60s)'
+      const msg = String(data.reason || '') === 'unseen' ? 'Expiró: la persona no la vio' : 'Invitación expirada (60s)'
       if (document.hidden) { S.missed.push(msg) } else { showError(msg); setTimeout(() => showError(''), 1500) }
       show('screen-user-home')
       S.inInviteFlow = false

@@ -2110,8 +2110,9 @@ setInterval(() => {
     if (inv.status === 'pendiente' && inv.expiresAt && nowTs > inv.expiresAt) {
       inv.status = 'expirado'
       try {
-        sendToUser(inv.fromId, 'invite_result', { inviteId: inv.id, status: 'expirado' })
-        sendToUser(inv.toId, 'invite_result', { inviteId: inv.id, status: 'expirado' })
+        const reason = inv.seenAt ? '' : 'unseen'
+        sendToUser(inv.fromId, 'invite_result', { inviteId: inv.id, status: 'expirado', reason })
+        sendToUser(inv.toId, 'invite_result', { inviteId: inv.id, status: 'expirado', reason })
       } catch {}
     }
   }
@@ -2120,7 +2121,6 @@ setInterval(() => {
       inv.notSeenNotified = true
       const uTo = state.users.get(inv.toId)
       try {
-        sendToUser(inv.fromId, 'invite_not_seen', { inviteId: inv.id, to: { id: inv.toId, alias: uTo ? (uTo.alias || uTo.id) : inv.toId } })
         sendToUser(inv.toId, 'invite_suppress', { inviteId: inv.id })
       } catch {}
     }
