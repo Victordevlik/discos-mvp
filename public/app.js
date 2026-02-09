@@ -237,6 +237,14 @@ function showModal(title, msg, type = 'info') {
   const t = q('modal-text')
   const tt = q('modal-title')
   if (!m || !t || !tt) return
+  if (document.hidden || S.appHidden) {
+    const txt = [title, msg].filter(Boolean).join(': ')
+    if (txt) {
+      S.missed = Array.isArray(S.missed) ? S.missed : []
+      S.missed.push(txt)
+    }
+    return
+  }
   try { const btn = q('modal-action'); if (btn) btn.remove() } catch {}
   try { const inp = q('modal-input'); if (inp) inp.remove() } catch {}
   const row = document.querySelector('#modal .row')
@@ -434,6 +442,7 @@ function ensureAudio() {
   } catch {}
 }
 function playNotify(kind = 'short') {
+  if (document.hidden || S.appHidden) return
   try { if (navigator && navigator.vibrate) {
     if (kind === 'dance') navigator.vibrate([140,40,140])
     else if (kind === 'consumption') navigator.vibrate([80,30,80,30,80])
@@ -585,6 +594,9 @@ function scheduleLater(key, fn, wait = 500) {
     S.loading[lk] = false
   }, wait)
 }
+function buildSig(list, mapFn) {
+  try { return (list || []).map(mapFn).join('||') } catch { return '' }
+}
 function scheduleStaffOrdersUpdate() {
   scheduleLater('staff_orders', async () => {
     S.ui = S.ui || {}
@@ -602,11 +614,7 @@ function scheduleUserOrdersUpdate() { scheduleLater('user_orders', async () => {
 function scheduleRenderUserHeader() { scheduleLater('user_header', async () => { renderUserHeader() }, 300) }
 function scheduleRefreshAvailableList() { scheduleLater('user_avail', async () => { await refreshAvailableList() }, 500) }
 function scheduleStaffDJUpdate() { scheduleLater('staff_dj', async () => { await loadDJRequests() }, 400) }
-async function loadI18n(lang) {
-  try {
-    const r = await fetch(`/i18n/${lang}.json`)
-    if (r.ok) { S.i18n = await r.json(); return }
-  } catch {}
+async function loadI18n() {
   try {
     const r = await fetch(`/i18n/es.json`)
     if (r.ok) { S.i18n = await r.json(); return }
@@ -646,41 +654,23 @@ function renderGenderSelect() {
   const lbl = q('label-gender')
   if (lbl) lbl.textContent = t('gender_label')
 }
-function renderLanguageSelect() {
-  const sel = q('lang-select')
-  if (!sel) return
-  sel.innerHTML = ''
-  const mk = (val, label) => {
-    const o = document.createElement('option')
-    o.value = val
-    o.textContent = label
-    return o
-  }
-  sel.append(mk('es', 'Español'), mk('en', 'English'))
-  sel.value = S.lang || 'es'
-  const lbl = q('label-lang')
-  if (lbl) lbl.textContent = t('language_label')
-}
-function setLanguage(lang) {
-  const v = (String(lang || '').toLowerCase() === 'en') ? 'en' : 'es'
-  S.lang = v
-  try { localStorage.setItem('discos_lang', v) } catch {}
-  if (document && document.documentElement) document.documentElement.lang = v
-  loadI18n(v).then(() => { renderGenderSelect(); renderLanguageSelect() }).catch(() => { renderGenderSelect(); renderLanguageSelect() })
-}
 function startUserPolls() {
   if (S.timers.userPoll) { try { clearInterval(S.timers.userPoll) } catch {} }
+  const wait = S.sseReady ? 15000 : 8000
   S.timers.userPoll = setInterval(() => {
+    if (document.hidden) return
     if (S.user && S.user.available && S.nav.current === 'screen-disponibles') scheduleRefreshAvailableList()
     if (S.nav.current === 'screen-orders-user') { scheduleUserOrdersUpdate(); scheduleLater('user_invites', async () => { await loadUserInvitesHistory() }, 600) }
     if (S.nav.current === 'screen-user-home') scheduleRenderUserHeader()
-  }, 8000)
+  }, wait)
 }
 function startStaffPolls() {
   if (S.timers.staffPoll) { try { clearInterval(S.timers.staffPoll) } catch {} }
+  const wait = S.staffSseReady ? 15000 : 8000
   S.timers.staffPoll = setInterval(() => {
+    if (document.hidden) return
     if (S.nav.current === 'screen-staff') { scheduleStaffUsersUpdate(); scheduleStaffOrdersUpdate(); scheduleStaffWaiterUpdate(); scheduleStaffReportsUpdate(); scheduleStaffAnalyticsUpdate() }
-  }, 8000)
+  }, wait)
 }
 
 async function join(role, codeOverride = '', pinOverride = '') {
@@ -772,6 +762,9 @@ function dataUrlBytes(d) {
   return m ? Math.floor(m[1].length * 3 / 4) : 0
 }
 function loadImageFromFile(file) {
+  if (window && window.createImageBitmap) {
+    return createImageBitmap(file)
+  }
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => {
@@ -797,23 +790,28 @@ async function processSelfie(file) {
   ctx.drawImage(img, 0, 0, w, h)
   let q = 0.8
   let out = canvas.toDataURL('image/jpeg', q)
+  let bytes = dataUrlBytes(out)
   let tries = 0
-  while (dataUrlBytes(out) > 500 * 1024 && tries < 5) {
+  while (bytes > 500 * 1024 && tries < 5) {
     q = Math.max(0.4, q - 0.1)
     out = canvas.toDataURL('image/jpeg', q)
+    bytes = dataUrlBytes(out)
     tries++
   }
-  if (dataUrlBytes(out) > 500 * 1024) {
+  if (bytes > 500 * 1024) {
     q = 0.8
     out = canvas.toDataURL('image/webp', q)
+    bytes = dataUrlBytes(out)
     tries = 0
-    while (dataUrlBytes(out) > 500 * 1024 && tries < 5) {
+    while (bytes > 500 * 1024 && tries < 5) {
       q = Math.max(0.4, q - 0.1)
       out = canvas.toDataURL('image/webp', q)
+      bytes = dataUrlBytes(out)
       tries++
     }
   }
-  return dataUrlBytes(out) <= 500 * 1024 ? out : ''
+  try { if (img && img.close) img.close() } catch {}
+  return bytes <= 500 * 1024 ? out : ''
 }
 
 async function setAvailable() {
@@ -899,11 +897,13 @@ async function refreshAvailableList() {
   const r = await api(`/api/users/available?sessionId=${encodeURIComponent(S.sessionId)}&onlyAvailable=true&excludeUserId=${encodeURIComponent(S.user.id)}`)
   const container = q('available-list')
   if (!container) return
+  const list = (r.users || []).filter(u => u.id !== S.user.id && (!u.danceState || u.danceState === 'idle'))
+  const sig = buildSig(list, u => [u.id, u.alias, u.selfie, u.gender, u.tableId, u.zone, (u.tags || []).join(','), u.danceState, u.partnerAlias].join('~'))
+  S.ui = S.ui || {}
+  if (S.ui.availableSig === sig) { scheduleRefreshDanceList(); return }
+  S.ui.availableSig = sig
   container.innerHTML = ''
-  for (const u of r.users) {
-    if (u.id === S.user.id) continue
-    if (u.danceState && u.danceState !== 'idle') continue
-    if (u.id === S.user.id) continue
+  for (const u of list) {
     const div = document.createElement('div')
     div.className = 'item'
     const img = document.createElement('img')
@@ -953,6 +953,12 @@ async function refreshAvailableList() {
 async function loadDanceSessionList() {
   const cont = q('dance-session-list'); if (!cont) return
   const r = await api(`/api/users/dance?sessionId=${encodeURIComponent(S.sessionId)}`)
+  const waitingSig = buildSig(r.waiting || [], u => [u.id, u.alias, u.selfie, u.danceState, u.partnerAlias].join('~'))
+  const dancingSig = buildSig(r.dancing || [], u => [u.id, u.alias, u.selfie, u.danceState, u.partnerAlias].join('~'))
+  const sig = `${waitingSig}##${dancingSig}`
+  S.ui = S.ui || {}
+  if (S.ui.danceListSig === sig) return
+  S.ui.danceListSig = sig
   cont.innerHTML = ''
   const mk = (list, title) => {
     if (!Array.isArray(list) || !list.length) return
@@ -1078,8 +1084,8 @@ function startEvents() {
   if (!S.user) return
   if (S.sse) S.sse.close()
   S.sse = new EventSource(`/api/events/user?userId=${encodeURIComponent(S.user.id)}`)
-  S.sse.onopen = () => { if (S.timers.userReconnect) { try { clearTimeout(S.timers.userReconnect) } catch {}; S.timers.userReconnect = 0 } }
-  S.sse.onerror = () => { scheduleUserSSEReconnect() }
+  S.sse.onopen = () => { if (S.timers.userReconnect) { try { clearTimeout(S.timers.userReconnect) } catch {}; S.timers.userReconnect = 0 }; S.sseReady = true; startUserPolls() }
+  S.sse.onerror = () => { S.sseReady = false; startUserPolls(); scheduleUserSSEReconnect() }
   S.sse.addEventListener('dance_invite', e => {
     const data = JSON.parse(e.data)
     playNotify('dance')
@@ -1478,6 +1484,7 @@ function setMeetingPlan(plan) {
 }
 function showConfetti() {
   try {
+    if (window && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
     const container = document.createElement('div')
     container.className = 'confetti'
     const colors = ['#7d88ff','#5868ff','#ff6b6b','#ffb84b','#38d49c','#d43b5a','#e0a33d','#2cab83']
@@ -1645,6 +1652,8 @@ function startStaffEvents() {
   try { if (S.staffSSE) S.staffSSE.close() } catch {}
   S.staffSSE = new EventSource(`/api/events/staff?sessionId=${encodeURIComponent(S.sessionId)}`)
   S.staffSSE.onopen = () => {
+    S.staffSseReady = true
+    startStaffPolls()
     if (S.timers.staffReconnect) { try { clearTimeout(S.timers.staffReconnect) } catch {}; S.timers.staffReconnect = 0 }
     scheduleStaffOrdersUpdate()
     scheduleStaffAnalyticsUpdate()
@@ -1652,7 +1661,7 @@ function startStaffEvents() {
     scheduleStaffWaiterUpdate()
     scheduleStaffDJUpdate()
   }
-  S.staffSSE.onerror = () => { scheduleStaffSSEReconnect() }
+  S.staffSSE.onerror = () => { S.staffSseReady = false; startStaffPolls(); scheduleStaffSSEReconnect() }
   S.staffSSE.addEventListener('order_new', e => {
     scheduleStaffOrdersUpdate()
   })
@@ -1703,16 +1712,27 @@ async function ensureSessionActiveOffer() {
     return false
   } catch { return false }
 }
+async function getCatalogData(force = false) {
+  const ttl = 60000
+  S.cache = S.cache || {}
+  if (!force && S.cache.catalog && (Date.now() - (S.cache.catalogTs || 0) < ttl)) return S.cache.catalog
+  const r = await api(`/api/catalog${S.sessionId ? ('?sessionId=' + encodeURIComponent(S.sessionId)) : ''}`)
+  S.cache.catalog = r
+  S.cache.catalogTs = Date.now()
+  return r
+}
 async function ensureCatalogIndex() {
-  if (S.catalogIndex) return
+  if (S.catalogIndex && S.cache && S.cache.catalogIndexTs && (Date.now() - S.cache.catalogIndexTs < 60000)) return
   try {
-    const r = await api(`/api/catalog${S.sessionId ? ('?sessionId=' + encodeURIComponent(S.sessionId)) : ''}`)
+    const r = await getCatalogData()
     const idx = {}
     for (const it of r.items || []) {
       const key = String(it.name || '').toLowerCase()
       if (key) idx[key] = it
     }
     S.catalogIndex = idx
+    S.cache = S.cache || {}
+    S.cache.catalogIndexTs = Date.now()
   } catch {}
 }
 function formatOrderProductFull(name) {
@@ -1739,7 +1759,6 @@ async function loadOrders(state = '') {
   const qs = state ? `&state=${encodeURIComponent(state)}` : ''
   const r = await api(`/api/staff/orders?sessionId=${encodeURIComponent(S.sessionId)}${qs}`)
   const container = q('staff-orders-list') || q('orders')
-  container.innerHTML = ''
   const listAsc = (r.orders || []).slice().sort((a, b) => {
     const ta = Number(a.createdAt || 0), tb = Number(b.createdAt || 0)
     if (ta !== tb) return ta - tb
@@ -1747,6 +1766,13 @@ async function loadOrders(state = '') {
     return ia.localeCompare(ib)
   })
   const filtered = state ? listAsc : listAsc.filter(o => o.status !== 'cobrado')
+  const sig = buildSig(filtered, o => [o.id, o.status, o.quantity, o.total, o.product, o.emitterId, o.receiverId, o.receiverTable, o.emitterTable, o.mesaEntrega, o.createdAt, o.isInvitation].join('~'))
+  S.ui = S.ui || {}
+  S.ui.staffOrdersSigMap = S.ui.staffOrdersSigMap || {}
+  const sigKey = state || '__open__'
+  if (S.ui.staffOrdersSigMap[sigKey] === sig) return
+  S.ui.staffOrdersSigMap[sigKey] = sig
+  container.innerHTML = ''
   for (const o of filtered) {
     const div = document.createElement('div')
     div.className = 'card'
@@ -1800,8 +1826,13 @@ async function updateOrder(id, status) {
 
 async function loadUsers() {
   const r = await api(`/api/staff/users?sessionId=${encodeURIComponent(S.sessionId)}`)
-  S.usersIndex = {}
   const container = q('staff-users') || q('users')
+  const sig = buildSig(r.users || [], u => [u.id, u.alias, u.muted].join('~'))
+  S.ui = S.ui || {}
+  if (S.ui.usersSig === sig) return
+  S.ui.usersSig = sig
+  S.ui.staffOrdersSigMap = {}
+  S.usersIndex = {}
   container.innerHTML = ''
   for (const u of r.users) {
     S.usersIndex[u.id] = { alias: u.alias || u.id }
@@ -1821,8 +1852,12 @@ async function loadUsers() {
 async function loadWaiterCalls() {
   const r = await api(`/api/staff/waiter?sessionId=${encodeURIComponent(S.sessionId)}`)
   const container = q('waiter-calls')
-  container.innerHTML = ''
   const list = (r.calls || []).slice().filter(c => c.status !== 'atendido' && c.status !== 'cancelado').sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0))
+  const sig = buildSig(list, c => [c.id, c.status, c.tableId, c.userAlias, c.userId, c.reason, c.ts].join('~'))
+  S.ui = S.ui || {}
+  if (S.ui.waiterSig === sig) return
+  S.ui.waiterSig = sig
+  container.innerHTML = ''
   for (const c of list) {
     const div = document.createElement('div')
     div.className = 'card'
@@ -1855,6 +1890,10 @@ async function moderateUser(userId, muted) {
 async function loadReports() {
   const r = await api(`/api/staff/reports?sessionId=${encodeURIComponent(S.sessionId)}`)
   const container = q('reports')
+  const sig = buildSig(r.reports || [], rep => [rep.fromId, rep.targetId, rep.category, rep.note].join('~'))
+  S.ui = S.ui || {}
+  if (S.ui.reportsSig === sig) return
+  S.ui.reportsSig = sig
   container.innerHTML = ''
   for (const rep of r.reports) {
     const div = document.createElement('div')
@@ -1867,7 +1906,7 @@ function bind() {
   const btnJoinUser = q('btn-join-user'); if (btnJoinUser) btnJoinUser.onclick = () => join('user')
   const btnJoinStaff = q('btn-join-staff'); if (btnJoinStaff) btnJoinStaff.onclick = startStaffSession
   const btnSaveProfile = q('btn-save-profile'); if (btnSaveProfile) btnSaveProfile.onclick = saveProfile
-  const langSel = q('lang-select'); if (langSel) langSel.onchange = (e) => setLanguage(e.target.value)
+  
   const swAvail = q('switch-available'); if (swAvail) swAvail.onchange = setAvailable
   const receiveModeEl = q('receive-mode'); if (receiveModeEl) receiveModeEl.onchange = setAvailable
   const zoneEl = q('zone'); if (zoneEl) zoneEl.oninput = setAvailable
@@ -1895,10 +1934,24 @@ function bind() {
   const btnPassAllInv = q('btn-pass-all-invites'); if (btnPassAllInv) btnPassAllInv.onclick = passAllDanceInvites
   const btnPassAllCons = q('btn-pass-all-consumption'); if (btnPassAllCons) btnPassAllCons.onclick = passAllConsumptionInvites
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && Array.isArray(S.missed) && S.missed.length) {
+    if (document.hidden) {
+      S.appHidden = true
+      try { if (S.sse) S.sse.close() } catch {}
+      try { if (S.staffSSE) S.staffSSE.close() } catch {}
+      try { if (S.timers.userPoll) { clearInterval(S.timers.userPoll); S.timers.userPoll = 0 } } catch {}
+      try { if (S.timers.staffPoll) { clearInterval(S.timers.staffPoll); S.timers.staffPoll = 0 } } catch {}
+      return
+    }
+    S.appHidden = false
+    if (Array.isArray(S.missed) && S.missed.length) {
       const msg = S.missed.join('\n')
       showModal('Notificaciones', msg, 'info')
       S.missed = []
+    }
+    if (S.role === 'user' && S.user) {
+      startEvents()
+    } else if (S.role === 'staff' && S.sessionId) {
+      startStaffEvents()
     }
   })
   if (nf) nf.onclick = () => { setActiveNav('perfil'); renderUserHeader(); show('screen-user-home') }
@@ -2069,7 +2122,7 @@ function bind() {
       setTimeout(() => showError(''), 1000)
     } catch (e) { showError('No se pudo copiar') }
   }
-  const catalogSearch = q('catalog-search'); if (catalogSearch) catalogSearch.oninput = applyCatalogSearch
+  const catalogSearch = q('catalog-search'); if (catalogSearch) catalogSearch.oninput = () => scheduleLater('catalog_search', applyCatalogSearch, 320)
   const btnWelcomeVenuePinSend = q('btn-welcome-venue-pin-send'); if (btnWelcomeVenuePinSend) btnWelcomeVenuePinSend.onclick = sendVenuePinAdminWelcome
   const savePB = q('btn-save-public-base')
   if (savePB) savePB.onclick = async () => {
@@ -2821,11 +2874,8 @@ function init() {
   bind()
   try {
     const u = new URL(location.href)
-    const langParam = (u.searchParams.get('lang') || '').toLowerCase()
-    const savedLang = (() => { try { return localStorage.getItem('discos_lang') || '' } catch { return '' } })()
-    S.lang = langParam || savedLang || 'es'
-    if (document && document.documentElement) document.documentElement.lang = S.lang
-    loadI18n(S.lang).then(() => { renderGenderSelect(); renderLanguageSelect() }).catch(() => { renderGenderSelect(); renderLanguageSelect() })
+    if (document && document.documentElement) document.documentElement.lang = 'es'
+    loadI18n().then(() => { renderGenderSelect() }).catch(() => { renderGenderSelect() })
     const vid = u.searchParams.get('venueId') || ''
     if (vid) S.venueId = vid
     const sid = u.searchParams.get('sessionId') || u.searchParams.get('s')
@@ -3113,7 +3163,7 @@ async function openMenu() {
 }
 async function loadCatalog() {
   try {
-    const r = await api(`/api/catalog${S.sessionId ? ('?sessionId=' + encodeURIComponent(S.sessionId)) : ''}`)
+    const r = await getCatalogData()
     const catsEl = q('catalog-cats')
     const itemsEl = q('catalog-list')
     if (!catsEl || !itemsEl) return

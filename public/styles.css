@@ -129,6 +129,26 @@ body[data-theme="light"] #screen-disponibles .party-hero { background: linear-gr
 @keyframes equalize { 0%,100% { height: 10px } 50% { height: 22px } }
 #screen-disponibles .party-bg { position: absolute; inset: 0; background: radial-gradient(700px 300px at 15% 10%, rgba(125,136,255,0.32) 0%, rgba(88,104,255,0.18) 30%, rgba(23,24,38,0.0) 70%); filter: blur(18px); z-index: 1; animation: partyHue 8s linear infinite }
 @keyframes partyHue { 0% { opacity: .8 } 50% { opacity: .55 } 100% { opacity: .8 } }
+@media (prefers-reduced-motion: reduce) {
+  #nav-disponibles:not(.active) svg,
+  #screen-disponibles .party-hero .equalizer span,
+  #screen-user-invite .party-hero .equalizer span,
+  #screen-invite-received .party-hero .equalizer span,
+  #screen-meeting .party-hero .equalizer span,
+  #screen-disponibles-select .party-hero .equalizer span,
+  #screen-mesas .party-hero .equalizer span,
+  #screen-mesa-view .party-hero .equalizer span,
+  .party-hero .equalizer span,
+  .chip.sticker.pulse,
+  .confetti i { animation: none }
+  #screen-disponibles .party-bg,
+  #screen-user-invite .party-bg,
+  #screen-invite-received .party-bg,
+  #screen-meeting .party-bg,
+  #screen-disponibles-select .party-bg,
+  #screen-mesas .party-bg,
+  #screen-mesa-view .party-bg { animation: none }
+}
 #screen-disponibles .card { background: rgba(23,24,38,0.75); border-color: #32345a }
 body[data-theme="light"] #screen-disponibles .card { background: #fff; border-color: #dbe1f3 }
 #screen-disponibles #available-list .item { background: rgba(27,28,44,0.7); border-color: #3a3b5c; box-shadow: 0 6px 16px rgba(0,0,0,0.25); transition: transform .08s ease, box-shadow .2s ease, border-color .18s ease }
