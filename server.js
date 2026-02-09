@@ -1735,7 +1735,8 @@ const server = http.createServer(async (req, res) => {
       const s = ensureSession(sessionId)
       const enabled = !!(s && s.djEnabled)
       const until = Number(s && s.djEnabledUntil || 0)
-      json(res, 200, { enabled, until })
+      const current = s && s.djCurrent ? s.djCurrent : null
+      json(res, 200, { enabled, until, current })
       return
     }
     if (pathname === '/api/staff/dj/status' && req.method === 'GET') {
@@ -1799,8 +1800,12 @@ const server = http.createServer(async (req, res) => {
         if (status === 'sonando') {
           const u = state.users.get(r.userId)
           const alias = u ? u.alias : ''
+          const s = ensureSession(r.sessionId)
+          if (s) s.djCurrent = { song: r.song, tableId: r.tableId, alias, ts: now() }
           sendToAllUsersInSession(r.sessionId, 'dj_now_playing', { song: r.song, tableId: r.tableId, alias })
         } else if (status === 'terminado') {
+          const s = ensureSession(r.sessionId)
+          if (s) s.djCurrent = null
           sendToAllUsersInSession(r.sessionId, 'dj_now_stopped', { song: r.song, tableId: r.tableId })
         }
       } else {

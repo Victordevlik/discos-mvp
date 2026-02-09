@@ -1880,6 +1880,13 @@ async function startDJUserCountdown() {
   try {
     const r = await api(`/api/dj/status?sessionId=${encodeURIComponent(S.sessionId)}`)
     renderUserDJStatus(!!r.enabled, Number(r.until || 0))
+    const chip = q('dj-now-playing')
+    if (chip && r.current && r.current.song) {
+      const who = r.current.alias ? ` • ${r.current.alias}` : ''
+      const mesa = r.current.tableId ? ` • Mesa ${r.current.tableId}` : ''
+      chip.textContent = `Está sonando: ${r.current.song}${who}${mesa}`
+      chip.style.display = 'inline-block'
+    }
   } catch { renderUserDJStatus(false, 0) }
   S.timers.djUserCountdown = setInterval(() => {
     renderUserDJStatus(!!S.djUserEnabled, Number(S.djUserUntil || 0))
@@ -2151,6 +2158,21 @@ async function renderUserHeader() {
       vf.textContent = S.venueName || S.venueId || ''
     } catch {}
   }
+  try {
+    const st = await api(`/api/dj/status?sessionId=${encodeURIComponent(S.sessionId)}`)
+    const chip = q('dj-now-playing')
+    if (chip) {
+      if (st && st.current && st.current.song) {
+        const who = st.current.alias ? ` • ${st.current.alias}` : ''
+        const mesa = st.current.tableId ? ` • Mesa ${st.current.tableId}` : ''
+        chip.textContent = `Está sonando: ${st.current.song}${who}${mesa}`
+        chip.style.display = 'inline-block'
+      } else {
+        chip.style.display = 'none'
+        chip.textContent = ''
+      }
+    }
+  } catch {}
 }
 function openEditProfileFocus(field) {
   openEditProfile()

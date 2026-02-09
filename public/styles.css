@@ -42,10 +42,10 @@ button:active { transform: scale(0.98) }
 .switch { position: relative }
 .switch input { position: absolute; opacity: 0; width: 0; height: 0 }
 .switch span { position: relative; padding-left: 64px; line-height: 28px; cursor: pointer }
-.switch span::before { content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 50px; height: 28px; border-radius: 999px; background: #2a2b43; border: 1px solid #31324a; transition: background .18s ease, border-color .18s ease }
-.switch span::after { content: ""; position: absolute; left: 2px; top: 50%; transform: translateY(-50%); width: 24px; height: 24px; border-radius: 50%; background: linear-gradient(180deg, #f7f8ff, #cfd6ff); box-shadow: 0 4px 10px rgba(0,0,0,0.25); transition: transform .18s ease }
-.switch input:checked + span::before { background: linear-gradient(180deg, var(--primary), #5868ff); border-color: transparent }
-.switch input:checked + span::after { transform: translate(22px, -50%) }
+.switch span:not(.slider)::before { content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 50px; height: 28px; border-radius: 999px; background: #2a2b43; border: 1px solid #31324a; transition: background .18s ease, border-color .18s ease }
+.switch span:not(.slider)::after { content: ""; position: absolute; left: 2px; top: 50%; transform: translateY(-50%); width: 24px; height: 24px; border-radius: 50%; background: linear-gradient(180deg, #f7f8ff, #cfd6ff); box-shadow: 0 4px 10px rgba(0,0,0,0.25); transition: transform .18s ease }
+.switch input:checked + span:not(.slider)::before { background: linear-gradient(180deg, var(--primary), #5868ff); border-color: transparent }
+.switch input:checked + span:not(.slider)::after { transform: translate(22px, -50%) }
 .switch input:checked + span { color: var(--primary2) }
 #available-list .item { display: grid; grid-template-columns: 48px 1fr auto; align-items: center; gap: 12px; padding: 10px; border: 1px solid #24243a; border-radius: 10px; margin-bottom: 8px }
 .alias { font-weight: 600 }
