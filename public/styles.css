@@ -102,8 +102,10 @@ body[data-theme="light"] .chip.sticker { background:#fff3a1; border-color:#e0a33
 .cta button { padding: 14px 20px; font-weight: 600 }
 .grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(180px,1fr)); gap: 8px }
 #mesas-list .card { display:flex; justify-content:space-between; align-items:center }
-#mesa-people .item { display: grid; grid-template-columns: 48px 1fr; gap: 10px; padding: 10px; border: 1px solid #24243a; border-radius: 10px; margin-bottom: 8px }
-#mesa-people .item:hover { border-color:#3a3b5c; background: rgba(30,32,50,0.75) }
+#mesa-people { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px }
+#mesa-people .item { display: flex; flex-direction: column; gap: 10px; padding: 10px; border: 1px solid #24243a; border-radius: 12px }
+#mesa-people .row.compact { margin: 0; gap: 6px; flex-wrap: nowrap }
+#mesa-people .row.compact button { padding: 6px 10px; font-size: 13px }
 #promos-list .card, #staff-promos-list .card { display:flex; justify-content:space-between; align-items:center }
 h2 { font-size: 24px; margin: 0 0 12px 0 }
 .section-title { color: var(--muted); font-size: 14px; margin: 6px 0 }
@@ -175,6 +177,9 @@ body[data-theme="light"] #screen-disponibles .card { background: #fff; border-co
 #screen-mesas #mesas-list .item { background: rgba(27,28,44,0.7); border-color: #3a3b5c; box-shadow: 0 6px 16px rgba(0,0,0,0.25); transition: transform .08s ease, box-shadow .2s ease, border-color .18s ease }
 #screen-mesas #mesas-list .item:hover { transform: translateY(-2px); border-color: #4a4c7a; box-shadow: 0 12px 24px rgba(0,0,0,0.35) }
 #screen-mesas #mesas-list .alias { font-size: 16px; letter-spacing: .2px }
+#screen-mesa-view #mesa-people .item { background: rgba(27,28,44,0.7); border-color: #3a3b5c; box-shadow: 0 6px 16px rgba(0,0,0,0.25); transition: transform .08s ease, box-shadow .2s ease, border-color .18s ease }
+#screen-mesa-view #mesa-people .item:hover { transform: translateY(-2px); border-color: #4a4c7a; box-shadow: 0 12px 24px rgba(0,0,0,0.35) }
+#screen-mesa-view #mesa-people .alias { font-size: 16px; letter-spacing: .2px }
 #screen-disponibles #available-list .row button.info { background: linear-gradient(180deg, #7d88ff, #5868ff); border: 0; color: #fff }
 #screen-disponibles #available-list .row button.warning { background: linear-gradient(180deg, #ffb84b, #e0a33d); border: 0; color: #111 }
 #screen-disponibles #available-list .row button.success { background: linear-gradient(180deg, #38d49c, #2cab83); border: 0; color: #fff }

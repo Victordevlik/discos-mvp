@@ -2326,22 +2326,40 @@ async function loadMesaPeople(tableId) {
   for (const u of list) {
     const div = document.createElement('div')
     div.className = 'item'
+    const top = document.createElement('div')
+    top.className = 'avail-top'
     const img = document.createElement('img')
-    img.width = 48; img.height = 48
-    img.style.borderRadius = '50%'
+    img.className = 'avail-avatar'
+    img.width = 44; img.height = 44
     img.src = u.selfie || ''
+    if (u.selfie) img.onclick = () => showImageModal(u.selfie)
+    const info = document.createElement('div')
+    info.className = 'avail-info'
     const alias = document.createElement('div')
     alias.className = 'alias'
     alias.textContent = u.alias || u.id
-    const tagsEl = document.createElement('div')
-    tagsEl.className = 'tags'
-    tagsEl.textContent = (Array.isArray(u.tags) && u.tags.length) ? `Tags: ${u.tags.join(', ')}` : ''
+    const sub = document.createElement('div')
+    sub.className = 'avail-sub'
+    const parts = []
+    if (u.tableId) parts.push(`Mesa ${u.tableId}`)
+    if (u.gender) parts.push(genderLabel(u.gender))
+    sub.textContent = parts.join(' • ')
+    info.append(alias, sub)
+    top.append(img, info)
     const row = document.createElement('div')
-    row.className = 'row'
-    const bInvite = document.createElement('button'); bInvite.className = 'info'; bInvite.textContent = 'Bailar'; bInvite.onclick = () => openInvite(u)
-    const bConsumo = document.createElement('button'); bConsumo.className = 'success'; bConsumo.textContent = 'Invitar'; bConsumo.onclick = () => { q('consumption-target').value = u.id; openConsumption() }
-    row.append(bInvite, bConsumo)
-    div.append(img, alias, tagsEl, row)
+    row.className = 'row compact'
+    const bDance = document.createElement('button')
+    bDance.className = 'info'
+    const busy = (u.danceState && u.danceState !== 'idle')
+    bDance.textContent = busy ? 'Ocupado' : 'Invitar a bailar 💃'
+    bDance.disabled = !!busy
+    bDance.onclick = () => openInvite(u)
+    const bConsumo = document.createElement('button')
+    bConsumo.className = 'success'
+    bConsumo.textContent = 'Invitar una copa 🥂'
+    bConsumo.onclick = () => { setReceiver(u); q('consumption-target').value = u.id; openConsumption() }
+    row.append(bDance, bConsumo)
+    div.append(top, row)
     container.append(div)
   }
 }
