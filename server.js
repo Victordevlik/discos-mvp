@@ -1699,6 +1699,12 @@ const server = http.createServer(async (req, res) => {
       if (!u) { json(res, 404, { error: 'no_user' }); return }
       const table = String(u.tableId || '')
       if (!table) { json(res, 400, { error: 'no_table' }); return }
+      {
+        const s = ensureSession(u.sessionId)
+        const enabled = !!(s && s.djEnabled)
+        const until = Number(s && s.djEnabledUntil || 0)
+        if (!enabled || (until && now() > until)) { json(res, 403, { error: 'dj_disabled' }); return }
+      }
       const song = String(body.song || '').slice(0, 120)
       if (!song) { json(res, 400, { error: 'no_song' }); return }
       const reqId = genId('dj')
@@ -1707,6 +1713,34 @@ const server = http.createServer(async (req, res) => {
       sendToStaff(item.sessionId, 'dj_request', { request: item })
       try { /* optional db insert */ } catch {}
       json(res, 200, { requestId: reqId })
+      return
+    }
+    if (pathname === '/api/dj/status' && req.method === 'GET') {
+      const sessionId = query.sessionId
+      const s = ensureSession(sessionId)
+      const enabled = !!(s && s.djEnabled)
+      const until = Number(s && s.djEnabledUntil || 0)
+      json(res, 200, { enabled, until })
+      return
+    }
+    if (pathname === '/api/staff/dj/status' && req.method === 'GET') {
+      const sessionId = query.sessionId
+      const s = ensureSession(sessionId)
+      const enabled = !!(s && s.djEnabled)
+      const until = Number(s && s.djEnabledUntil || 0)
+      json(res, 200, { enabled, until })
+      return
+    }
+    if (pathname === '/api/staff/dj/toggle' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const s = ensureSession(body.sessionId)
+      if (!s) { json(res, 404, { error: 'no_session' }); return }
+      const enabled = !!body.enabled
+      const ttlMin = Math.max(0, Number(body.ttlMinutes || 0))
+      s.djEnabled = enabled
+      s.djEnabledUntil = enabled ? (ttlMin ? (now() + ttlMin * 60 * 1000) : 0) : 0
+      sendToStaff(s.sessionId, 'dj_toggle', { enabled: s.djEnabled, until: s.djEnabledUntil })
+      json(res, 200, { ok: true, enabled: s.djEnabled, until: s.djEnabledUntil })
       return
     }
     if (pathname === '/api/staff/dj' && req.method === 'GET') {
@@ -1727,9 +1761,23 @@ const server = http.createServer(async (req, res) => {
       const body = await parseBody(req)
       const r = state.djRequests.get(reqId)
       if (!r) { json(res, 404, { error: 'no_request' }); return }
-      r.status = String(body.status || 'atendido')
+      const status = String(body.status || 'atendido')
+      r.status = status
       sendToStaff(r.sessionId, 'dj_update', { request: r })
-      sendToUser(r.userId, 'dj_update', { request: r })
+      if (status === 'programado' || status === 'atendido') {
+        const queue = []
+        for (const it of state.djRequests.values()) {
+          if (it.sessionId !== r.sessionId) continue
+          if (it.id === r.id) continue
+          if (it.status === 'pendiente' || it.status === 'atendido' || it.status === 'programado') queue.push(it)
+        }
+        queue.sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0))
+        sendToUser(r.userId, 'dj_update', { request: r, queue: queue.map(q => ({ tableId: q.tableId, song: q.song })) })
+      } else if (status === 'sonando' || status === 'terminado' || status === 'descartado') {
+        sendToUser(r.userId, 'dj_update', { request: r })
+      } else {
+        sendToUser(r.userId, 'dj_update', { request: r })
+      }
       json(res, 200, { ok: true })
       return
     }

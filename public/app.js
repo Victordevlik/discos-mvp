@@ -635,6 +635,7 @@ async function join(role, codeOverride = '', pinOverride = '') {
       loadUsers()
       loadReports()
       loadStaffCatalogEditor()
+      if (S.autoStaffTab) { showStaffTab(S.autoStaffTab); S.autoStaffTab = '' }
     }
     startEvents()
   } catch (e) {
@@ -1051,7 +1052,14 @@ function startEvents() {
     const data = JSON.parse(e.data)
     const r = data.request || {}
     if (r.status === 'atendido') { showSuccess('Tu canción está en cola') }
+    else if (r.status === 'programado') {
+      const queue = Array.isArray(data.queue) ? data.queue.slice(0, 3) : []
+      const txt = queue.length ? `Pronto sonará tu canción • Siguiente: ${queue.map(q => q.song).join(' • ')}` : 'Pronto sonará tu canción'
+      showSuccess(txt)
+    }
     else if (r.status === 'descartado') { showError('Tu solicitud fue descartada'); setTimeout(() => showError(''), 1500) }
+    else if (r.status === 'sonando') { showSuccess('¡Tu canción está sonando!') }
+    else if (r.status === 'terminado') { /* opcional: sin mensaje */ }
   })
   S.sse.addEventListener('order_update', e => {
     const data = JSON.parse(e.data)
@@ -1400,6 +1408,12 @@ function startStaffEvents() {
       }
     } catch {}
   })
+  S.staffSSE.addEventListener('dj_toggle', e => {
+    try {
+      const data = JSON.parse(e.data)
+      renderDJStatus(!!data.enabled, Number(data.until || 0))
+    } catch {}
+  })
   S.staffSSE.addEventListener('catalog_update', e => {
     scheduleLater('staff_catalog', async () => { await loadStaffCatalogEditor() }, 500)
   })
@@ -1648,6 +1662,21 @@ function bind() {
   const tabAnalytics = q('tab-staff-analytics'); if (tabAnalytics) tabAnalytics.onclick = () => showStaffTab('analytics')
   const tabDJ = q('tab-staff-dj'); if (tabDJ) tabDJ.onclick = () => showStaffTab('dj')
   const btnDJLoad = q('btn-staff-dj-load'); if (btnDJLoad) btnDJLoad.onclick = loadDJRequests
+  const swDJ = q('staff-dj-switch'); if (swDJ) swDJ.onchange = async () => {
+    const checked = swDJ.checked
+    const ttlRaw = q('staff-dj-ttl')?.value.trim() || ''
+    const ttl = Math.max(0, Number(ttlRaw || 0))
+    const r = await api('/api/staff/dj/toggle', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, enabled: checked, ttlMinutes: checked ? ttl : 0 }) })
+    renderDJStatus(r.enabled, r.until)
+    loadDJRequests()
+  }
+  const btnDJApply = q('btn-staff-dj-apply'); if (btnDJApply) btnDJApply.onclick = async () => {
+    const ttlRaw = q('staff-dj-ttl')?.value.trim() || ''
+    const ttl = Math.max(0, Number(ttlRaw || 0))
+    const r = await api('/api/staff/dj/toggle', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, enabled: true, ttlMinutes: ttl }) })
+    renderDJStatus(r.enabled, r.until)
+    loadDJRequests()
+  }
   const btnStaffAnalytics = q('btn-staff-analytics'); if (btnStaffAnalytics) btnStaffAnalytics.onclick = toggleAnalytics
   const menuPanel = q('menu-staff-panel'); if (menuPanel) menuPanel.onclick = () => showStaffTab('panel')
   const menuOrders = q('menu-staff-orders'); if (menuOrders) menuOrders.onclick = () => showStaffTab('orders')
@@ -1752,6 +1781,21 @@ function bind() {
       setTimeout(() => showError(''), 1000)
     } catch (e) { showError('No se pudo copiar') }
   }
+  const copyDJBtn = q('btn-copy-link-dj')
+  if (copyDJBtn) copyDJBtn.onclick = async () => {
+    try {
+      let baseCandidate = ''
+      try {
+        const pb = await api(`/api/session/public-base?sessionId=${encodeURIComponent(S.sessionId)}`)
+        baseCandidate = (pb.publicBaseUrl || '').trim()
+      } catch {}
+      const base = baseCandidate || location.origin
+      const href = `${base}/?venueId=${encodeURIComponent(S.venueId || 'default')}&sessionId=${encodeURIComponent(S.sessionId)}&dj=1`
+      await navigator.clipboard.writeText(href)
+      showError('Link DJ copiado')
+      setTimeout(() => showError(''), 1000)
+    } catch (e) { showError('No se pudo copiar') }
+  }
   const catalogSearch = q('catalog-search'); if (catalogSearch) catalogSearch.oninput = applyCatalogSearch
   const btnWelcomeVenuePinSend = q('btn-welcome-venue-pin-send'); if (btnWelcomeVenuePinSend) btnWelcomeVenuePinSend.onclick = sendVenuePinAdminWelcome
   const savePB = q('btn-save-public-base')
@@ -1766,12 +1810,17 @@ function bind() {
   }
 }
 function openDJRequest() {
-  show('screen-dj-request')
+  checkDJStatus().then(ok => {
+    if (!ok) { showError('Pedidos al DJ desactivados por Staff'); setTimeout(() => showError(''), 1500); return }
+    show('screen-dj-request')
+  })
 }
 async function sendDJRequest() {
   const song = q('dj-song')?.value.trim()
   if (!song) { showError('Escribe una canción'); setTimeout(() => showError(''), 1200); return }
   if (!S.user.tableId) { showError('Debes seleccionar tu mesa'); setTimeout(() => showError(''), 1200); openSelectTable(); return }
+  const okStatus = await checkDJStatus()
+  if (!okStatus) { showError('Pedidos al DJ desactivados por Staff'); setTimeout(() => showError(''), 1500); return }
   const ok = await confirmAction(`Vas a pedir: "${song}" para tu mesa ${S.user.tableId}. ¿Confirmas?`)
   if (!ok) return
   await api('/api/dj/request', { method: 'POST', body: JSON.stringify({ userId: S.user.id, song }) })
@@ -1779,17 +1828,26 @@ async function sendDJRequest() {
   setTimeout(() => showError(''), 1200)
   show('screen-user-home')
 }
+async function checkDJStatus() {
+  try {
+    const r = await api(`/api/dj/status?sessionId=${encodeURIComponent(S.sessionId)}`)
+    return !!(r && r.enabled && (!r.until || Date.now() < Number(r.until || 0)))
+  } catch { return false }
+}
 async function loadDJRequests() {
   const tRaw = q('staff-dj-filter-table')?.value.trim() || ''
   const t = normalizeTableId(tRaw)
   const qs = t ? `&tableId=${encodeURIComponent(t)}` : ''
   const r = await api(`/api/staff/dj?sessionId=${encodeURIComponent(S.sessionId)}${qs}`)
+  const st = await api(`/api/staff/dj/status?sessionId=${encodeURIComponent(S.sessionId)}`).catch(()=>({enabled:false,until:0}))
+  renderDJStatus(!!st.enabled, Number(st.until || 0))
   const container = q('staff-dj-list')
   if (!container) return
   container.innerHTML = ''
   const listAsc = (r.requests || []).slice().sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0))
   { const b = q('badge-tab-dj'); if (b) { const pending = listAsc.filter(it => it.status === 'pendiente').length; b.classList.toggle('show', pending > 0); b.textContent = pending > 9 ? '9+' : String(pending) } }
   for (const it of listAsc) {
+    if (it.status === 'sonando' || it.status === 'terminado') continue
     const div = document.createElement('div')
     div.className = 'card'
     const info = document.createElement('div')
@@ -1800,11 +1858,57 @@ async function loadDJRequests() {
     info.append(chip)
     const row = document.createElement('div')
     row.className = 'row'
-    const b1 = document.createElement('button'); b1.textContent = 'En cola'; b1.onclick = async () => { await api(`/api/staff/dj/${it.id}`, { method: 'POST', body: JSON.stringify({ status: 'atendido' }) }); loadDJRequests() }
-    const b2 = document.createElement('button'); b2.textContent = 'Descartar'; b2.onclick = async () => { await api(`/api/staff/dj/${it.id}`, { method: 'POST', body: JSON.stringify({ status: 'descartado' }) }); loadDJRequests() }
-    row.append(b1, b2)
+    const b1 = document.createElement('button'); b1.textContent = 'Programar'; b1.onclick = async () => { await api(`/api/staff/dj/${it.id}`, { method: 'POST', body: JSON.stringify({ status: 'programado' }) }); loadDJRequests() }
+    const b2 = document.createElement('button'); b2.textContent = 'En cola'; b2.onclick = async () => { await api(`/api/staff/dj/${it.id}`, { method: 'POST', body: JSON.stringify({ status: 'atendido' }) }); loadDJRequests() }
+    const b3 = document.createElement('button'); b3.textContent = 'Tocar'; b3.onclick = async () => { await api(`/api/staff/dj/${it.id}`, { method: 'POST', body: JSON.stringify({ status: 'sonando' }) }); loadDJRequests() }
+    const b4 = document.createElement('button'); b4.textContent = 'Finalizar'; b4.onclick = async () => { await api(`/api/staff/dj/${it.id}`, { method: 'POST', body: JSON.stringify({ status: 'terminado' }) }); loadDJRequests() }
+    const b5 = document.createElement('button'); b5.textContent = 'Descartar'; b5.onclick = async () => { await api(`/api/staff/dj/${it.id}`, { method: 'POST', body: JSON.stringify({ status: 'descartado' }) }); loadDJRequests() }
+    row.append(b1, b2, b3, b4, b5)
     div.append(info, row)
     container.append(div)
+  }
+}
+function renderDJStatus(enabled, until) {
+  const statusEl = q('staff-dj-status')
+  const sw = q('staff-dj-switch')
+  const cd = q('staff-dj-countdown')
+  const stChip = q('staff-dj-state-chip')
+  if (sw) sw.checked = !!enabled
+  if (statusEl) {
+    if (enabled) {
+      const untilTxt = until ? `hasta ${formatTimeShort(Number(until))}` : 'sin límite'
+      statusEl.textContent = `DJ pedidos: activados (${untilTxt})`
+    } else {
+      statusEl.textContent = 'DJ pedidos: desactivados'
+    }
+  }
+  if (stChip) {
+    stChip.textContent = enabled ? 'Activado' : 'Desactivado'
+    stChip.classList.remove('state-on', 'state-off')
+    stChip.classList.add(enabled ? 'state-on' : 'state-off')
+  }
+  S.djUntil = Number(until || 0)
+  try { if (S.timers.djCountdown) { clearInterval(S.timers.djCountdown); S.timers.djCountdown = 0 } } catch {}
+  if (enabled && S.djUntil) {
+    const tick = () => {
+      const remMs = S.djUntil - Date.now()
+      let remSec = ((remMs + 999) / 1000) | 0
+      if (remSec < 0) remSec = 0
+      const mm = ((remSec / 60) | 0)
+      const ss = (remSec % 60)
+      const txt = `${mm}:${ss < 10 ? ('0' + ss) : ss}`
+      if (cd) cd.textContent = txt
+      if (remSec <= 0) {
+        if (cd) cd.textContent = ''
+        if (sw) sw.checked = false
+        if (statusEl) statusEl.textContent = 'DJ pedidos: desactivados'
+        try { clearInterval(S.timers.djCountdown); S.timers.djCountdown = 0 } catch {}
+      }
+    }
+    tick()
+    S.timers.djCountdown = setInterval(tick, 1000)
+  } else {
+    if (cd) cd.textContent = ''
   }
 }
 
@@ -2385,8 +2489,18 @@ function init() {
     if (sid && q('join-code')) q('join-code').value = sid
     const aj = u.searchParams.get('aj')
     const staffParam = u.searchParams.get('staff')
+    const djParam = u.searchParams.get('dj')
     if (staffParam === '1') {
       show('screen-staff-welcome')
+      if (sid) {
+        setTimeout(async () => {
+          const pin = await promptInput('Ingresa el PIN de sesión', 'PIN de venue')
+          if (pin) { await join('staff', sid, pin) }
+        }, 80)
+      }
+    } else if (djParam === '1') {
+      show('screen-staff-welcome')
+      S.autoStaffTab = 'dj'
       if (sid) {
         setTimeout(async () => {
           const pin = await promptInput('Ingresa el PIN de sesión', 'PIN de venue')

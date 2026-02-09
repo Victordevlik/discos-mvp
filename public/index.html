@@ -445,6 +445,7 @@
           <div class="row">
             <button id="btn-copy-link" class="secondary">Copiar link para usuarios</button>
             <button id="btn-copy-link-staff" class="secondary">Copiar link Staff</button>
+            <button id="btn-copy-link-dj" class="secondary">Copiar link DJ</button>
           </div>
         </div>
       </div>
@@ -537,6 +538,14 @@
           <div class="row">
             <input id="staff-dj-filter-table" placeholder="Mesa (opcional)">
             <button id="btn-staff-dj-load">Ver solicitudes</button>
+          </div>
+          <div class="row">
+            <div id="staff-dj-status">DJ pedidos: desactivados</div>
+            <label class="switch"><input id="staff-dj-switch" type="checkbox"><span class="slider"></span></label>
+            <span id="staff-dj-countdown" class="chip"></span>
+            <span id="staff-dj-state-chip" class="chip">Desactivado</span>
+            <input id="staff-dj-ttl" placeholder="Minutos (opcional)" style="width:120px">
+            <button id="btn-staff-dj-apply">Aplicar TTL</button>
           </div>
           <div id="staff-dj-list"></div>
         </div>
