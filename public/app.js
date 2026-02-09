@@ -843,42 +843,29 @@ function buildAvailableItem(u) {
   img.width = 44; img.height = 44
   img.src = u.selfie || ''
   if (u.selfie) img.onclick = () => showImageModal(u.selfie)
+  const info = document.createElement('div')
+  info.className = 'avail-info'
   const alias = document.createElement('div')
   alias.className = 'alias'
   alias.textContent = u.alias || u.id
-  top.append(img, alias)
-  const meta = document.createElement('div')
-  meta.className = 'avail-meta'
-  const addMeta = (txt) => {
-    if (!txt) return
-    const chip = document.createElement('span')
-    chip.className = 'chip mini'
-    chip.textContent = txt
-    meta.append(chip)
-  }
-  addMeta(u.gender ? genderLabel(u.gender) : '')
-  addMeta(u.tableId ? `Mesa ${u.tableId}` : '')
-  addMeta(u.zone ? `Zona ${u.zone}` : '')
-  const tagsEl = document.createElement('div')
-  tagsEl.className = 'tags'
-  if (Array.isArray(u.tags)) {
-    for (const t of u.tags) {
-      const chip = document.createElement('span')
-      chip.className = 'chip mini'
-      chip.textContent = t
-      tagsEl.append(chip)
-    }
-  }
+  const sub = document.createElement('div')
+  sub.className = 'avail-sub'
+  const parts = []
+  if (u.tableId) parts.push(`Mesa ${u.tableId}`)
+  if (u.gender) parts.push(genderLabel(u.gender))
+  sub.textContent = parts.join(' • ')
+  info.append(alias, sub)
+  top.append(img, info)
   const row = document.createElement('div')
   row.className = 'row compact'
   const bDance = document.createElement('button')
   const busy = (u.danceState && u.danceState !== 'idle')
-  bDance.textContent = busy ? 'Ocupado' : 'Bailar'
+  bDance.textContent = busy ? 'Ocupado' : 'Invitar a bailar 💃'
   bDance.disabled = !!busy
   bDance.onclick = () => sendInviteQuick(u)
-  const bConsumo = document.createElement('button'); bConsumo.textContent = 'Invitar'; bConsumo.onclick = () => { setReceiver(u); q('consumption-target').value = u.id; openConsumption() }
+  const bConsumo = document.createElement('button'); bConsumo.textContent = 'Invitar una copa 🥂'; bConsumo.onclick = () => { setReceiver(u); q('consumption-target').value = u.id; openConsumption() }
   row.append(bDance, bConsumo)
-  div.append(top, meta, tagsEl, row)
+  div.append(top, row)
   return div
 }
 async function viewAvailable() {

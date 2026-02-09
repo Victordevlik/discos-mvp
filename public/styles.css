@@ -48,12 +48,11 @@ button:active { transform: scale(0.98) }
 .switch input:checked + span:not(.slider)::after { transform: translate(22px, -50%) }
 .switch input:checked + span { color: var(--primary2) }
 #available-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px }
-#available-list .item { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid #24243a; border-radius: 12px }
+#available-list .item { display: flex; flex-direction: column; gap: 10px; padding: 10px; border: 1px solid #24243a; border-radius: 12px }
 .avail-top { display: flex; align-items: center; gap: 10px }
 .avail-avatar { border-radius: 50%; object-fit: cover; cursor: zoom-in }
-.avail-meta { display: flex; flex-wrap: wrap; gap: 6px }
-.chip.mini { padding: 4px 8px; font-size: 12px }
-#available-list .tags { display: flex; flex-wrap: wrap; gap: 6px }
+.avail-info { display: flex; flex-direction: column; gap: 2px }
+.avail-sub { font-size: 12px; color: var(--muted) }
 #available-list .row.compact { margin: 0; gap: 6px }
 #available-list .row.compact button { padding: 6px 10px; font-size: 13px }
 .alias { font-weight: 600 }
