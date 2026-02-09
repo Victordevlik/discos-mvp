@@ -7,6 +7,7 @@ function show(id) {
   q(id).classList.add('active')
   if (S.nav && S.nav.current && S.nav.current !== id) S.nav.history.push(S.nav.current)
   S.nav.current = id
+  try { localStorage.setItem('discos_last_view', id) } catch {}
   const tb = q('topbar')
   if (tb) tb.classList.add('show')
   setActiveNavByScreen(id)
@@ -58,6 +59,7 @@ function setActiveNav(tab) {
   const map = { carta: 'nav-carta', disponibles: 'nav-disponibles', mesas: 'nav-mesas', orders: 'nav-orders', perfil: 'nav-perfil' }
   const id = map[tab]
   if (id) { const el = q(id); if (el) el.classList.add('active') }
+  try { localStorage.setItem('discos_last_user_tab', tab) } catch {}
 }
 function setActiveNavByScreen(screenId) {
   const reverse = { 'screen-consumption': 'carta', 'screen-disponibles-select': 'disponibles', 'screen-disponibles': 'disponibles', 'screen-mesas': 'mesas', 'screen-orders-user': 'orders', 'screen-edit-profile': 'perfil' }
@@ -76,6 +78,29 @@ function setBadgeNav(tab, count) {
 function normalizeTableId(v) {
   const m = String(v || '').match(/\d+/)
   return m ? m[0] : ''
+}
+
+function restoreLastView() {
+  try {
+    const lastView = (() => { try { return localStorage.getItem('discos_last_view') || '' } catch { return '' } })()
+    const lastUserTab = (() => { try { return localStorage.getItem('discos_last_user_tab') || '' } catch { return '' } })()
+    const lastStaffTab = (() => { try { return localStorage.getItem('discos_last_staff_tab') || '' } catch { return '' } })()
+    if (S.role === 'user') {
+      if (lastView && lastView !== 'screen-welcome') {
+        show(lastView)
+        if (lastView === 'screen-dj-request') startDJUserCountdown()
+        else if (lastView === 'screen-orders-user') { loadUserOrders(); loadUserInvitesHistory() }
+        else if (lastView === 'screen-disponibles' || lastView === 'screen-disponibles-select') scheduleRefreshAvailableList()
+        else if (lastView === 'screen-mesas') exploreMesas()
+      } else if (lastUserTab) {
+        setActiveNav(lastUserTab)
+      }
+    } else if (S.role === 'staff') {
+      show('screen-staff')
+      const tab = lastStaffTab || 'panel'
+      showStaffTab(tab)
+    }
+  } catch {}
 }
 
 function setTheme(t) {
@@ -125,6 +150,7 @@ function showStaffTab(tab) {
   else if (tab === 'analytics') loadAnalytics()
   else if (tab === 'dj') loadDJRequests()
   S.staffTab = tab
+  try { localStorage.setItem('discos_last_staff_tab', tab) } catch {}
 }
 
 async function loadSessionInfo() {
@@ -1717,6 +1743,8 @@ function bind() {
     renderDJStatus(r.enabled, r.until)
     loadDJRequests()
   }
+  const djFilt = q('staff-dj-filter-table'); if (djFilt) { try { djFilt.value = localStorage.getItem('discos_staff_dj_filter_table') || '' } catch {} ; djFilt.oninput = () => { try { localStorage.setItem('discos_staff_dj_filter_table', djFilt.value.trim()) } catch {} } }
+  const ordFilt = q('staff-orders-filter'); if (ordFilt) { try { const v = localStorage.getItem('discos_staff_orders_filter') || ''; if (v) ordFilt.value = v } catch {} ; ordFilt.onchange = () => { try { localStorage.setItem('discos_staff_orders_filter', ordFilt.value || '') } catch {}; loadOrders(ordFilt.value || '') } }
   const btnStaffAnalytics = q('btn-staff-analytics'); if (btnStaffAnalytics) btnStaffAnalytics.onclick = toggleAnalytics
   const menuPanel = q('menu-staff-panel'); if (menuPanel) menuPanel.onclick = () => showStaffTab('panel')
   const menuOrders = q('menu-staff-orders'); if (menuOrders) menuOrders.onclick = () => showStaffTab('orders')
@@ -2719,6 +2747,7 @@ async function restoreLocalUser() {
       await loadSessionInfo()
       startStaffEvents()
       loadOrders(); loadUsers(); loadReports(); loadAnalytics(); loadStaffPromos()
+      restoreLastView()
       return true
     } else if (S.role === 'user') {
       startEvents()
@@ -2736,6 +2765,7 @@ async function restoreLocalUser() {
       if (ut) ut.textContent = S.user.tableId || '-'
       if (us) us.src = S.user.selfie || ''
       renderUserHeader()
+      restoreLastView()
       return true
     }
     return false
