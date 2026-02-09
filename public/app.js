@@ -819,6 +819,7 @@ async function viewAvailable() {
     container.append(div)
   }
   show('screen-disponibles')
+  await loadDanceSessionList()
 }
 async function refreshAvailableList() {
   if (!S.user || !S.user.available) return
@@ -870,7 +871,34 @@ async function refreshAvailableList() {
     div.append(img, alias, tbl, zone, tagsEl, row)
     container.append(div)
   }
+  scheduleRefreshDanceList()
 }
+
+async function loadDanceSessionList() {
+  const cont = q('dance-session-list'); if (!cont) return
+  const r = await api(`/api/users/dance?sessionId=${encodeURIComponent(S.sessionId)}`)
+  cont.innerHTML = ''
+  const mk = (list, title) => {
+    if (!Array.isArray(list) || !list.length) return
+    const section = document.createElement('div')
+    const t = document.createElement('div'); t.className = 'section-title'; t.textContent = title
+    section.append(t)
+    for (const u of list) {
+      const div = document.createElement('div')
+      div.className = 'item'
+      const img = document.createElement('img'); img.width = 48; img.height = 48; img.src = u.selfie || ''
+      const alias = document.createElement('div'); alias.className = 'alias'; alias.textContent = u.alias || u.id
+      const statusChip = document.createElement('span'); statusChip.className = 'chip ' + (u.danceState === 'dancing' ? 'success' : 'pending')
+      statusChip.textContent = u.danceState === 'dancing' ? `Bailando con ${u.partnerAlias || ''}` : `Esperando con ${u.partnerAlias || ''}`
+      div.append(img, alias, statusChip)
+      section.append(div)
+    }
+    cont.append(section)
+  }
+  mk(r.waiting, 'Esperando')
+  mk(r.dancing, 'Bailando')
+}
+function scheduleRefreshDanceList() { scheduleLater('user_dance_list', async () => { await loadDanceSessionList() }, 1000) }
 async function viewAvailableByTable() {
   if (!S.user || !S.user.available) {
     showError('Oye: debes poner modo activo antes de ver las personas disponibles')
@@ -974,6 +1002,7 @@ function startEvents() {
     S.invitesQueue.push({ type: 'dance', id: data.invite.id, invite: data.invite })
     S.notifications.invites = (S.notifications.invites || 0) + 1
     setBadgeNav('disponibles', S.notifications.invites)
+    ;(async () => { try { await api('/api/invite/ack', { method: 'POST', body: JSON.stringify({ inviteId: data.invite.id, toId: S.user.id }) }) } catch {} })()
     if (document.hidden) {
       const msg = `Invitación de baile de ${data.invite.from.alias}`
       S.missed.push(msg)
@@ -1044,6 +1073,7 @@ function startEvents() {
     S.invitesQueue.push({ type: 'consumption', data })
     S.notifications.invites = (S.notifications.invites || 0) + 1
     setBadgeNav('disponibles', S.notifications.invites)
+    ;(async () => { try { await api('/api/consumption/ack', { method: 'POST', body: JSON.stringify({ requestId: data.requestId, toId: S.user.id }) }) } catch {} })()
     if (document.hidden) {
       const msg = `Invitación de consumo de ${data.from.alias}: ${data.product}`
       S.missed.push(msg)
@@ -1056,12 +1086,37 @@ function startEvents() {
     S.invitesQueue.push({ type: 'consumption', data })
     S.notifications.invites = (S.notifications.invites || 0) + 1
     setBadgeNav('disponibles', S.notifications.invites)
+    ;(async () => { try { await api('/api/consumption/ack', { method: 'POST', body: JSON.stringify({ requestId: data.requestId, toId: S.user.id }) }) } catch {} })()
     if (document.hidden) {
       const listTxt = (Array.isArray(data.items) ? data.items.map(it => `${it.quantity} x ${it.product}`).join(', ') : '')
       const msg = `Invitación de consumo de ${data.from.alias}: ${listTxt}`
       S.missed.push(msg)
     }
     if (!S.inInviteFlow) { showNextInvite() }
+  })
+  S.sse.addEventListener('invite_seen', e => {
+    const data = JSON.parse(e.data)
+    const u = data.to && data.to.alias ? data.to.alias : (data.to && data.to.id ? data.to.id : '')
+    const msg = `Tu invitación le apareció a ${u}`
+    if (document.hidden) { S.missed.push(msg) } else { showSuccess(msg) }
+  })
+  S.sse.addEventListener('invite_not_seen', e => {
+    const data = JSON.parse(e.data)
+    const u = data.to && data.to.alias ? data.to.alias : (data.to && data.to.id ? data.to.id : '')
+    const msg = `Tu invitación no le apareció a ${u}`
+    if (document.hidden) { S.missed.push(msg) } else { showError(msg); setTimeout(() => showError(''), 1500) }
+  })
+  S.sse.addEventListener('consumption_seen', e => {
+    const data = JSON.parse(e.data)
+    const u = data.to && data.to.alias ? data.to.alias : (data.to && data.to.id ? data.to.id : '')
+    const msg = `Tu invitación de consumo le apareció a ${u}`
+    if (document.hidden) { S.missed.push(msg) } else { showSuccess(msg) }
+  })
+  S.sse.addEventListener('consumption_not_seen', e => {
+    const data = JSON.parse(e.data)
+    const u = data.to && data.to.alias ? data.to.alias : (data.to && data.to.id ? data.to.id : '')
+    const msg = `Tu invitación de consumo no le apareció a ${u}`
+    if (document.hidden) { S.missed.push(msg) } else { showError(msg); setTimeout(() => showError(''), 1500) }
   })
   S.sse.addEventListener('consumption_accepted', e => {
     const data = JSON.parse(e.data)

@@ -14,6 +14,7 @@ const state = {
   invites: new Map(),
   meetings: new Map(),
   orders: new Map(),
+  consumptionInvites: new Map(),
   waiterCalls: new Map(),
   djRequests: new Map(),
   blocks: new Set(),
@@ -1031,6 +1032,21 @@ const server = http.createServer(async (req, res) => {
       json(res, 200, { users: arr })
       return
     }
+    if (pathname === '/api/users/dance' && req.method === 'GET') {
+      const sessionId = query.sessionId
+      const waiting = []
+      const dancing = []
+      for (const u of state.users.values()) {
+        if (u.sessionId !== sessionId || u.role !== 'user') continue
+        const partner = (u.dancePartnerId && state.users.get(u.dancePartnerId)) || null
+        const partnerAlias = partner ? (partner.alias || partner.id) : ''
+        const obj = { id: u.id, alias: u.alias, selfie: u.selfie || '', tableId: u.tableId, zone: u.zone, danceState: u.danceState || 'idle', partnerAlias }
+        if (u.danceState === 'waiting') waiting.push(obj)
+        else if (u.danceState === 'dancing') dancing.push(obj)
+      }
+      json(res, 200, { waiting, dancing })
+      return
+    }
     if (pathname === '/api/mesas/active' && req.method === 'GET') {
       const sessionId = query.sessionId
       const map = new Map()
@@ -1079,6 +1095,17 @@ const server = http.createServer(async (req, res) => {
       const fromSelfie = from.selfie || ''
       sendToUser(to.id, 'dance_invite', { invite: { id: invId, from: { id: from.id, alias: from.alias, selfie: fromSelfie, tableId: from.tableId || '', zone: from.zone || '' } , msg, expiresAt: inv.expiresAt } })
       json(res, 200, { inviteId: invId, expiresAt: inv.expiresAt })
+      return
+    }
+    if (pathname === '/api/invite/ack' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const inv = state.invites.get(body.inviteId)
+      if (!inv) { json(res, 404, { error: 'no_invite' }); return }
+      if (String(inv.toId) !== String(body.toId)) { json(res, 403, { error: 'forbidden' }); return }
+      inv.seenAt = now()
+      const uTo = state.users.get(inv.toId)
+      try { sendToUser(inv.fromId, 'invite_seen', { inviteId: inv.id, to: { id: inv.toId, alias: uTo ? (uTo.alias || uTo.id) : inv.toId } }) } catch {}
+      json(res, 200, { ok: true })
       return
     }
     if (pathname === '/api/invite/respond' && req.method === 'POST') {
@@ -1197,6 +1224,7 @@ const server = http.createServer(async (req, res) => {
       const reqId = genId('cinv')
       const note = String(body.note || '').slice(0, 140)
       const qty = Math.max(1, Number(body.quantity || 1))
+      state.consumptionInvites.set(reqId, { id: reqId, sessionId: from.sessionId, fromId: from.id, toId: to.id, createdAt: now(), expiresAt: now() + 60 * 1000, seenAt: 0, notSeenNotified: false })
       sendToUser(to.id, 'consumption_invite', { requestId: reqId, from: { id: from.id, alias: from.alias, tableId: from.tableId || '' }, product: body.product, quantity: qty, note, expiresAt: now() + 60 * 1000 })
       json(res, 200, { requestId: reqId })
       return
@@ -1217,8 +1245,20 @@ const server = http.createServer(async (req, res) => {
       if (!filtered.length) { json(res, 400, { error: 'no_items' }); return }
       const reqId = genId('cinv')
       const note = String(body.note || '').slice(0, 140)
+      state.consumptionInvites.set(reqId, { id: reqId, sessionId: from.sessionId, fromId: from.id, toId: to.id, createdAt: now(), expiresAt: now() + 60 * 1000, seenAt: 0, notSeenNotified: false })
       sendToUser(to.id, 'consumption_invite_bulk', { requestId: reqId, from: { id: from.id, alias: from.alias, tableId: from.tableId || '' }, items: filtered, note, expiresAt: now() + 60 * 1000 })
       json(res, 200, { requestId: reqId })
+      return
+    }
+    if (pathname === '/api/consumption/ack' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const ci = state.consumptionInvites.get(body.requestId)
+      if (!ci) { json(res, 404, { error: 'no_request' }); return }
+      if (String(ci.toId) !== String(body.toId)) { json(res, 403, { error: 'forbidden' }); return }
+      ci.seenAt = now()
+      const uTo = state.users.get(ci.toId)
+      try { sendToUser(ci.fromId, 'consumption_seen', { requestId: ci.id, to: { id: ci.toId, alias: uTo ? (uTo.alias || uTo.id) : ci.toId } }) } catch {}
+      json(res, 200, { ok: true })
       return
     }
     if (pathname === '/api/consumption/respond' && req.method === 'POST') {
@@ -2070,6 +2110,23 @@ setInterval(() => {
         sendToUser(inv.fromId, 'invite_result', { inviteId: inv.id, status: 'expirado' })
         sendToUser(inv.toId, 'invite_result', { inviteId: inv.id, status: 'expirado' })
       } catch {}
+    }
+  }
+  for (const inv of state.invites.values()) {
+    if (inv.status === 'pendiente' && !inv.seenAt && !inv.notSeenNotified && (nowTs - inv.createdAt) > 12000) {
+      inv.notSeenNotified = true
+      const uTo = state.users.get(inv.toId)
+      try { sendToUser(inv.fromId, 'invite_not_seen', { inviteId: inv.id, to: { id: inv.toId, alias: uTo ? (uTo.alias || uTo.id) : inv.toId } }) } catch {}
+    }
+  }
+  for (const ci of state.consumptionInvites.values()) {
+    if (!ci.seenAt && !ci.notSeenNotified && (nowTs - ci.createdAt) > 12000) {
+      ci.notSeenNotified = true
+      const uTo = state.users.get(ci.toId)
+      try { sendToUser(ci.fromId, 'consumption_not_seen', { requestId: ci.id, to: { id: ci.toId, alias: uTo ? (uTo.alias || uTo.id) : ci.toId } }) } catch {}
+    }
+    if (ci.expiresAt && nowTs > ci.expiresAt) {
+      state.consumptionInvites.delete(ci.id)
     }
   }
   for (const m of state.meetings.values()) {
