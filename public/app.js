@@ -79,7 +79,7 @@ function setActiveNav(tab) {
   try { localStorage.setItem('discos_last_user_tab', tab) } catch {}
 }
 function setActiveNavByScreen(screenId) {
-  const reverse = { 'screen-consumption': 'carta', 'screen-disponibles-select': 'disponibles', 'screen-disponibles': 'disponibles', 'screen-mesas': 'mesas', 'screen-dj-request': 'mesas', 'screen-orders-user': 'orders', 'screen-edit-profile': 'perfil' }
+  const reverse = { 'screen-consumption': 'carta', 'screen-disponibles-select': 'disponibles', 'screen-disponibles': 'disponibles', 'screen-mesas': 'mesas', 'screen-call-waiter': 'mesas', 'screen-orders-user': 'orders', 'screen-edit-profile': 'perfil' }
   const tab = reverse[screenId]
   if (tab) setActiveNav(tab)
 }
@@ -1895,7 +1895,7 @@ function bind() {
   const nc = q('nav-carta'), nd = q('nav-disponibles'), nm = q('nav-mesas'), no = q('nav-orders'), nf = q('nav-perfil')
   if (nc) nc.onclick = () => { setActiveNav('carta'); openMenu() }
   if (nd) nd.onclick = () => { setActiveNav('disponibles'); showAvailableChoice() }
-  if (nm) nm.onclick = () => { setActiveNav('mesas'); openDJRequest() }
+  if (nm) nm.onclick = () => { setActiveNav('mesas'); openCallWaiter() }
   if (no) no.onclick = () => { setActiveNav('orders'); loadUserOrders(); show('screen-orders-user') }
   const btnShowAllInv = q('btn-invite-show-all'); if (btnShowAllInv) btnShowAllInv.onclick = openInvitesInbox
   const btnPassAllInv = q('btn-pass-all-invites'); if (btnPassAllInv) btnPassAllInv.onclick = passAllDanceInvites
@@ -1925,7 +1925,7 @@ function bind() {
   const ua = q('user-alias'); if (ua) { ua.style.cursor = 'pointer'; ua.onclick = () => openEditProfileFocus('alias') }
   const ut = q('user-table'); if (ut) { ut.style.cursor = 'pointer'; ut.onclick = () => openEditProfileFocus('table') }
   const linkStaff = q('link-staff'); if (linkStaff) linkStaff.onclick = (e) => { e.preventDefault(); show('screen-staff-welcome') }
-  const fab = q('fab-call'); if (fab) fab.onclick = openCallWaiter
+  const fab = q('fab-call'); if (fab) fab.onclick = openDJRequest
   const btnDjSend = q('btn-dj-send'); if (btnDjSend) btnDjSend.onclick = sendDJRequest
   const bAT = q('btn-avail-by-table'); if (bAT) bAT.onclick = exploreMesas
   const bAA = q('btn-avail-all'); if (bAA) bAA.onclick = viewAvailable
