@@ -126,6 +126,8 @@ body[data-theme="light"] .navbar { background: rgba(247,248,254,0.85); border-to
 .nav-item.active { color: var(--primary2) }
 .nav-item.active svg path, .nav-item.active svg rect, .nav-item.active svg circle { stroke: var(--primary2) }
 .nav-item { position: relative }
+.nav-item svg .nav-ico-bg { fill: rgba(166,176,255,0.14) }
+body[data-theme="light"] .nav-item svg .nav-ico-bg { fill: rgba(55,71,255,0.12) }
 #nav-disponibles svg { width: 22px; height: 22px }
 #nav-disponibles:not(.active) svg { animation: pulseNav 1.8s ease-in-out infinite }
 #nav-disponibles:not(.active) svg path, #nav-disponibles:not(.active) svg circle { stroke: var(--primary2); stroke-width: 1.8; filter: drop-shadow(0 0 6px rgba(166,176,255,0.5)) }
