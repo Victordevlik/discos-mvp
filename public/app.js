@@ -3,6 +3,36 @@ let S = { sessionId: '', venueId: '', user: null, staff: null, role: '', sse: nu
 
 function q(id) { return document.getElementById(id) }
 function isRestaurantMode() { return S.appMode === 'restaurant' }
+function normalizeModeParam(mode) {
+  const m = String(mode || '').toLowerCase()
+  return (m === 'restaurant' || m === '1') ? 'restaurant' : ''
+}
+function applyMode(mode) {
+  const m = normalizeModeParam(mode)
+  if (m === 'restaurant') {
+    S.appMode = 'restaurant'
+    applyRestaurantMode()
+  } else {
+    S.appMode = ''
+    applyDiscoMode()
+  }
+  setModeInUrl(m)
+  return m
+}
+function getModeFromUrl() {
+  try {
+    const u = new URL(location.href)
+    return normalizeModeParam(u.searchParams.get('mode') || u.searchParams.get('restaurant') || '')
+  } catch { return '' }
+}
+async function syncSessionMode(sessionId) {
+  if (!sessionId) return ''
+  try {
+    const r = await api(`/api/session/info?sessionId=${encodeURIComponent(sessionId)}`)
+    return applyMode(r.mode || '')
+  } catch {}
+  return ''
+}
 function setModeInUrl(mode) {
   const u = new URL(location.href)
   if (mode === 'restaurant') u.searchParams.set('mode', 'restaurant')
@@ -23,6 +53,11 @@ function applyRestaurantMode() {
   setTxt('#tab-staff-catalog', 'Menú')
   setTxt('#menu-staff-catalog', 'Menú')
   const search = q('catalog-search'); if (search) search.placeholder = 'Buscar en menú'
+  const lblGender = q('label-gender'); if (lblGender) lblGender.style.display = 'none'
+  const gender = q('profile-gender'); if (gender) { gender.style.display = 'none'; gender.required = false }
+  const lblSelfie = q('label-selfie'); if (lblSelfie) lblSelfie.style.display = 'none'
+  const selfie = q('selfie'); if (selfie) { selfie.style.display = 'none'; selfie.required = false }
+  const selfieNote = q('selfie-note'); if (selfieNote) selfieNote.style.display = 'none'
   setTxt('#nav-carta span', 'Menú')
   setTxt('#nav-disponibles span', 'Promos')
   setTxt('#nav-orders span', 'Órdenes')
@@ -44,6 +79,11 @@ function applyDiscoMode() {
   setTxt('#tab-staff-catalog', 'Carta')
   setTxt('#menu-staff-catalog', 'Carta')
   const search = q('catalog-search'); if (search) search.placeholder = 'Buscar en carta'
+  const lblGender = q('label-gender'); if (lblGender) lblGender.style.display = ''
+  const gender = q('profile-gender'); if (gender) { gender.style.display = ''; gender.required = true }
+  const lblSelfie = q('label-selfie'); if (lblSelfie) lblSelfie.style.display = ''
+  const selfie = q('selfie'); if (selfie) { selfie.style.display = ''; selfie.required = true }
+  const selfieNote = q('selfie-note'); if (selfieNote) selfieNote.style.display = ''
   setTxt('#nav-carta span', 'Carta')
   setTxt('#nav-disponibles span', 'Bailar')
   setTxt('#nav-orders span', 'Órdenes')
@@ -245,7 +285,11 @@ function showStaffTab(tab) {
 async function loadSessionInfo() {
   try {
     let pin = ''
-    try { const r = await api('/api/session/active'); pin = r.pin || '' } catch {}
+    try {
+      const r = await api(`/api/session/active${S.venueId ? ('?venueId=' + encodeURIComponent(S.venueId)) : ''}`)
+      pin = r.pin || ''
+      if (r.mode) applyMode(r.mode)
+    } catch {}
     let baseCandidate = ''
     try {
       const pb = await api(`/api/session/public-base?sessionId=${encodeURIComponent(S.sessionId)}`)
@@ -805,6 +849,7 @@ async function join(role, codeOverride = '', pinOverride = '') {
     }
     S.user = r.user
     S.role = role
+    await syncSessionMode(S.sessionId)
     try { saveLocalUser() } catch {}
     if (role === 'user') {
       const aliasInput = q('alias'); if (aliasInput) aliasInput.value = S.user.alias || alias
@@ -831,24 +876,25 @@ async function saveProfile() {
   const tableId = (q('profile-table') ? q('profile-table').value.trim() : '')
   const gender = (q('profile-gender') ? q('profile-gender').value : '')
   const file = q('selfie').files[0]
+  const isRestaurant = isRestaurantMode()
   let selfie = ''
   if (file) {
     selfie = await processSelfie(file).catch(() => '')
     if (!selfie) { showError('Selfie inválida o muy grande'); setTimeout(() => showError(''), 1400); return }
   }
   if (!alias) { showError('Ingresa tu alias'); setTimeout(() => showError(''), 1200); return }
-  if (!gender) { showError(t('gender_required')); setTimeout(() => showError(''), 1200); return }
+  if (!isRestaurant && !gender) { showError(t('gender_required')); setTimeout(() => showError(''), 1200); return }
   if (!tableId) { showError('Ingresa tu mesa'); setTimeout(() => showError(''), 1200); return }
-  if (!file) { showError('Debes subir tu selfie'); setTimeout(() => showError(''), 1400); return }
-  await api('/api/user/profile', { method: 'POST', body: JSON.stringify({ userId: S.user.id, alias, selfie, gender }) })
+  if (!isRestaurant && !file) { showError('Debes subir tu selfie'); setTimeout(() => showError(''), 1400); return }
+  await api('/api/user/profile', { method: 'POST', body: JSON.stringify({ userId: S.user.id, alias, selfie, gender: isRestaurant ? (gender || '') : gender }) })
   await api('/api/user/change-table', { method: 'POST', body: JSON.stringify({ userId: S.user.id, newTable: tableId }) })
   S.user.alias = alias
-  S.user.selfie = selfie
+  if (selfie) S.user.selfie = selfie
   S.user.tableId = tableId
   if (!S.user.prefs) S.user.prefs = {}
-  S.user.prefs.gender = gender
+  if (!isRestaurant) S.user.prefs.gender = gender
   try { saveLocalUser() } catch {}
-  q('selfie-note').textContent = 'Selfie cargada'
+  const selfieNote = q('selfie-note'); if (selfieNote) selfieNote.textContent = selfie ? 'Selfie cargada' : ''
   const ua = q('user-alias'), us = q('user-selfie'); if (ua) ua.textContent = S.user.alias || S.user.id; if (us) us.src = S.user.selfie || ''
   const ut = q('user-table'); if (ut) ut.textContent = S.user.tableId || '-'
   show('screen-user-home')
@@ -1628,11 +1674,13 @@ async function startStaffSession() {
       if (v) S.venueId = v
     } catch {}
     let r = null
+    const mode = getModeFromUrl() || (isRestaurantMode() ? 'restaurant' : '')
     try { r = await api(`/api/session/active${S.venueId ? ('?venueId=' + encodeURIComponent(S.venueId)) : ''}`) } catch {}
-    if (!r || !r.sessionId) r = await api('/api/session/start', { method: 'POST', body: JSON.stringify({ venueId: S.venueId || 'default' }) })
+    if (!r || !r.sessionId) r = await api('/api/session/start', { method: 'POST', body: JSON.stringify({ venueId: S.venueId || 'default', mode }) })
     const joinCodeEl = q('join-code'); if (joinCodeEl) joinCodeEl.value = r.sessionId
     S.sessionId = r.sessionId
     S.venueId = r.venueId || (S.venueId || 'default')
+    if (r.mode || mode) applyMode(r.mode || mode)
     const pinToUse = pinInput || r.pin || ''
     if (!pinToUse) { showError('Ingresa el PIN'); return }
     const joinRes = await api('/api/join', { method: 'POST', body: JSON.stringify({ sessionId: r.sessionId, role: 'staff', pin: pinToUse }) })
@@ -1667,7 +1715,10 @@ async function endStaffSession() {
   try { if (S.staffSSE) S.staffSSE.close() } catch {}
   S.sessionId = ''; S.user = null; S.role = ''; S.sse = null; S.staffSSE = null
   try { removeLocalUser(S.venueId) } catch {}
-  show('screen-welcome')
+  S.appMode = ''
+  applyDiscoMode()
+  setModeInUrl('')
+  show('screen-venue-type')
   showError('Sesión destruida')
   setTimeout(() => showError(''), 1200)
 }
@@ -1756,7 +1807,8 @@ async function getCatalogData(force = false) {
   const ttl = 60000
   S.cache = S.cache || {}
   if (!force && S.cache.catalog && (Date.now() - (S.cache.catalogTs || 0) < ttl)) return S.cache.catalog
-  const r = await api(`/api/catalog${S.sessionId ? ('?sessionId=' + encodeURIComponent(S.sessionId)) : ''}`)
+  const qs = S.sessionId ? `?sessionId=${encodeURIComponent(S.sessionId)}` : (isRestaurantMode() ? '?mode=restaurant' : '')
+  const r = await api(`/api/catalog${qs}`)
   S.cache.catalog = r
   S.cache.catalogTs = Date.now()
   return r
@@ -2935,7 +2987,8 @@ async function startScanQR() {
           } catch {
             if (data.startsWith('sess_')) {
               const base = location.origin
-              const url = `${base}/?venueId=${encodeURIComponent(S.venueId || 'default')}&sessionId=${encodeURIComponent(data)}&aj=1`
+              const modeQuery = isRestaurantMode() ? '&mode=restaurant' : ''
+              const url = `${base}/?venueId=${encodeURIComponent(S.venueId || 'default')}&sessionId=${encodeURIComponent(data)}&aj=1${modeQuery}`
               const tracks = stream.getTracks(); tracks.forEach(t => t.stop())
               location.href = url
               return
@@ -2957,9 +3010,9 @@ function init() {
     const u = new URL(location.href)
     if (document && document.documentElement) document.documentElement.lang = 'es'
     loadI18n().then(() => { renderGenderSelect() }).catch(() => { renderGenderSelect() })
-    const modeParam = u.searchParams.get('mode') || u.searchParams.get('restaurant') || ''
-    if (modeParam === 'restaurant' || modeParam === '1') { S.appMode = 'restaurant'; applyRestaurantMode() }
-    else if (modeParam) { S.appMode = ''; applyDiscoMode() }
+    const modeParam = normalizeModeParam(u.searchParams.get('mode') || u.searchParams.get('restaurant') || '')
+    if (modeParam) applyMode(modeParam)
+    else applyMode('')
     const vid = u.searchParams.get('venueId') || ''
     if (vid) S.venueId = vid
     const sid = u.searchParams.get('sessionId') || u.searchParams.get('s')
@@ -3089,12 +3142,14 @@ async function restoreLocalUser() {
       S.user = { id: d.userId, role: 'staff', sessionId: d.sessionId }
       S.sessionId = d.sessionId
       S.role = 'staff'
+      await syncSessionMode(S.sessionId)
     } else {
       const r = await api(`/api/user/get?userId=${encodeURIComponent(d.userId)}`).catch(() => null)
       if (!r || !r.user) return false
       S.user = r.user
       S.sessionId = r.user.sessionId
       S.role = r.user.role
+      await syncSessionMode(S.sessionId)
     }
     if (S.role === 'staff') {
       const okActive = await ensureSessionActiveOffer()
@@ -3599,7 +3654,7 @@ async function useGlobalCatalog() {
 }
 async function copyGlobalToSession() {
   try {
-    const r = await api('/api/catalog')
+    const r = await api(`/api/catalog${isRestaurantMode() ? '?mode=restaurant' : ''}`)
     const items = r.items || []
     await api('/api/staff/catalog', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, items }) })
     await loadStaffCatalogEditor()

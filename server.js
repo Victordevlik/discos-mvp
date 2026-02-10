@@ -162,26 +162,40 @@ async function writeVenues(obj) {
   }
   try { fs.writeFileSync(venuesPath, JSON.stringify(obj)) } catch {}
 }
-async function dbReadGlobalCatalog() {
+async function dbReadGlobalCatalog(mode) {
   if (!db) return []
   await initDB()
-  const r = await db.query('SELECT name, price, category, subcategory FROM catalog_items WHERE session_id=$1 ORDER BY name', ['global'])
-  return r.rows.map(w => ({ name: w.name, price: Number(w.price || 0), category: String(w.category || 'otros'), subcategory: String(w.subcategory || '') }))
+  const sessionId = catalogSessionIdForMode(mode)
+  let rows = []
+  try {
+    const r = await db.query('SELECT name, price, category, subcategory FROM catalog_items WHERE session_id=$1 ORDER BY name', [sessionId])
+    rows = r.rows || []
+  } catch {}
+  if (!rows.length && normalizeMode(mode) === 'restaurant') {
+    try {
+      const legacy = await db.query('SELECT name, price, category, subcategory FROM catalog_items WHERE session_id=$1 ORDER BY name', ['global'])
+      rows = legacy.rows || []
+    } catch {}
+  }
+  return rows.map(w => ({ name: w.name, price: Number(w.price || 0), category: String(w.category || 'otros'), subcategory: String(w.subcategory || '') }))
 }
-async function dbWriteGlobalCatalog(items) {
+async function dbWriteGlobalCatalog(mode, items) {
   if (!db) return
   await initDB()
-  await db.query('DELETE FROM catalog_items WHERE session_id=$1', ['global'])
+  const sessionId = catalogSessionIdForMode(mode)
+  await db.query('DELETE FROM catalog_items WHERE session_id=$1', [sessionId])
   for (const it of Array.isArray(items) ? items : []) {
-    await db.query('INSERT INTO catalog_items (session_id, name, price, category, subcategory) VALUES ($1,$2,$3,$4,$5)', ['global', String(it.name || ''), Number(it.price || 0), String(it.category || 'otros'), String(it.subcategory || '')])
+    await db.query('INSERT INTO catalog_items (session_id, name, price, category, subcategory) VALUES ($1,$2,$3,$4,$5)', [sessionId, String(it.name || ''), Number(it.price || 0), String(it.category || 'otros'), String(it.subcategory || '')])
   }
 }
 async function ensureGlobalCatalogSeed() {
   if (!db) return
   await initDB()
   try {
-    const items = readGlobalCatalog()
-    await dbWriteGlobalCatalog(items)
+    const disco = await dbReadGlobalCatalog('disco')
+    if (!disco.length) await dbWriteGlobalCatalog('disco', readGlobalCatalog('disco'))
+    const rest = await dbReadGlobalCatalog('restaurant')
+    if (!rest.length) await dbWriteGlobalCatalog('restaurant', readGlobalCatalog('restaurant'))
   } catch {}
 }
 async function dbReadSessionCatalog(sessionId) {
@@ -321,6 +335,14 @@ function isStaffAuthorized(req, query) {
   if (!ADMIN_STAFF_SECRET) return false
   return headerSecret === ADMIN_STAFF_SECRET || querySecret === ADMIN_STAFF_SECRET
 }
+function normalizeMode(mode) {
+  const v = String(mode || '').toLowerCase()
+  if (v === 'restaurant' || v === '1') return 'restaurant'
+  return 'disco'
+}
+function catalogSessionIdForMode(mode) {
+  return normalizeMode(mode) === 'restaurant' ? 'global_restaurant' : 'global_disco'
+}
 
 const defaultCatalog = [
   // Cervezas
@@ -365,22 +387,64 @@ function sanitizeItem(it) {
   const subcategory = String(it.subcategory || '').slice(0, 60)
   return { name, price, category, subcategory }
 }
-function readGlobalCatalog() {
+function readGlobalCatalog(mode) {
+  const m = normalizeMode(mode)
   try {
     const p = path.join(dataDir, 'catalog.json')
     if (fs.existsSync(p)) {
       const raw = fs.readFileSync(p, 'utf-8')
-      const arr = JSON.parse(raw || '[]')
-      if (Array.isArray(arr) && arr.length) return arr.map(sanitizeItem)
+      const parsed = JSON.parse(raw || '[]')
+      if (Array.isArray(parsed)) {
+        if (m === 'restaurant' && parsed.length) return parsed.map(sanitizeItem)
+      } else if (parsed && typeof parsed === 'object') {
+        const arr = m === 'restaurant' ? parsed.restaurant : parsed.disco
+        if (Array.isArray(arr) && arr.length) return arr.map(sanitizeItem)
+      }
     }
   } catch {}
   return defaultCatalog
 }
-function writeGlobalCatalog(items) {
+function writeGlobalCatalog(mode, items) {
   try {
     const clean = Array.isArray(items) ? items.map(sanitizeItem) : []
-    fs.writeFileSync(path.join(dataDir, 'catalog.json'), JSON.stringify(clean))
+    const p = path.join(dataDir, 'catalog.json')
+    if (fs.existsSync(p)) {
+      const raw = fs.readFileSync(p, 'utf-8')
+      const parsed = JSON.parse(raw || '[]')
+      if (Array.isArray(parsed)) {
+        if (normalizeMode(mode) === 'restaurant') {
+          fs.writeFileSync(p, JSON.stringify(clean))
+          return
+        }
+        fs.writeFileSync(p, JSON.stringify({ restaurant: parsed, disco: clean }))
+        return
+      }
+      if (parsed && typeof parsed === 'object') {
+        const out = { restaurant: Array.isArray(parsed.restaurant) ? parsed.restaurant : [], disco: Array.isArray(parsed.disco) ? parsed.disco : [] }
+        if (normalizeMode(mode) === 'restaurant') out.restaurant = clean
+        else out.disco = clean
+        fs.writeFileSync(p, JSON.stringify(out))
+        return
+      }
+    }
+    if (normalizeMode(mode) === 'restaurant') fs.writeFileSync(p, JSON.stringify(clean))
+    else fs.writeFileSync(p, JSON.stringify({ restaurant: [], disco: clean }))
   } catch {}
+}
+async function getGlobalCatalogForMode(mode) {
+  if (db) {
+    const items = await dbReadGlobalCatalog(mode)
+    if (items && items.length) return items
+  }
+  return readGlobalCatalog(mode)
+}
+function getSessionMode(s) {
+  return s && s.mode ? normalizeMode(s.mode) : 'disco'
+}
+async function getCatalogBaseForSession(s) {
+  if (s && Array.isArray(s.catalog) && s.catalog.length) return s.catalog
+  const mode = getSessionMode(s)
+  return await getGlobalCatalogForMode(mode)
 }
 
 function json(res, code, obj) {
@@ -643,9 +707,11 @@ const server = http.createServer(async (req, res) => {
       try {
         const body = await parseBody(req)
         const venueId = String(body.venueId || 'default')
+        const mode = normalizeMode(body.mode || '')
         for (const s of state.sessions.values()) {
           if (s.active && (now() - s.startedAt) < 12 * 60 * 60 * 1000 && s.venueId === venueId) {
-            json(res, 200, { sessionId: s.id, pin: s.pin, venueId, reused: true })
+            if (mode && s.mode !== mode) s.mode = mode
+            json(res, 200, { sessionId: s.id, pin: s.pin, venueId, reused: true, mode: s.mode || mode })
             return
           }
         }
@@ -658,8 +724,8 @@ const server = http.createServer(async (req, res) => {
         await writeVenues(venues)
         const sessionId = genId('sess')
         const pin = String(Math.floor(1000 + Math.random() * 9000))
-        state.sessions.set(sessionId, { id: sessionId, venueId, venue: body.venue || 'Venue', startedAt: now(), active: true, pin, publicBaseUrl: '', closedTables: new Set() })
-        json(res, 200, { sessionId, pin, venueId })
+        state.sessions.set(sessionId, { id: sessionId, venueId, venue: body.venue || 'Venue', startedAt: now(), active: true, pin, publicBaseUrl: '', closedTables: new Set(), mode })
+        json(res, 200, { sessionId, pin, venueId, mode })
         return
       } catch (e) {
         json(res, 500, { error: 'session_start_failed', message: String(e && e.message ? e.message : e) })
@@ -677,12 +743,19 @@ const server = http.createServer(async (req, res) => {
               const v = venues[s.venueId]
               venueName = (v && v.name) ? v.name : (venueName || s.venueId)
             } catch {}
-            json(res, 200, { active: true, sessionId: s.id, pin: s.pin, venueId: s.venueId, venueName })
+            json(res, 200, { active: true, sessionId: s.id, pin: s.pin, venueId: s.venueId, venueName, mode: s.mode || 'disco' })
             return
           }
         }
       }
       json(res, 200, { active: false, error: 'no_active' })
+      return
+    }
+    if (pathname === '/api/session/info' && req.method === 'GET') {
+      const sessionId = String(query.sessionId || '')
+      const s = ensureSession(sessionId)
+      if (!s) { json(res, 404, { error: 'no_session' }); return }
+      json(res, 200, { sessionId: s.id, venueId: s.venueId, mode: s.mode || 'disco' })
       return
     }
     if (pathname === '/api/session/end' && req.method === 'POST') {
@@ -722,6 +795,25 @@ const server = http.createServer(async (req, res) => {
       const urlStr = String(body.publicBaseUrl || '').trim()
       s.publicBaseUrl = urlStr
       json(res, 200, { ok: true })
+      return
+    }
+    if (pathname === '/api/session/mode' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const s = ensureSession(body.sessionId)
+      if (!s) { json(res, 404, { error: 'no_session' }); return }
+      const pinStr = String(body.pin || '')
+      const adminSecret = String(req.headers['x-admin-secret'] || query.admin_secret || '')
+      const okAdmin = ADMIN_SECRET && adminSecret === ADMIN_SECRET
+      const okSessionPin = pinStr === String(s.pin)
+      let okVenuePin = false
+      try {
+        const venues = await readVenues()
+        const v = venues[s.venueId]
+        if (v && String(v.pin || '') && pinStr === String(v.pin)) okVenuePin = true
+      } catch {}
+      if (!okAdmin && !okSessionPin && !okVenuePin) { json(res, 403, { error: 'forbidden' }); return }
+      s.mode = normalizeMode(body.mode || s.mode || '')
+      json(res, 200, { ok: true, mode: s.mode })
       return
     }
     if (pathname === '/api/session/public-base' && req.method === 'GET') {
@@ -1317,8 +1409,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (!from || !to) { json(res, 404, { error: 'no_user' }); return }
       const s = ensureSession(from.sessionId)
-      const base = db ? await dbReadGlobalCatalog() : readGlobalCatalog()
-      const itemsBase = (s && Array.isArray(s.catalog) && s.catalog.length) ? s.catalog : base
+      const itemsBase = await getCatalogBaseForSession(s)
       const itemName = String(body.product || '')
       const found = itemsBase.find(i => i.name === itemName)
       const price = found ? Number(found.price || 0) : 0
@@ -1351,8 +1442,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (!from || !to) { json(res, 404, { error: 'no_user' }); return }
       const s = ensureSession(from.sessionId)
-      const base = db ? await dbReadGlobalCatalog() : readGlobalCatalog()
-      const itemsBase = (s && Array.isArray(s.catalog) && s.catalog.length) ? s.catalog : base
+      const itemsBase = await getCatalogBaseForSession(s)
       const items = Array.isArray(body.items) ? body.items.map(it => ({ product: String(it.product || ''), quantity: Math.max(1, Number(it.quantity || 1)) })) : []
       const filtered = items.filter(it => it.product)
       const ids = []
@@ -1400,8 +1490,7 @@ const server = http.createServer(async (req, res) => {
       const itemName = String(body.product || '')
       const qty = Math.max(1, Number(body.quantity || 1))
       const s = ensureSession(u.sessionId)
-      const base = db ? await dbReadGlobalCatalog() : readGlobalCatalog()
-      const itemsBase = (s && Array.isArray(s.catalog) && s.catalog.length) ? s.catalog : base
+      const itemsBase = await getCatalogBaseForSession(s)
       const found = itemsBase.find(i => i.name === itemName)
       const price = found ? found.price : 0
       const total = price * qty
@@ -1420,8 +1509,7 @@ const server = http.createServer(async (req, res) => {
       const u = state.users.get(body.userId)
       if (!u) { json(res, 404, { error: 'no_user' }); return }
       const s = ensureSession(u.sessionId)
-      const base = db ? await dbReadGlobalCatalog() : readGlobalCatalog()
-      const itemsBase = (s && Array.isArray(s.catalog) && s.catalog.length) ? s.catalog : base
+      const itemsBase = await getCatalogBaseForSession(s)
       const items = Array.isArray(body.items) ? body.items : []
       const orderIds = []
       for (const it of items) {
@@ -2066,6 +2154,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/staff/catalog' && req.method === 'POST') {
       const body = await parseBody(req)
       const s = ensureSession(body.sessionId)
+      const mode = normalizeMode(body.mode || (s && s.mode) || '')
       const items = Array.isArray(body.items) ? body.items : []
       const clean = []
       for (const it of items) {
@@ -2083,9 +2172,9 @@ const server = http.createServer(async (req, res) => {
       if (s) s.catalog = clean
       if (db) {
         if (s) { try { await dbWriteSessionCatalog(s.id, clean) } catch {} }
-        else { try { await dbWriteGlobalCatalog(clean) } catch {} }
+        else { try { await dbWriteGlobalCatalog(mode, clean) } catch {} }
       } else {
-        if (!s) writeGlobalCatalog(clean)
+        if (!s) writeGlobalCatalog(mode, clean)
       }
       if (s) sendToStaff(s.id, 'catalog_update', { items: s.catalog })
       json(res, 200, { ok: true })
@@ -2100,20 +2189,23 @@ const server = http.createServer(async (req, res) => {
           try { items = await dbReadSessionCatalog(sessionId) } catch {}
           if (items && items.length) source = 'session'
         }
+        const s = sessionId ? ensureSession(sessionId) : null
+        const mode = s && s.mode ? s.mode : query.mode
         if (!items || !items.length) {
-          try { items = await dbReadGlobalCatalog() } catch {}
+          try { items = await dbReadGlobalCatalog(mode) } catch {}
           if (items && items.length && !source) source = 'global'
         }
         if (!items || !items.length) {
-          try { items = readGlobalCatalog() } catch {}
+          try { items = readGlobalCatalog(mode) } catch {}
           if (!source) source = 'file'
         }
         json(res, 200, { items, source })
         return
       }
       const s = sessionId ? ensureSession(sessionId) : null
-      const base = readGlobalCatalog()
       const useSession = !!(s && Array.isArray(s.catalog) && s.catalog.length)
+      const mode = s && s.mode ? s.mode : query.mode
+      const base = readGlobalCatalog(mode)
       const items = useSession ? s.catalog : base
       json(res, 200, { items, source: useSession ? 'session' : 'file' })
       return
