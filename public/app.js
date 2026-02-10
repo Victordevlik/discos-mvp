@@ -1,7 +1,21 @@
 // Añadimos venueId para operar en modo SaaS multi-venue
-let S = { sessionId: '', venueId: '', user: null, staff: null, role: '', sse: null, staffSSE: null, currentInvite: null, meeting: null, consumptionReq: null, nav: { history: [], current: '' }, notifications: { invites: 0 }, timers: { userPoll: 0, staffPoll: 0, userReconnect: 0, staffReconnect: 0, catalogSave: 0, modalHide: 0 }, staffTab: '', cart: [], messageTTL: 4000, modalShownAt: 0, isMeetingReceiver: false, meetingPlan: '', sched: {}, loading: {}, catalogGroups: {}, catalogCat: '', catalogSubcat: '', waiterReason: '', invitesQueue: [], inInviteFlow: false, missed: [], skipConfirmInvite: false, audioCtx: null, modalKind: '' }
+let S = { sessionId: '', venueId: '', user: null, staff: null, role: '', sse: null, staffSSE: null, currentInvite: null, meeting: null, consumptionReq: null, nav: { history: [], current: '' }, notifications: { invites: 0 }, timers: { userPoll: 0, staffPoll: 0, userReconnect: 0, staffReconnect: 0, catalogSave: 0, modalHide: 0 }, staffTab: '', cart: [], messageTTL: 4000, modalShownAt: 0, isMeetingReceiver: false, meetingPlan: '', sched: {}, loading: {}, catalogGroups: {}, catalogCat: '', catalogSubcat: '', waiterReason: '', invitesQueue: [], inInviteFlow: false, missed: [], skipConfirmInvite: false, audioCtx: null, modalKind: '', appMode: '' }
 
 function q(id) { return document.getElementById(id) }
+function isRestaurantMode() { return S.appMode === 'restaurant' }
+function applyRestaurantMode() {
+  const setTxt = (sel, txt) => { const el = document.querySelector(sel); if (el) el.textContent = txt }
+  document.title = 'Restaurante'
+  setTxt('#welcome-title', 'Restaurante')
+  setTxt('#welcome-subtitle', 'Ordena, llama al mesero y revisa tu cuenta en segundos.')
+  setTxt('#nav-carta span', 'Menú')
+  setTxt('#nav-disponibles span', 'Promos')
+  setTxt('#nav-orders span', 'Órdenes')
+  setTxt('#home-hero-main', 'Disfruta tu experiencia')
+  setTxt('#home-hero-sub', 'Pide, consulta tu cuenta y llama al mesero')
+  const hideIds = ['home-availability-title', 'home-availability-row', 'home-end-dance-row', 'tip-refresh-bailar', 'btn-end-dance', 'screen-disponibles-select', 'screen-disponibles', 'screen-meeting', 'screen-user-invite', 'screen-invite-received', 'screen-mesas', 'screen-dj-request', 'fab-call', 'fab-call-label']
+  for (const id of hideIds) { const el = q(id); if (el) el.style.display = 'none' }
+}
 function show(id) {
   maybeAutoCancelMeetingOnLeave(id)
   for (const el of document.querySelectorAll('.screen')) el.classList.remove('active')
@@ -32,8 +46,8 @@ function show(id) {
   const fab = document.getElementById('fab-call')
   const fabLabel = document.getElementById('fab-call-label')
   if (nav) nav.style.display = isStaffView ? 'none' : ''
-  if (fab) fab.style.display = isStaffView ? 'none' : ''
-  if (fabLabel) fabLabel.style.display = isStaffView ? 'none' : ''
+  if (fab) fab.style.display = (isStaffView || isRestaurantMode()) ? 'none' : ''
+  if (fabLabel) fabLabel.style.display = (isStaffView || isRestaurantMode()) ? 'none' : ''
   if (isStaffView) { renderVenueTitle() }
   if (id !== 'screen-dj-request') {
     try { if (S.timers.djUserCountdown) { clearInterval(S.timers.djUserCountdown); S.timers.djUserCountdown = 0 } } catch {}
@@ -80,6 +94,10 @@ function setActiveNav(tab) {
 }
 function setActiveNavByScreen(screenId) {
   const reverse = { 'screen-consumption': 'carta', 'screen-disponibles-select': 'disponibles', 'screen-disponibles': 'disponibles', 'screen-mesas': 'mesas', 'screen-call-waiter': 'mesas', 'screen-orders-user': 'orders', 'screen-edit-profile': 'perfil' }
+  if (isRestaurantMode()) {
+    if (screenId === 'screen-promos') { setActiveNav('disponibles'); return }
+    if (screenId === 'screen-disponibles' || screenId === 'screen-disponibles-select' || screenId === 'screen-mesas') return
+  }
   const tab = reverse[screenId]
   if (tab) setActiveNav(tab)
 }
@@ -103,6 +121,13 @@ function restoreLastView() {
     const lastUserTab = (() => { try { return localStorage.getItem('discos_last_user_tab') || '' } catch { return '' } })()
     const lastStaffTab = (() => { try { return localStorage.getItem('discos_last_staff_tab') || '' } catch { return '' } })()
     if (S.role === 'user') {
+      if (isRestaurantMode()) {
+        const blocked = ['screen-disponibles', 'screen-disponibles-select', 'screen-mesas', 'screen-meeting', 'screen-user-invite', 'screen-invite-received', 'screen-dj-request']
+        if (blocked.includes(lastView)) {
+          show('screen-user-home')
+          return
+        }
+      }
       if (lastView && lastView !== 'screen-welcome') {
         show(lastView)
         if (lastView === 'screen-dj-request') startDJUserCountdown()
@@ -1877,7 +1902,7 @@ function bind() {
   const swAvail = q('switch-available'); if (swAvail) swAvail.onchange = setAvailable
   const receiveModeEl = q('receive-mode'); if (receiveModeEl) receiveModeEl.onchange = setAvailable
   const zoneEl = q('zone'); if (zoneEl) zoneEl.oninput = setAvailable
-  const btnViewAvail = q('btn-view-available'); if (btnViewAvail) btnViewAvail.onclick = () => { setActiveNav('disponibles'); showAvailableChoice() }
+  const btnViewAvail = q('btn-view-available'); if (btnViewAvail) btnViewAvail.onclick = () => { setActiveNav('disponibles'); if (isRestaurantMode()) viewPromos(); else showAvailableChoice() }
   const btnViewMenu = q('btn-view-menu'); if (btnViewMenu) btnViewMenu.onclick = () => { setActiveNav('carta'); openMenu() }
   for (const b of document.querySelectorAll('.btn-invite-msg')) b.onclick = chooseMsg
   const btnInviteSend = q('btn-invite-send'); if (btnInviteSend) btnInviteSend.onclick = sendInvite
@@ -1894,7 +1919,7 @@ function bind() {
   const btnBack = q('btn-back'); if (btnBack) btnBack.onclick = goBack
   const nc = q('nav-carta'), nd = q('nav-disponibles'), nm = q('nav-mesas'), no = q('nav-orders'), nf = q('nav-perfil')
   if (nc) nc.onclick = () => { setActiveNav('carta'); openMenu() }
-  if (nd) nd.onclick = () => { setActiveNav('disponibles'); showAvailableChoice() }
+  if (nd) nd.onclick = () => { setActiveNav('disponibles'); if (isRestaurantMode()) viewPromos(); else showAvailableChoice() }
   if (nm) nm.onclick = () => { setActiveNav('mesas'); openCallWaiter() }
   if (no) no.onclick = () => { setActiveNav('orders'); loadUserOrders(); show('screen-orders-user') }
   const btnShowAllInv = q('btn-invite-show-all'); if (btnShowAllInv) btnShowAllInv.onclick = openInvitesInbox
@@ -2876,6 +2901,8 @@ function init() {
     const u = new URL(location.href)
     if (document && document.documentElement) document.documentElement.lang = 'es'
     loadI18n().then(() => { renderGenderSelect() }).catch(() => { renderGenderSelect() })
+    const modeParam = u.searchParams.get('mode') || u.searchParams.get('restaurant') || ''
+    if (modeParam === 'restaurant' || modeParam === '1') { S.appMode = 'restaurant'; applyRestaurantMode() }
     const vid = u.searchParams.get('venueId') || ''
     if (vid) S.venueId = vid
     const sid = u.searchParams.get('sessionId') || u.searchParams.get('s')
