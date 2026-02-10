@@ -3,6 +3,14 @@ let S = { sessionId: '', venueId: '', user: null, staff: null, role: '', sse: nu
 
 function q(id) { return document.getElementById(id) }
 function isRestaurantMode() { return S.appMode === 'restaurant' }
+function buildStaffModeUrl(mode) {
+  const u = new URL(location.href)
+  u.searchParams.set('staff', '1')
+  if (mode === 'restaurant') u.searchParams.set('mode', 'restaurant')
+  else u.searchParams.delete('mode')
+  u.searchParams.delete('restaurant')
+  return u.pathname + u.search + u.hash
+}
 function applyRestaurantMode() {
   const setTxt = (sel, txt) => { const el = document.querySelector(sel); if (el) el.textContent = txt }
   document.title = 'Restaurante'
@@ -1898,6 +1906,8 @@ function bind() {
   const btnJoinUser = q('btn-join-user'); if (btnJoinUser) btnJoinUser.onclick = () => join('user')
   const btnJoinStaff = q('btn-join-staff'); if (btnJoinStaff) btnJoinStaff.onclick = startStaffSession
   const btnSaveProfile = q('btn-save-profile'); if (btnSaveProfile) btnSaveProfile.onclick = saveProfile
+  const btnModeRestaurant = q('btn-mode-restaurant'); if (btnModeRestaurant) btnModeRestaurant.onclick = () => { location.href = buildStaffModeUrl('restaurant') }
+  const btnModeDisco = q('btn-mode-disco'); if (btnModeDisco) btnModeDisco.onclick = () => { location.href = buildStaffModeUrl('disco') }
   
   const swAvail = q('switch-available'); if (swAvail) swAvail.onchange = setAvailable
   const receiveModeEl = q('receive-mode'); if (receiveModeEl) receiveModeEl.onchange = setAvailable
