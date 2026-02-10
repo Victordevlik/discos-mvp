@@ -58,6 +58,7 @@ function applyRestaurantMode() {
   const lblSelfie = q('label-selfie'); if (lblSelfie) lblSelfie.style.display = 'none'
   const selfie = q('selfie'); if (selfie) { selfie.style.display = 'none'; selfie.required = false }
   const selfieNote = q('selfie-note'); if (selfieNote) selfieNote.style.display = 'none'
+  const heroSelfie = q('user-selfie-hero'); if (heroSelfie) heroSelfie.style.display = 'none'
   setTxt('#nav-carta span', 'Menú')
   setTxt('#nav-disponibles span', 'Promos')
   setTxt('#nav-orders span', 'Órdenes')
@@ -84,6 +85,7 @@ function applyDiscoMode() {
   const lblSelfie = q('label-selfie'); if (lblSelfie) lblSelfie.style.display = ''
   const selfie = q('selfie'); if (selfie) { selfie.style.display = ''; selfie.required = true }
   const selfieNote = q('selfie-note'); if (selfieNote) selfieNote.style.display = ''
+  const heroSelfie = q('user-selfie-hero'); if (heroSelfie) heroSelfie.style.display = ''
   setTxt('#nav-carta span', 'Carta')
   setTxt('#nav-disponibles span', 'Bailar')
   setTxt('#nav-orders span', 'Órdenes')
@@ -3235,7 +3237,7 @@ async function loadAnalytics() {
     top.innerHTML = ''
     const title = document.createElement('span')
     title.className = 'chip'
-    title.textContent = t('top_night_drinks')
+    title.textContent = isRestaurantMode() ? t('top_day_foods') : t('top_night_drinks')
     top.append(title)
     for (const name of Object.keys(r.topItems || {})) {
       const chip = document.createElement('span')
@@ -3534,7 +3536,7 @@ async function showCatalogTop() {
     top.innerHTML = ''
     const title = document.createElement('div')
     title.className = 'top-night-title'
-    title.textContent = t('top_night_drinks')
+    title.textContent = isRestaurantMode() ? t('top_day_foods') : t('top_night_drinks')
     top.append(title)
     const itemsRow = document.createElement('div')
     itemsRow.className = 'top-night-items'
