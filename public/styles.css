@@ -128,6 +128,26 @@ body[data-theme="light"] .navbar { background: rgba(247,248,254,0.85); border-to
 .nav-item { position: relative }
 .nav-item svg .nav-ico-bg { fill: rgba(166,176,255,0.14) }
 body[data-theme="light"] .nav-item svg .nav-ico-bg { fill: rgba(55,71,255,0.12) }
+#nav-carta svg path, #nav-carta svg rect, #nav-carta svg circle { stroke: #ffd46a }
+#nav-disponibles svg path, #nav-disponibles svg rect, #nav-disponibles svg circle { stroke: #7dd3fc }
+#nav-mesas svg path, #nav-mesas svg rect, #nav-mesas svg circle { stroke: #34d399 }
+#nav-orders svg path, #nav-orders svg rect, #nav-orders svg circle { stroke: #f472b6 }
+#nav-perfil svg path, #nav-perfil svg rect, #nav-perfil svg circle { stroke: #a78bfa }
+#nav-carta svg .nav-ico-bg { fill: rgba(255,212,106,0.18) }
+#nav-disponibles svg .nav-ico-bg { fill: rgba(125,211,252,0.18) }
+#nav-mesas svg .nav-ico-bg { fill: rgba(52,211,153,0.18) }
+#nav-orders svg .nav-ico-bg { fill: rgba(244,114,182,0.18) }
+#nav-perfil svg .nav-ico-bg { fill: rgba(167,139,250,0.18) }
+body[data-theme="light"] #nav-carta svg .nav-ico-bg { fill: rgba(255,200,75,0.22) }
+body[data-theme="light"] #nav-disponibles svg .nav-ico-bg { fill: rgba(56,189,248,0.18) }
+body[data-theme="light"] #nav-mesas svg .nav-ico-bg { fill: rgba(16,185,129,0.18) }
+body[data-theme="light"] #nav-orders svg .nav-ico-bg { fill: rgba(236,72,153,0.18) }
+body[data-theme="light"] #nav-perfil svg .nav-ico-bg { fill: rgba(139,92,246,0.18) }
+#nav-carta.active svg path, #nav-carta.active svg rect, #nav-carta.active svg circle { stroke: #ffe29a }
+#nav-disponibles.active svg path, #nav-disponibles.active svg rect, #nav-disponibles.active svg circle { stroke: #a5e5ff }
+#nav-mesas.active svg path, #nav-mesas.active svg rect, #nav-mesas.active svg circle { stroke: #5eead4 }
+#nav-orders.active svg path, #nav-orders.active svg rect, #nav-orders.active svg circle { stroke: #f9a8d4 }
+#nav-perfil.active svg path, #nav-perfil.active svg rect, #nav-perfil.active svg circle { stroke: #c4b5fd }
 #nav-disponibles svg { width: 22px; height: 22px }
 #nav-disponibles:not(.active) svg { animation: pulseNav 1.8s ease-in-out infinite }
 #nav-disponibles:not(.active) svg path, #nav-disponibles:not(.active) svg circle { stroke: var(--primary2); stroke-width: 1.8; filter: drop-shadow(0 0 6px rgba(166,176,255,0.5)) }
