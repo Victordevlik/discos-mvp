@@ -1998,7 +1998,13 @@ function bind() {
   if (nf) nf.onclick = () => { setActiveNav('perfil'); renderUserHeader(); show('screen-user-home') }
   const ua = q('user-alias'); if (ua) { ua.style.cursor = 'pointer'; ua.onclick = () => openEditProfileFocus('alias') }
   const ut = q('user-table'); if (ut) { ut.style.cursor = 'pointer'; ut.onclick = () => openEditProfileFocus('table') }
-  const linkStaff = q('link-staff'); if (linkStaff) linkStaff.onclick = (e) => { e.preventDefault(); show('screen-staff-welcome') }
+  const linkStaff = q('link-staff'); if (linkStaff) linkStaff.onclick = (e) => {
+    e.preventDefault()
+    let modeParam = ''
+    try { const u = new URL(location.href); modeParam = u.searchParams.get('mode') || u.searchParams.get('restaurant') || '' } catch {}
+    if (!modeParam) { show('screen-venue-type'); return }
+    show('screen-staff-welcome')
+  }
   const fab = q('fab-call'); if (fab) fab.onclick = openDJRequest
   const btnDjSend = q('btn-dj-send'); if (btnDjSend) btnDjSend.onclick = sendDJRequest
   const bAT = q('btn-avail-by-table'); if (bAT) bAT.onclick = exploreMesas
@@ -2960,6 +2966,16 @@ function init() {
     const aj = u.searchParams.get('aj')
     const staffParam = u.searchParams.get('staff')
     const djParam = u.searchParams.get('dj')
+    const hasLocalForVenue = (() => {
+      try {
+        const m = getLocalUsers()
+        return !!(vid && m && m[vid])
+      } catch { return false }
+    })()
+    if (vid && !modeParam && !staffParam && !djParam && !(sid && aj === '1') && !hasLocalForVenue) {
+      show('screen-venue-type')
+      return
+    }
     if (staffParam === '1') {
       if (!modeParam) { show('screen-venue-type'); return }
       show('screen-staff-welcome')
