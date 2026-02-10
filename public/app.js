@@ -886,8 +886,12 @@ async function saveProfile() {
   if (!isRestaurant && !gender) { showError(t('gender_required')); setTimeout(() => showError(''), 1200); return }
   if (!tableId) { showError('Ingresa tu mesa'); setTimeout(() => showError(''), 1200); return }
   if (!isRestaurant && !file) { showError('Debes subir tu selfie'); setTimeout(() => showError(''), 1400); return }
-  await api('/api/user/profile', { method: 'POST', body: JSON.stringify({ userId: S.user.id, alias, selfie, gender: isRestaurant ? (gender || '') : gender }) })
-  await api('/api/user/change-table', { method: 'POST', body: JSON.stringify({ userId: S.user.id, newTable: tableId }) })
+  if (isRestaurant) {
+    await api('/api/user/update', { method: 'POST', body: JSON.stringify({ userId: S.user.id, alias, tableId }) })
+  } else {
+    await api('/api/user/profile', { method: 'POST', body: JSON.stringify({ userId: S.user.id, alias, selfie, gender }) })
+    await api('/api/user/change-table', { method: 'POST', body: JSON.stringify({ userId: S.user.id, newTable: tableId }) })
+  }
   S.user.alias = alias
   if (selfie) S.user.selfie = selfie
   S.user.tableId = tableId
@@ -3025,7 +3029,10 @@ function init() {
       return
     }
     if (staffParam === '1') {
-      if (!modeParam) { show('screen-venue-type'); return }
+      if (!modeParam) {
+        restoreLocalUser().then(ok => { if (!ok) show('screen-venue-type') })
+        return
+      }
       show('screen-staff-welcome')
       if (sid) {
         setTimeout(async () => {
@@ -3034,6 +3041,10 @@ function init() {
         }, 80)
       }
     } else if (djParam === '1') {
+      if (!modeParam) {
+        restoreLocalUser().then(ok => { if (!ok) show('screen-venue-type') })
+        return
+      }
       show('screen-staff-welcome')
       S.autoStaffTab = 'dj'
       if (sid) {
