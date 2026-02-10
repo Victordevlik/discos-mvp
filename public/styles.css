@@ -121,20 +121,45 @@ body[data-theme="light"] #catalog-cats .card, body[data-theme="light"] #catalog-
 .topbar.show { display:flex; justify-content: space-between; align-items: center }
 .navbar { position: fixed; bottom: 0; left: 0; right: 0; display: grid; grid-template-columns: repeat(5,1fr); gap: 6px; padding: 8px 10px; background: rgba(13,14,22,0.8); backdrop-filter: blur(12px); border-top: 1px solid #2b2c44 }
 body[data-theme="light"] .navbar { background: rgba(247,248,254,0.85); border-top-color: #dde2f0 }
-.nav-item { display:flex; flex-direction:column; align-items:center; gap:4px; padding: 8px 6px; border: 0; background: transparent; color: #b2b8c4 }
-body[data-theme="light"] .nav-item { color: #6b7280 }
+.nav-item { display:flex; flex-direction:column; align-items:center; gap:4px; padding: 8px 6px; border: 0; background: transparent; color: var(--muted) }
 .nav-item span { font-size: 12px }
-.nav-item.active { color: #25D366 }
-.nav-item.active svg path, .nav-item.active svg rect, .nav-item.active svg circle { stroke: #25D366 }
+.nav-item.active { color: var(--primary2) }
+.nav-item.active svg path, .nav-item.active svg rect, .nav-item.active svg circle { stroke: var(--primary2) }
 .nav-item { position: relative }
-#nav-carta svg path, #nav-carta svg rect, #nav-carta svg circle,
-#nav-disponibles svg path, #nav-disponibles svg rect, #nav-disponibles svg circle,
-#nav-mesas svg path, #nav-mesas svg rect, #nav-mesas svg circle,
-#nav-orders svg path, #nav-orders svg rect, #nav-orders svg circle,
-#nav-perfil svg path, #nav-perfil svg rect, #nav-perfil svg circle { stroke: currentColor }
+#nav-carta svg path, #nav-carta svg rect, #nav-carta svg circle { stroke: #ffd46a }
+#nav-disponibles svg path, #nav-disponibles svg rect, #nav-disponibles svg circle { stroke: #7dd3fc }
+#nav-mesas svg path, #nav-mesas svg rect, #nav-mesas svg circle { stroke: #34d399 }
+#nav-orders svg path, #nav-orders svg rect, #nav-orders svg circle { stroke: #f472b6 }
+#nav-perfil svg path, #nav-perfil svg rect, #nav-perfil svg circle { stroke: #a78bfa }
+.nav-item svg .nav-ico-bg { fill: rgba(166,176,255,0.14) }
+body[data-theme="light"] .nav-item svg .nav-ico-bg { fill: rgba(55,71,255,0.12) }
+#nav-carta svg .nav-ico-bg { fill: rgba(255,212,106,0.18) }
+#nav-disponibles svg .nav-ico-bg { fill: rgba(125,211,252,0.18) }
+#nav-mesas svg .nav-ico-bg { fill: rgba(52,211,153,0.18) }
+#nav-orders svg .nav-ico-bg { fill: rgba(244,114,182,0.18) }
+#nav-perfil svg .nav-ico-bg { fill: rgba(167,139,250,0.18) }
+body[data-theme="light"] #nav-carta svg .nav-ico-bg { fill: rgba(255,200,75,0.22) }
+body[data-theme="light"] #nav-disponibles svg .nav-ico-bg { fill: rgba(56,189,248,0.18) }
+body[data-theme="light"] #nav-mesas svg .nav-ico-bg { fill: rgba(16,185,129,0.18) }
+body[data-theme="light"] #nav-orders svg .nav-ico-bg { fill: rgba(236,72,153,0.18) }
+body[data-theme="light"] #nav-perfil svg .nav-ico-bg { fill: rgba(139,92,246,0.18) }
+#nav-carta.active svg path, #nav-carta.active svg rect, #nav-carta.active svg circle { stroke: #ffe29a }
+#nav-disponibles.active svg path, #nav-disponibles.active svg rect, #nav-disponibles.active svg circle { stroke: #a5e5ff }
+#nav-mesas.active svg path, #nav-mesas.active svg rect, #nav-mesas.active svg circle { stroke: #5eead4 }
+#nav-orders.active svg path, #nav-orders.active svg rect, #nav-orders.active svg circle { stroke: #f9a8d4 }
+#nav-perfil.active svg path, #nav-perfil.active svg rect, #nav-perfil.active svg circle { stroke: #c4b5fd }
 #nav-disponibles svg { width: 22px; height: 22px }
 #nav-mesas svg { width: 22px; height: 22px }
 @keyframes pulseNav { 0%,100% { transform: scale(1) } 50% { transform: scale(1.08) } }
+@keyframes pulseNavStrong { 0%,100% { transform: scale(1) } 50% { transform: scale(1.12) } }
+#nav-disponibles svg, #nav-mesas svg { width: 24px; height: 24px; animation: pulseNavStrong 1.6s ease-in-out infinite; filter: drop-shadow(0 0 10px rgba(125,211,252,0.55)) drop-shadow(0 0 16px rgba(52,211,153,0.45)) }
+#nav-disponibles svg .nav-ico-bg { fill: rgba(125,211,252,0.3) }
+#nav-mesas svg .nav-ico-bg { fill: rgba(52,211,153,0.3) }
+body[data-theme="light"] #nav-disponibles svg .nav-ico-bg { fill: rgba(56,189,248,0.28) }
+body[data-theme="light"] #nav-mesas svg .nav-ico-bg { fill: rgba(16,185,129,0.28) }
+#nav-disponibles span, #nav-mesas span { font-weight: 700; letter-spacing: .2px }
+#nav-disponibles::before, #nav-mesas::before { content: ""; position: absolute; top: 6px; width: 30px; height: 30px; border-radius: 999px; background: radial-gradient(circle, rgba(125,211,252,0.25), transparent 70%); filter: blur(2px) }
+#nav-mesas::before { background: radial-gradient(circle, rgba(52,211,153,0.25), transparent 70%) }
 .badge { position: absolute; top: 2px; right: 10px; min-width: 16px; height: 16px; border-radius: 999px; background: #ff6b6b; color: #fff; display: none; font-size: 10px; line-height: 16px; text-align: center; box-shadow: 0 6px 12px rgba(0,0,0,0.3) }
 .badge.show { display: inline-block }
 /* Bailar visuals */
@@ -155,7 +180,8 @@ body[data-theme="light"] #screen-disponibles .party-hero { background: linear-gr
 #screen-disponibles .party-bg { position: absolute; inset: 0; background: radial-gradient(700px 300px at 15% 10%, rgba(125,136,255,0.32) 0%, rgba(88,104,255,0.18) 30%, rgba(23,24,38,0.0) 70%); filter: blur(18px); z-index: 1; animation: partyHue 8s linear infinite }
 @keyframes partyHue { 0% { opacity: .8 } 50% { opacity: .55 } 100% { opacity: .8 } }
 @media (prefers-reduced-motion: reduce) {
-  #nav-disponibles:not(.active) svg,
+  #nav-disponibles svg,
+  #nav-mesas svg,
   #screen-disponibles .party-hero .equalizer span,
   #screen-user-invite .party-hero .equalizer span,
   #screen-invite-received .party-hero .equalizer span,
