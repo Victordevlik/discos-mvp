@@ -22,6 +22,31 @@ body[data-theme="light"] {
   --success: #2cab83;
   --warning: #e0a33d;
 }
+body[data-venue="restaurant"] {
+  --primary: #ff8a3d;
+  --primary2: #ffbe7a;
+  --warning: #ffc267;
+}
+body[data-venue="restaurant"] .navbar { background: rgba(20,14,10,0.85); border-top-color: #3a2a20 }
+body[data-venue="restaurant"] #nav-carta svg path,
+body[data-venue="restaurant"] #nav-carta svg rect,
+body[data-venue="restaurant"] #nav-carta svg circle { stroke: #ffb454 }
+body[data-venue="restaurant"] #nav-disponibles svg path,
+body[data-venue="restaurant"] #nav-disponibles svg rect,
+body[data-venue="restaurant"] #nav-disponibles svg circle { stroke: #fb7185 }
+body[data-venue="restaurant"] #nav-mesas svg path,
+body[data-venue="restaurant"] #nav-mesas svg rect,
+body[data-venue="restaurant"] #nav-mesas svg circle { stroke: #34d399 }
+body[data-venue="restaurant"] #nav-orders svg path,
+body[data-venue="restaurant"] #nav-orders svg rect,
+body[data-venue="restaurant"] #nav-orders svg circle { stroke: #f97316 }
+body[data-venue="restaurant"] #nav-perfil svg path,
+body[data-venue="restaurant"] #nav-perfil svg rect,
+body[data-venue="restaurant"] #nav-perfil svg circle { stroke: #a78bfa }
+body[data-venue="restaurant"] #nav-carta svg .nav-ico-bg { fill: rgba(255,180,84,0.22) }
+body[data-venue="restaurant"] #nav-disponibles svg .nav-ico-bg { fill: rgba(251,113,133,0.22) }
+body[data-venue="restaurant"] #nav-mesas svg .nav-ico-bg { fill: rgba(52,211,153,0.2) }
+body[data-venue="restaurant"] #nav-orders svg .nav-ico-bg { fill: rgba(249,115,22,0.2) }
 * { box-sizing: border-box }
 body { font-family: Inter, system-ui, sans-serif; margin: 0; color: var(--text); background: radial-gradient(1200px 600px at 20% 30%, #151531 0%, #0b0b10 65%) }
 body[data-theme="light"] { background: linear-gradient(180deg, #f8faff 0%, #eef2fb 100%) }

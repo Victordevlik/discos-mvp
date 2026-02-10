@@ -40,16 +40,21 @@
     </div>
   </div>
 
+  <div id="screen-venue-type" class="screen">
+    <h2 id="venue-type-title">Selecciona el tipo de venue</h2>
+    <div class="card">
+      <div class="row">
+        <button class="success" id="btn-venue-restaurant">Restaurante</button>
+        <button class="info" id="btn-venue-disco">Discotecas</button>
+      </div>
+    </div>
+  </div>
+
   <div id="screen-staff-welcome" class="screen">
-    <h2>Ingreso Staff</h2>
+    <h2 id="staff-welcome-title">Ingreso Staff</h2>
     <div class="card">
       <div class="cta">
         <button class="primary" id="btn-start-session-welcome">Iniciar sesión de la noche</button>
-      </div>
-      <div class="section-title">Tipo de venue</div>
-      <div class="row">
-        <button class="success" id="btn-mode-restaurant">Restaurante</button>
-        <button class="info" id="btn-mode-disco">Discotecas</button>
       </div>
       <div class="row">
         <input id="join-pin" type="password" inputmode="numeric" placeholder="PIN">
@@ -456,7 +461,7 @@
       </div>
       <div id="staff-panel-content" class="section">
         <div class="card">
-          <h3>Escanéame para unirte a la fiesta</h3>
+          <h3 id="staff-panel-title">Escanéame para unirte a la fiesta</h3>
           <img id="qr-session" alt="QR sesión" style="display:block;margin:12px auto;width:160px;height:160px;border:1px solid #333;border-radius:8px" />
           <div class="row">
             <button id="btn-copy-link" class="info">Copiar link para usuarios</button>

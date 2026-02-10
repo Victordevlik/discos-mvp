@@ -3,26 +3,65 @@ let S = { sessionId: '', venueId: '', user: null, staff: null, role: '', sse: nu
 
 function q(id) { return document.getElementById(id) }
 function isRestaurantMode() { return S.appMode === 'restaurant' }
-function buildStaffModeUrl(mode) {
+function setModeInUrl(mode) {
   const u = new URL(location.href)
-  u.searchParams.set('staff', '1')
   if (mode === 'restaurant') u.searchParams.set('mode', 'restaurant')
   else u.searchParams.delete('mode')
   u.searchParams.delete('restaurant')
-  return u.pathname + u.search + u.hash
+  history.replaceState({}, '', u.pathname + u.search + u.hash)
 }
 function applyRestaurantMode() {
   const setTxt = (sel, txt) => { const el = document.querySelector(sel); if (el) el.textContent = txt }
+  if (document && document.body) document.body.dataset.venue = 'restaurant'
   document.title = 'Restaurante'
   setTxt('#welcome-title', 'Restaurante')
   setTxt('#welcome-subtitle', 'Ordena, llama al mesero y revisa tu cuenta en segundos.')
+  setTxt('#venue-type-title', 'Selecciona el tipo de venue')
+  setTxt('#staff-welcome-title', 'Ingreso Restaurante')
+  setTxt('#staff-title', 'Panel de restaurante')
+  setTxt('#staff-panel-title', 'Escanéame para unirte al restaurante')
+  setTxt('#tab-staff-catalog', 'Menú')
+  setTxt('#menu-staff-catalog', 'Menú')
+  const search = q('catalog-search'); if (search) search.placeholder = 'Buscar en menú'
   setTxt('#nav-carta span', 'Menú')
   setTxt('#nav-disponibles span', 'Promos')
   setTxt('#nav-orders span', 'Órdenes')
   setTxt('#home-hero-main', 'Disfruta tu experiencia')
   setTxt('#home-hero-sub', 'Pide, consulta tu cuenta y llama al mesero')
-  const hideIds = ['home-availability-title', 'home-availability-row', 'home-end-dance-row', 'tip-refresh-bailar', 'btn-end-dance', 'screen-disponibles-select', 'screen-disponibles', 'screen-meeting', 'screen-user-invite', 'screen-invite-received', 'screen-mesas', 'screen-dj-request', 'fab-call', 'fab-call-label']
+  const hideIds = ['home-availability-title', 'home-availability-row', 'home-end-dance-row', 'tip-refresh-bailar', 'btn-end-dance', 'screen-disponibles-select', 'screen-disponibles', 'screen-meeting', 'screen-user-invite', 'screen-invite-received', 'screen-mesas', 'screen-dj-request', 'fab-call', 'fab-call-label', 'tab-staff-dj', 'staff-dj-content', 'btn-copy-link-dj']
   for (const id of hideIds) { const el = q(id); if (el) el.style.display = 'none' }
+}
+function applyDiscoMode() {
+  const setTxt = (sel, txt) => { const el = document.querySelector(sel); if (el) el.textContent = txt }
+  if (document && document.body) document.body.dataset.venue = ''
+  document.title = 'Discos'
+  setTxt('#welcome-title', 'Discos')
+  setTxt('#welcome-subtitle', 'Conecta, baila y comparte consumos — seguro y sin fricción.')
+  setTxt('#venue-type-title', 'Selecciona el tipo de venue')
+  setTxt('#staff-welcome-title', 'Ingreso Staff')
+  setTxt('#staff-title', 'Panel de órdenes')
+  setTxt('#staff-panel-title', 'Escanéame para unirte a la fiesta')
+  setTxt('#tab-staff-catalog', 'Carta')
+  setTxt('#menu-staff-catalog', 'Carta')
+  const search = q('catalog-search'); if (search) search.placeholder = 'Buscar en carta'
+  setTxt('#nav-carta span', 'Carta')
+  setTxt('#nav-disponibles span', 'Bailar')
+  setTxt('#nav-orders span', 'Órdenes')
+  setTxt('#home-hero-main', 'Activa tu modo fiesta')
+  setTxt('#home-hero-sub', 'Hazte visible y súmate al baile ahora')
+  const showIds = ['home-availability-title', 'home-availability-row', 'home-end-dance-row', 'screen-disponibles-select', 'screen-disponibles', 'screen-meeting', 'screen-user-invite', 'screen-invite-received', 'screen-mesas', 'screen-dj-request', 'fab-call', 'fab-call-label', 'tab-staff-dj', 'staff-dj-content', 'btn-copy-link-dj']
+  for (const id of showIds) { const el = q(id); if (el) el.style.display = '' }
+}
+function chooseVenueMode(mode) {
+  if (mode === 'restaurant') {
+    S.appMode = 'restaurant'
+    applyRestaurantMode()
+  } else {
+    S.appMode = ''
+    applyDiscoMode()
+  }
+  setModeInUrl(mode)
+  show('screen-staff-welcome')
 }
 function show(id) {
   maybeAutoCancelMeetingOnLeave(id)
@@ -1906,8 +1945,8 @@ function bind() {
   const btnJoinUser = q('btn-join-user'); if (btnJoinUser) btnJoinUser.onclick = () => join('user')
   const btnJoinStaff = q('btn-join-staff'); if (btnJoinStaff) btnJoinStaff.onclick = startStaffSession
   const btnSaveProfile = q('btn-save-profile'); if (btnSaveProfile) btnSaveProfile.onclick = saveProfile
-  const btnModeRestaurant = q('btn-mode-restaurant'); if (btnModeRestaurant) btnModeRestaurant.onclick = () => { location.href = buildStaffModeUrl('restaurant') }
-  const btnModeDisco = q('btn-mode-disco'); if (btnModeDisco) btnModeDisco.onclick = () => { location.href = buildStaffModeUrl('disco') }
+  const btnVenueRestaurant = q('btn-venue-restaurant'); if (btnVenueRestaurant) btnVenueRestaurant.onclick = () => { chooseVenueMode('restaurant') }
+  const btnVenueDisco = q('btn-venue-disco'); if (btnVenueDisco) btnVenueDisco.onclick = () => { chooseVenueMode('disco') }
   
   const swAvail = q('switch-available'); if (swAvail) swAvail.onchange = setAvailable
   const receiveModeEl = q('receive-mode'); if (receiveModeEl) receiveModeEl.onchange = setAvailable
@@ -2913,6 +2952,7 @@ function init() {
     loadI18n().then(() => { renderGenderSelect() }).catch(() => { renderGenderSelect() })
     const modeParam = u.searchParams.get('mode') || u.searchParams.get('restaurant') || ''
     if (modeParam === 'restaurant' || modeParam === '1') { S.appMode = 'restaurant'; applyRestaurantMode() }
+    else if (modeParam) { S.appMode = ''; applyDiscoMode() }
     const vid = u.searchParams.get('venueId') || ''
     if (vid) S.venueId = vid
     const sid = u.searchParams.get('sessionId') || u.searchParams.get('s')
@@ -2921,6 +2961,7 @@ function init() {
     const staffParam = u.searchParams.get('staff')
     const djParam = u.searchParams.get('dj')
     if (staffParam === '1') {
+      if (!modeParam) { show('screen-venue-type'); return }
       show('screen-staff-welcome')
       if (sid) {
         setTimeout(async () => {
@@ -3181,7 +3222,7 @@ async function openMenu() {
   const target = q('consumption-target'), sendBtn = q('btn-consumption-send')
   if (target) target.style.display = 'none'
   if (sendBtn) sendBtn.style.display = 'none'
-  const title = q('consumption-title'); if (title) title.textContent = 'Carta'
+  const title = q('consumption-title'); if (title) title.textContent = isRestaurantMode() ? 'Menú' : 'Carta'
   const targetLabel = q('consumption-target-label')
   if (targetLabel) targetLabel.style.display = 'none'
   const noteRow = q('consumption-note-row')
@@ -3198,6 +3239,30 @@ async function openMenu() {
   showCatalogTop()
   show('screen-consumption')
 }
+function getCatalogMeta() {
+  if (isRestaurantMode()) {
+    return {
+      order: ['cervezas','botellas','cocteles','sodas','otros'],
+      labels: {
+        cervezas: 'Hamburguesas',
+        botellas: 'Perros calientes',
+        cocteles: 'Pizzas',
+        sodas: 'Bebidas',
+        otros: 'Acompañamientos'
+      }
+    }
+  }
+  return {
+    order: ['cervezas','botellas','cocteles','sodas','otros'],
+    labels: {
+      cervezas: 'Cervezas',
+      botellas: 'Botellas',
+      cocteles: 'Cocteles',
+      sodas: 'Sodas y sin alcohol',
+      otros: 'Otros'
+    }
+  }
+}
 async function loadCatalog() {
   try {
     const r = await getCatalogData()
@@ -3212,16 +3277,9 @@ async function loadCatalog() {
       if (!groups[cat]) groups[cat] = []
       groups[cat].push(it)
     }
-    const order = ['cervezas','botellas','cocteles','sodas','otros']
-    const labels = {
-      cervezas: 'Cervezas',
-      botellas: 'Botellas',
-      cocteles: 'Cocteles',
-      sodas: 'Sodas y sin alcohol',
-      otros: 'Otros'
-    }
+    const meta = getCatalogMeta()
     S.catalogGroups = groups
-    renderCatalogCats(order, labels)
+    renderCatalogCats(meta.order, meta.labels)
   } catch {}
 }
 function renderCatalogCats(order, labels) {
@@ -3271,7 +3329,16 @@ function renderCatalogSubcats(cat, labels, names, subgroups) {
   catsEl.style.display = 'none'
   itemsEl.style.display = ''
   itemsEl.innerHTML = ''
-  if (back) { back.style.display = ''; back.textContent = 'Volver a categorías'; back.onclick = () => { S.catalogCat=''; S.catalogSubcat=''; renderCatalogCats(['cervezas','botellas','cocteles','sodas','otros'], { cervezas:'Cervezas', botellas:'Botellas', cocteles:'Cocteles', sodas:'Sodas y sin alcohol', otros:'Otros' }) } }
+  if (back) {
+    back.style.display = ''
+    back.textContent = 'Volver a categorías'
+    back.onclick = () => {
+      S.catalogCat=''
+      S.catalogSubcat=''
+      const meta = getCatalogMeta()
+      renderCatalogCats(meta.order, meta.labels)
+    }
+  }
   const title = document.createElement('h3')
   title.textContent = labels[cat] || cat
   itemsEl.append(title)
@@ -3299,7 +3366,11 @@ function renderCatalogItems(cat, labels, items) {
     back.textContent = S.catalogSubcat ? 'Volver a subcategorías' : 'Volver a categorías'
     back.onclick = () => {
       if (S.catalogSubcat) { S.catalogSubcat=''; renderCatalogCategory(cat, labels) }
-      else { S.catalogCat=''; renderCatalogCats(['cervezas','botellas','cocteles','sodas','otros'], { cervezas:'Cervezas', botellas:'Botellas', cocteles:'Cocteles', sodas:'Sodas y sin alcohol', otros:'Otros' }) }
+      else {
+        S.catalogCat=''
+        const meta = getCatalogMeta()
+        renderCatalogCats(meta.order, meta.labels)
+      }
     }
   }
   const title = document.createElement('h3')
@@ -3363,7 +3434,13 @@ function applyCatalogSearch() {
   const catsEl = q('catalog-cats'), itemsEl = q('catalog-list'), back = q('btn-catalog-back')
   if (!inp || !catsEl || !itemsEl) return
   const qv = String(inp.value || '').trim().toLowerCase()
-  if (!qv) { S.catalogCat=''; S.catalogSubcat=''; renderCatalogCats(['cervezas','botellas','cocteles','sodas','otros'], { cervezas:'Cervezas', botellas:'Botellas', cocteles:'Cocteles', sodas:'Sodas y sin alcohol', otros:'Otros' }); return }
+  if (!qv) {
+    S.catalogCat=''
+    S.catalogSubcat=''
+    const meta = getCatalogMeta()
+    renderCatalogCats(meta.order, meta.labels)
+    return
+  }
   const all = []
   for (const arr of Object.values(S.catalogGroups || {})) for (const it of arr || []) all.push(it)
   const matches = all.filter(it => String(it.name || '').toLowerCase().includes(qv))
