@@ -119,17 +119,18 @@ body[data-theme="light"] #catalog-cats .card, body[data-theme="light"] #catalog-
 #catalog-list .card > div:first-child { overflow: visible; white-space: normal; text-overflow: unset; flex: 1; margin-right: 10px }
 .topbar { display:none; position: sticky; top:0; padding: 8px 16px; background: rgba(13,14,22,0.8); backdrop-filter: blur(10px); border-bottom:1px solid #2b2c44; z-index: 10 }
 .topbar.show { display:flex; justify-content: space-between; align-items: center }
-.navbar { position: fixed; bottom: 0; left: 0; right: 0; display: grid; grid-template-columns: repeat(5,1fr); gap: 8px; padding: 10px 14px; background: rgba(13,14,22,0.8); backdrop-filter: blur(12px); border-top: 1px solid #2b2c44 }
+.navbar { position: fixed; bottom: 0; left: 0; right: 0; display: grid; grid-template-columns: repeat(5,1fr); gap: 6px; padding: 8px 10px; background: rgba(13,14,22,0.8); backdrop-filter: blur(12px); border-top: 1px solid #2b2c44 }
 body[data-theme="light"] .navbar { background: rgba(247,248,254,0.85); border-top-color: #dde2f0 }
-.nav-item { display:flex; flex-direction:column; align-items:center; gap:6px; padding: 10px 8px; border: 0; background: transparent; color: var(--muted) }
+.nav-item { display:flex; flex-direction:column; align-items:center; gap:4px; padding: 8px 6px; border: 0; background: transparent; color: var(--muted) }
+.nav-item span { font-size: 12px }
 .nav-item.active { color: var(--primary2) }
 .nav-item.active svg path, .nav-item.active svg rect, .nav-item.active svg circle { stroke: var(--primary2) }
 .nav-item { position: relative }
-#nav-disponibles svg { width: 26px; height: 26px }
+#nav-disponibles svg { width: 22px; height: 22px }
 #nav-disponibles:not(.active) svg { animation: pulseNav 1.8s ease-in-out infinite }
 #nav-disponibles:not(.active) svg path, #nav-disponibles:not(.active) svg circle { stroke: var(--primary2); stroke-width: 1.8; filter: drop-shadow(0 0 6px rgba(166,176,255,0.5)) }
 body[data-theme="light"] #nav-disponibles:not(.active) svg path, body[data-theme="light"] #nav-disponibles:not(.active) svg circle { filter: drop-shadow(0 0 6px rgba(55,71,255,0.35)) }
-#nav-mesas svg { width: 26px; height: 26px; animation: pulseNav 1.8s ease-in-out infinite }
+#nav-mesas svg { width: 22px; height: 22px; animation: pulseNav 1.8s ease-in-out infinite }
 #nav-mesas svg path, #nav-mesas svg rect, #nav-mesas svg circle { stroke: var(--primary2); stroke-width: 1.8; filter: drop-shadow(0 0 6px rgba(166,176,255,0.5)) }
 body[data-theme="light"] #nav-mesas svg path, body[data-theme="light"] #nav-mesas svg rect, body[data-theme="light"] #nav-mesas svg circle { filter: drop-shadow(0 0 6px rgba(55,71,255,0.35)) }
 @keyframes pulseNav { 0%,100% { transform: scale(1) } 50% { transform: scale(1.08) } }
