@@ -254,7 +254,8 @@ async function loadSessionInfo() {
     } catch {}
     let base = baseCandidate || location.origin
     // QR y link de sesión incluyen venueId + sessionId
-    const url = `${base}/?venueId=${encodeURIComponent(S.venueId || 'default')}&sessionId=${encodeURIComponent(S.sessionId)}&aj=1`
+    const modeQuery = isRestaurantMode() ? '&mode=restaurant' : ''
+    const url = `${base}/?venueId=${encodeURIComponent(S.venueId || 'default')}&sessionId=${encodeURIComponent(S.sessionId)}&aj=1${modeQuery}`
     const pd = q('pin-display'); if (pd) pd.textContent = pin
     const qrImg = q('qr-session'); if (qrImg) qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`
     const share = q('share-url'); if (share) { share.href = url; share.title = url }
@@ -2966,13 +2967,7 @@ function init() {
     const aj = u.searchParams.get('aj')
     const staffParam = u.searchParams.get('staff')
     const djParam = u.searchParams.get('dj')
-    const hasLocalForVenue = (() => {
-      try {
-        const m = getLocalUsers()
-        return !!(vid && m && m[vid])
-      } catch { return false }
-    })()
-    if (vid && !modeParam && !staffParam && !djParam && !(sid && aj === '1') && !hasLocalForVenue) {
+    if (vid && !modeParam && !staffParam && !djParam && !(sid && aj === '1')) {
       show('screen-venue-type')
       return
     }
