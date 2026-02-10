@@ -59,6 +59,12 @@ function applyRestaurantMode() {
   const selfie = q('selfie'); if (selfie) { selfie.style.display = 'none'; selfie.required = false }
   const selfieNote = q('selfie-note'); if (selfieNote) selfieNote.style.display = 'none'
   const heroSelfie = q('user-selfie-hero'); if (heroSelfie) heroSelfie.style.display = 'none'
+  const waiterDisco = q('waiter-reasons-disco'); if (waiterDisco) waiterDisco.style.display = 'none'
+  const waiterRest = q('waiter-reasons-restaurant'); if (waiterRest) waiterRest.style.display = ''
+  const invitesTitle = q('user-invites-title'); if (invitesTitle) invitesTitle.style.display = 'none'
+  const invitesList = q('user-invites'); if (invitesList) invitesList.style.display = 'none'
+  const invitesInbox = q('screen-invites-inbox'); if (invitesInbox) invitesInbox.style.display = 'none'
+  setTxt('#user-venue-footer-label', 'Disfruta de la mejor comida con')
   setTxt('#nav-carta span', 'Menú')
   setTxt('#nav-disponibles span', 'Promos')
   setTxt('#nav-orders span', 'Órdenes')
@@ -86,6 +92,12 @@ function applyDiscoMode() {
   const selfie = q('selfie'); if (selfie) { selfie.style.display = ''; selfie.required = true }
   const selfieNote = q('selfie-note'); if (selfieNote) selfieNote.style.display = ''
   const heroSelfie = q('user-selfie-hero'); if (heroSelfie) heroSelfie.style.display = ''
+  const waiterDisco = q('waiter-reasons-disco'); if (waiterDisco) waiterDisco.style.display = ''
+  const waiterRest = q('waiter-reasons-restaurant'); if (waiterRest) waiterRest.style.display = 'none'
+  const invitesTitle = q('user-invites-title'); if (invitesTitle) invitesTitle.style.display = ''
+  const invitesList = q('user-invites'); if (invitesList) invitesList.style.display = ''
+  const invitesInbox = q('screen-invites-inbox'); if (invitesInbox) invitesInbox.style.display = ''
+  setTxt('#user-venue-footer-label', 'Disfruta esta noche con')
   setTxt('#nav-carta span', 'Carta')
   setTxt('#nav-disponibles span', 'Bailar')
   setTxt('#nav-orders span', 'Órdenes')
@@ -2634,6 +2646,10 @@ async function sendWaiterCall() {
   if (S.waiterReason === 'hielo') reason = 'Me puedes traer hielo'
   else if (S.waiterReason === 'pasabocas') reason = 'Me puedes traer pasabocas'
   else if (S.waiterReason === 'limpieza') reason = '¿Puedes limpiar la mesa?'
+  else if (S.waiterReason === 'cuenta') reason = '¿Nos traes la cuenta?'
+  else if (S.waiterReason === 'agua') reason = 'Me puedes traer agua'
+  else if (S.waiterReason === 'cubiertos') reason = 'Me puedes traer cubiertos'
+  else if (S.waiterReason === 'servilletas') reason = 'Me puedes traer servilletas'
   else if (S.waiterReason === 'custom') reason = (S.waiterCustomReason || 'Atención')
   else { reason = 'Atención' }
   const phr = reason ? `Vas a llamar al mesero: ${reason}. ¿Confirmas?` : `Vas a llamar al mesero. ¿Confirmas?`
@@ -2770,6 +2786,13 @@ async function loadPendingInvites() {
   } catch {}
 }
 function showNextInvite() {
+  if (isRestaurantMode()) {
+    S.invitesQueue = []
+    S.notifications.invites = 0
+    setBadgeNav('disponibles', 0)
+    S.inInviteFlow = false
+    return
+  }
   if (S.inInviteFlow) return
   const next = S.invitesQueue.shift()
   if (!next) return
@@ -2801,6 +2824,7 @@ function showNextInvite() {
   setBadgeNav('disponibles', S.notifications.invites)
 }
 function openInvitesInbox() {
+  if (isRestaurantMode()) return
   const container = q('invites-inbox'); if (!container) return
   container.innerHTML = ''
   const snapshot = []

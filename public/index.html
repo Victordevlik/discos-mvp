@@ -124,7 +124,7 @@
             <path d="M7 4h10v4a5 5 0 01-5 5h0a5 5 0 01-5-5V4z" stroke="currentColor" stroke-width="1.6"/>
             <path d="M12 13v7M9 20h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
           </svg>
-          Disfruta esta noche con <span id="user-venue-footer">-</span>
+          <span id="user-venue-footer-label">Disfruta esta noche con</span> <span id="user-venue-footer">-</span>
         </span>
       </div>
       <div class="equalizer">
@@ -352,9 +352,17 @@
   <div id="screen-call-waiter" class="screen">
     <h2>Llamar mesero</h2>
     <div class="card">
-      <div class="row">
+      <div class="row" id="waiter-reasons-disco">
         <button class="btn-waiter-reason warning" data-reason="hielo">Traer hielo</button>
         <button class="btn-waiter-reason warning" data-reason="pasabocas">Traer pasabocas</button>
+        <button class="btn-waiter-reason warning" data-reason="limpieza">Limpiar la mesa</button>
+        <button class="btn-waiter-reason warning" data-reason="otro">Otro…</button>
+      </div>
+      <div class="row" id="waiter-reasons-restaurant" style="display:none">
+        <button class="btn-waiter-reason warning" data-reason="cuenta">Pedir la cuenta</button>
+        <button class="btn-waiter-reason warning" data-reason="agua">Traer agua</button>
+        <button class="btn-waiter-reason warning" data-reason="cubiertos">Traer cubiertos</button>
+        <button class="btn-waiter-reason warning" data-reason="servilletas">Traer servilletas</button>
         <button class="btn-waiter-reason warning" data-reason="limpieza">Limpiar la mesa</button>
         <button class="btn-waiter-reason warning" data-reason="otro">Otro…</button>
       </div>
@@ -382,7 +390,7 @@
   <div id="screen-orders-user" class="screen">
     <h2>Mis órdenes</h2>
     <div id="user-orders"></div>
-    <h3>Mis invitaciones</h3>
+    <h3 id="user-invites-title">Mis invitaciones</h3>
     <div id="user-invites"></div>
   </div>
 
