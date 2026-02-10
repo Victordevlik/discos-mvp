@@ -1926,8 +1926,6 @@ function bind() {
   const ut = q('user-table'); if (ut) { ut.style.cursor = 'pointer'; ut.onclick = () => openEditProfileFocus('table') }
   const linkStaff = q('link-staff'); if (linkStaff) linkStaff.onclick = (e) => { e.preventDefault(); show('screen-staff-welcome') }
   const fab = q('fab-call'); if (fab) fab.onclick = openCallWaiter
-  const fabDj = q('fab-dj'); if (fabDj) fabDj.onclick = openDJRequest
-  const fabDj2 = q('fab-dj'); if (fabDj2) fabDj2.onclick = openDJRequest
   const btnDjSend = q('btn-dj-send'); if (btnDjSend) btnDjSend.onclick = sendDJRequest
   const bAT = q('btn-avail-by-table'); if (bAT) bAT.onclick = exploreMesas
   const bAA = q('btn-avail-all'); if (bAA) bAA.onclick = viewAvailable

@@ -278,14 +278,12 @@ body[data-theme="light"] #catalog-list .chip { background: linear-gradient(180de
 #catalog-top .top-night-item { flex: 1; text-align: center; padding: 8px 12px; border-radius: 12px; font-size: 14px; font-weight: 700; letter-spacing: .2px; color: #fff; background: linear-gradient(180deg, #7d88ff, #5868ff); border: 0 }
 body[data-theme="light"] #catalog-top .top-night-item { background: linear-gradient(180deg, #5868ff, #3747ff) }
 .fab { position: fixed; right: 16px; bottom: 70px; width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(180deg, #7d88ff, #5868ff); color: #fff; border: 0; box-shadow: 0 14px 28px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center }
-.fab.fab-left { right: auto; left: 16px }
 .fab-label { position: fixed; right: 16px; bottom: 120px; background: rgba(23,24,38,0.9); backdrop-filter: blur(8px); color: #fff; padding: 6px 8px; border-radius: 8px; border: 1px solid #2b2c44; box-shadow: 0 10px 24px rgba(0,0,0,0.25); font-size: 11px }
-#fab-call, #fab-dj { width: 50px; height: 50px; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 14px 28px rgba(0,0,0,0.35), 0 0 0 6px rgba(125,136,255,0.12); transition: transform .12s ease, box-shadow .18s ease }
+#fab-call { width: 50px; height: 50px; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 14px 28px rgba(0,0,0,0.35), 0 0 0 6px rgba(125,136,255,0.12); transition: transform .12s ease, box-shadow .18s ease }
 #fab-call { background: linear-gradient(180deg, #7d88ff, #5868ff) }
-#fab-dj { background: linear-gradient(180deg, #38d49c, #2cab83) }
-#fab-call:active, #fab-dj:active { transform: translateY(1px) scale(0.98) }
-#fab-call-label, #fab-dj-label { font-size: 12px; font-weight: 700; letter-spacing: .2px; border-color: rgba(255,255,255,0.08); background: rgba(23,24,38,0.95) }
-body[data-theme="light"] #fab-call-label, body[data-theme="light"] #fab-dj-label { background: rgba(255,255,255,0.95); border-color: #dbe1f3; color: #1b1f2b }
+#fab-call:active { transform: translateY(1px) scale(0.98) }
+#fab-call-label { font-size: 12px; font-weight: 700; letter-spacing: .2px; border-color: rgba(255,255,255,0.08); background: rgba(23,24,38,0.95) }
+body[data-theme="light"] #fab-call-label { background: rgba(255,255,255,0.95); border-color: #dbe1f3; color: #1b1f2b }
 #staff-dj-content .switch { position: relative; display: inline-block; width: 50px; height: 28px; margin: 0 10px }
 #staff-dj-content .switch input { opacity: 0; width: 0; height: 0 }
 #staff-dj-content .switch .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: #777; transition: .2s; border-radius: 28px }
@@ -372,6 +370,15 @@ body[data-theme="light"] #user-header.party { background: linear-gradient(135deg
   #catalog-list h3 { font-size: 15px; margin: 2px 0 6px 0 }
   #catalog-cats .card, #catalog-list .card { padding: 10px; margin: 6px 0 }
   .chip { font-size: 12px }
+}
+@media (max-width: 360px) {
+  .screen { padding: 14px; padding-bottom: 92px }
+  .navbar { gap: 4px; padding: 6px 8px }
+  .nav-item { padding: 6px 4px; gap: 4px }
+  .nav-item span { font-size: 11px }
+  #available-list, #mesas-list, #mesa-people { grid-template-columns: 1fr }
+  #available-list .row.compact button { font-size: 12px; padding: 6px 8px }
+  #mesa-people .row.compact button { font-size: 12px; padding: 6px 8px }
 }
 /* Modal */
 .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 9999; padding: 16px }
