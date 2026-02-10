@@ -79,7 +79,7 @@ function setActiveNav(tab) {
   try { localStorage.setItem('discos_last_user_tab', tab) } catch {}
 }
 function setActiveNavByScreen(screenId) {
-  const reverse = { 'screen-consumption': 'carta', 'screen-disponibles-select': 'disponibles', 'screen-disponibles': 'disponibles', 'screen-mesas': 'mesas', 'screen-orders-user': 'orders', 'screen-edit-profile': 'perfil' }
+  const reverse = { 'screen-consumption': 'carta', 'screen-disponibles-select': 'disponibles', 'screen-disponibles': 'disponibles', 'screen-mesas': 'mesas', 'screen-dj-request': 'mesas', 'screen-orders-user': 'orders', 'screen-edit-profile': 'perfil' }
   const tab = reverse[screenId]
   if (tab) setActiveNav(tab)
 }
@@ -1895,7 +1895,7 @@ function bind() {
   const nc = q('nav-carta'), nd = q('nav-disponibles'), nm = q('nav-mesas'), no = q('nav-orders'), nf = q('nav-perfil')
   if (nc) nc.onclick = () => { setActiveNav('carta'); openMenu() }
   if (nd) nd.onclick = () => { setActiveNav('disponibles'); showAvailableChoice() }
-  if (nm) nm.onclick = () => { setActiveNav('mesas'); exploreMesas() }
+  if (nm) nm.onclick = () => { setActiveNav('mesas'); openDJRequest() }
   if (no) no.onclick = () => { setActiveNav('orders'); loadUserOrders(); show('screen-orders-user') }
   const btnShowAllInv = q('btn-invite-show-all'); if (btnShowAllInv) btnShowAllInv.onclick = openInvitesInbox
   const btnPassAllInv = q('btn-pass-all-invites'); if (btnPassAllInv) btnPassAllInv.onclick = passAllDanceInvites

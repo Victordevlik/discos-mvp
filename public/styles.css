@@ -129,6 +129,9 @@ body[data-theme="light"] .navbar { background: rgba(247,248,254,0.85); border-to
 #nav-disponibles:not(.active) svg { animation: pulseNav 1.8s ease-in-out infinite }
 #nav-disponibles:not(.active) svg path, #nav-disponibles:not(.active) svg circle { stroke: var(--primary2); stroke-width: 1.8; filter: drop-shadow(0 0 6px rgba(166,176,255,0.5)) }
 body[data-theme="light"] #nav-disponibles:not(.active) svg path, body[data-theme="light"] #nav-disponibles:not(.active) svg circle { filter: drop-shadow(0 0 6px rgba(55,71,255,0.35)) }
+#nav-mesas svg { width: 26px; height: 26px; animation: pulseNav 1.8s ease-in-out infinite }
+#nav-mesas svg path, #nav-mesas svg rect, #nav-mesas svg circle { stroke: var(--primary2); stroke-width: 1.8; filter: drop-shadow(0 0 6px rgba(166,176,255,0.5)) }
+body[data-theme="light"] #nav-mesas svg path, body[data-theme="light"] #nav-mesas svg rect, body[data-theme="light"] #nav-mesas svg circle { filter: drop-shadow(0 0 6px rgba(55,71,255,0.35)) }
 @keyframes pulseNav { 0%,100% { transform: scale(1) } 50% { transform: scale(1.08) } }
 .badge { position: absolute; top: 2px; right: 10px; min-width: 16px; height: 16px; border-radius: 999px; background: #ff6b6b; color: #fff; display: none; font-size: 10px; line-height: 16px; text-align: center; box-shadow: 0 6px 12px rgba(0,0,0,0.3) }
 .badge.show { display: inline-block }
