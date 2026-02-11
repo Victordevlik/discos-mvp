@@ -5,8 +5,18 @@ const path = require('path')
 const crypto = require('crypto')
 const os = require('os')
 
-process.on('uncaughtException', e => { try { console.error('uncaught', e) } catch {} })
-process.on('unhandledRejection', e => { try { console.error('unhandled', e) } catch {} })
+const SERVICE_NAME = String(process.env.SERVICE_NAME || 'discos')
+const LOG_LEVEL = String(process.env.LOG_LEVEL || 'info')
+const LOG_LEVELS = { debug: 10, info: 20, warn: 30, error: 40 }
+function log(level, msg, extra = {}) {
+  const lvl = LOG_LEVELS[level] || 20
+  if (lvl < (LOG_LEVELS[LOG_LEVEL] || 20)) return
+  const payload = { ts: Date.now(), level, service: SERVICE_NAME, msg, ...extra }
+  try { process.stdout.write(JSON.stringify(payload) + '\n') } catch {}
+}
+
+process.on('uncaughtException', e => { try { log('error', 'uncaught', { error: String(e && (e.stack || e.message) || e) }) } catch {} })
+process.on('unhandledRejection', e => { try { log('error', 'unhandled', { error: String(e && (e.stack || e.message) || e) }) } catch {} })
 
 const state = {
   sessions: new Map(),
@@ -54,15 +64,15 @@ const GMAIL_SMTP_HOST = String(process.env.GMAIL_SMTP_HOST || 'smtp.gmail.com')
 const GMAIL_SMTP_PORT = Number(process.env.GMAIL_SMTP_PORT || 465)
 const GMAIL_SMTP_SECURE = String(process.env.GMAIL_SMTP_SECURE || 'true') === 'true'
 
-// Créditos por venue: persistidos en /data/venues.json
-const venuesPath = path.join(dataDir, 'venues.json')
+const DB_REQUIRED = true
 let db = null
 let dbReady = false
+let dbConn = ''
 try {
   const { Pool } = require('pg')
   const candidates = [
     String(process.env.DATABASE_URL || ''),
-      String(process.env.RAILWAY_DATABASE_URL || ''),
+    String(process.env.RAILWAY_DATABASE_URL || ''),
     String(process.env.POSTGRES_URL || ''),
     String(process.env.POSTGRESQL_URL || ''),
     String(process.env.PGURL || ''),
@@ -70,12 +80,27 @@ try {
     String(process.env.URL_DE_BASE_DE_DATOS || ''),
     String(process.env.POSTGRES_URL_DE_BASE_DE_DATOS || '')
   ].filter(v => !!v)
-  const conn = candidates[0] || ''
-  if (conn) {
-      db = new Pool({ connectionString: conn, ssl: { require: true, rejectUnauthorized: false } })
-    ;(async () => { try { await initDB(); await ensureGlobalCatalogSeed() } catch {} })()
+  dbConn = candidates[0] || ''
+  if (!dbConn && DB_REQUIRED) {
+    log('error', 'db_missing')
+    process.exit(1)
   }
-} catch {}
+  if (dbConn) {
+    db = new Pool({ connectionString: dbConn, ssl: { require: true, rejectUnauthorized: false } })
+    ;(async () => {
+      try {
+        await initDB()
+        await ensureGlobalCatalogSeed()
+      } catch (e) {
+        log('error', 'db_bootstrap_failed', { error: String(e && (e.stack || e.message) || e) })
+        if (DB_REQUIRED) process.exit(1)
+      }
+    })()
+  }
+} catch (e) {
+  log('error', 'db_init_failed', { error: String(e && (e.stack || e.message) || e) })
+  if (DB_REQUIRED) process.exit(1)
+}
 async function initDB() {
   if (!db || dbReady) return !!db
   await db.query('CREATE TABLE IF NOT EXISTS venues (venue_id TEXT PRIMARY KEY, name TEXT NOT NULL, credits INTEGER NOT NULL, active BOOLEAN NOT NULL, pin TEXT, email TEXT)')
@@ -88,6 +113,8 @@ async function initDB() {
   await db.query('CREATE TABLE IF NOT EXISTS catalog_items (session_id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, category TEXT, subcategory TEXT, PRIMARY KEY (session_id, name))')
   await db.query('ALTER TABLE IF EXISTS catalog_items ADD COLUMN IF NOT EXISTS category TEXT')
   await db.query('ALTER TABLE IF EXISTS catalog_items ADD COLUMN IF NOT EXISTS subcategory TEXT')
+  await db.query('CREATE TABLE IF NOT EXISTS idempotency_keys (key TEXT PRIMARY KEY, route TEXT NOT NULL, status INTEGER NOT NULL, response_json TEXT NOT NULL, created_at BIGINT NOT NULL)')
+  await db.query('CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, session_id TEXT, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, event_type TEXT NOT NULL, payload_json TEXT, ts BIGINT NOT NULL)')
   dbReady = true
   return true
 }
@@ -123,47 +150,36 @@ async function isDBConnected() {
   if (!db) return false
   try { await db.query('SELECT 1'); return true } catch { return false }
 }
+function requireDB() {
+  if (!db) throw new Error('db_required')
+}
 async function listPublicTables() {
-  if (!db) return []
+  requireDB()
   await initDB()
   const r = await db.query("SELECT table_name FROM information_schema.tables WHERE table_schema='public' ORDER BY table_name")
   return r.rows.map(w => w.table_name)
 }
 async function readVenues() {
-  if (db) {
-    try {
-      await initDB()
-      const r = await db.query('SELECT venue_id, name, credits, active, pin, email FROM venues')
-      const obj = {}
-      for (const row of r.rows) obj[row.venue_id] = { name: row.name, credits: Number(row.credits || 0), active: !!row.active, pin: row.pin || '', email: row.email || '' }
-      return obj
-    } catch {}
-  }
-  try {
-    if (!fs.existsSync(venuesPath)) return {}
-    const raw = fs.readFileSync(venuesPath, 'utf-8')
-    const obj = JSON.parse(raw || '{}')
-    return typeof obj === 'object' && obj ? obj : {}
-  } catch { return {} }
+  requireDB()
+  await initDB()
+  const r = await db.query('SELECT venue_id, name, credits, active, pin, email FROM venues')
+  const obj = {}
+  for (const row of r.rows) obj[row.venue_id] = { name: row.name, credits: Number(row.credits || 0), active: !!row.active, pin: row.pin || '', email: row.email || '' }
+  return obj
 }
 async function writeVenues(obj) {
-  if (db) {
-    try {
-      await initDB()
-      const entries = Object.entries(obj)
-      for (const [id, v] of entries) {
-        await db.query(
-          'INSERT INTO venues (venue_id, name, credits, active, pin, email) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (venue_id) DO UPDATE SET name=EXCLUDED.name, credits=EXCLUDED.credits, active=EXCLUDED.active, pin=EXCLUDED.pin, email=EXCLUDED.email',
-          [String(id), String(v.name || id), Number(v.credits || 0), v.active !== false, String(v.pin || ''), String(v.email || '')]
-        )
-      }
-      return
-    } catch {}
+  requireDB()
+  await initDB()
+  const entries = Object.entries(obj)
+  for (const [id, v] of entries) {
+    await db.query(
+      'INSERT INTO venues (venue_id, name, credits, active, pin, email) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (venue_id) DO UPDATE SET name=EXCLUDED.name, credits=EXCLUDED.credits, active=EXCLUDED.active, pin=EXCLUDED.pin, email=EXCLUDED.email',
+      [String(id), String(v.name || id), Number(v.credits || 0), v.active !== false, String(v.pin || ''), String(v.email || '')]
+    )
   }
-  try { fs.writeFileSync(venuesPath, JSON.stringify(obj)) } catch {}
 }
 async function dbReadGlobalCatalog(mode) {
-  if (!db) return []
+  requireDB()
   await initDB()
   const sessionId = catalogSessionIdForMode(mode)
   let rows = []
@@ -180,7 +196,7 @@ async function dbReadGlobalCatalog(mode) {
   return rows.map(w => ({ name: w.name, price: Number(w.price || 0), category: String(w.category || 'otros'), subcategory: String(w.subcategory || '') }))
 }
 async function dbWriteGlobalCatalog(mode, items) {
-  if (!db) return
+  requireDB()
   await initDB()
   const sessionId = catalogSessionIdForMode(mode)
   await db.query('DELETE FROM catalog_items WHERE session_id=$1', [sessionId])
@@ -189,7 +205,7 @@ async function dbWriteGlobalCatalog(mode, items) {
   }
 }
 async function ensureGlobalCatalogSeed() {
-  if (!db) return
+  requireDB()
   await initDB()
   try {
     const disco = await dbReadGlobalCatalog('disco')
@@ -199,13 +215,13 @@ async function ensureGlobalCatalogSeed() {
   } catch {}
 }
 async function dbReadSessionCatalog(sessionId) {
-  if (!db) return []
+  requireDB()
   await initDB()
   const r = await db.query('SELECT name, price, category, subcategory FROM catalog_items WHERE session_id=$1 ORDER BY name', [String(sessionId)])
   return r.rows.map(w => ({ name: w.name, price: Number(w.price || 0), category: String(w.category || 'otros'), subcategory: String(w.subcategory || '') }))
 }
 async function dbWriteSessionCatalog(sessionId, items) {
-  if (!db) return
+  requireDB()
   await initDB()
   await db.query('DELETE FROM catalog_items WHERE session_id=$1', [String(sessionId)])
   for (const it of Array.isArray(items) ? items : []) {
@@ -213,7 +229,7 @@ async function dbWriteSessionCatalog(sessionId, items) {
   }
 }
 async function dbUpsertUser(u) {
-  if (!db) return
+  requireDB()
   await initDB()
   const vals = [
     String(u.id),
@@ -235,7 +251,7 @@ async function dbUpsertUser(u) {
   await db.query('INSERT INTO users (id, session_id, role, alias, selfie, selfie_approved, available, prefs_json, zone, muted, receive_mode, table_id, visibility, paused_until, silenced) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) ON CONFLICT (id) DO UPDATE SET session_id=EXCLUDED.session_id, role=EXCLUDED.role, alias=EXCLUDED.alias, selfie=EXCLUDED.selfie, selfie_approved=EXCLUDED.selfie_approved, available=EXCLUDED.available, prefs_json=EXCLUDED.prefs_json, zone=EXCLUDED.zone, muted=EXCLUDED.muted, receive_mode=EXCLUDED.receive_mode, table_id=EXCLUDED.table_id, visibility=EXCLUDED.visibility, paused_until=EXCLUDED.paused_until, silenced=EXCLUDED.silenced', vals)
 }
 async function dbGetUser(id) {
-  if (!db) return null
+  requireDB()
   await initDB()
   const r = await db.query('SELECT id, session_id, role, alias, selfie, selfie_approved, available, prefs_json, zone, muted, receive_mode, table_id, visibility, paused_until, silenced FROM users WHERE id=$1', [String(id)])
   if (!r.rows.length) return null
@@ -249,29 +265,30 @@ async function dbGetUser(id) {
   }
 }
 async function dbGetUsersBySession(sessionId) {
-  if (!db) return []
+  requireDB()
   await initDB()
   const r = await db.query('SELECT id, alias, selfie_approved, muted FROM users WHERE session_id=$1 AND role=$2', [String(sessionId), 'user'])
   return r.rows.map(w => ({ id: w.id, alias: w.alias || '', selfieApproved: !!w.selfie_approved, muted: !!w.muted }))
 }
-async function dbInsertOrder(o) {
-  if (!db) return
-  await initDB()
+async function dbInsertOrder(o, client = null) {
+  requireDB()
+  if (!client) await initDB()
   const vals = [
     String(o.id), String(o.sessionId), String(o.emitterId), String(o.receiverId),
     String(o.product), Number(o.quantity || 1), Number(o.price || 0), Number(o.total || 0),
     String(o.status), Number(o.createdAt || 0), Number(o.expiresAt || 0),
     String(o.emitterTable || ''), String(o.receiverTable || ''), String(o.mesaEntrega || ''), !!o.isInvitation
   ]
-  await db.query('INSERT INTO orders (id, session_id, emitter_id, receiver_id, product, quantity, price, total, status, created_at, expires_at, emitter_table, receiver_table, mesa_entrega, is_invitation) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status, quantity=EXCLUDED.quantity, price=EXCLUDED.price, total=EXCLUDED.total, emitter_table=EXCLUDED.emitter_table, receiver_table=EXCLUDED.receiver_table, mesa_entrega=EXCLUDED.mesa_entrega, expires_at=EXCLUDED.expires_at', vals)
+  const runner = client || db
+  await runner.query('INSERT INTO orders (id, session_id, emitter_id, receiver_id, product, quantity, price, total, status, created_at, expires_at, emitter_table, receiver_table, mesa_entrega, is_invitation) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status, quantity=EXCLUDED.quantity, price=EXCLUDED.price, total=EXCLUDED.total, emitter_table=EXCLUDED.emitter_table, receiver_table=EXCLUDED.receiver_table, mesa_entrega=EXCLUDED.mesa_entrega, expires_at=EXCLUDED.expires_at', vals)
 }
 async function dbUpdateOrderStatus(id, status) {
-  if (!db) return
+  requireDB()
   await initDB()
   await db.query('UPDATE orders SET status=$2 WHERE id=$1', [String(id), String(status)])
 }
 async function dbGetOrdersBySession(sessionId, stateFilter) {
-  if (!db) return []
+  requireDB()
   await initDB()
   if (stateFilter) {
     const r = await db.query('SELECT id, product, quantity, price, total, status, created_at, expires_at, emitter_id, receiver_id, emitter_table, receiver_table, mesa_entrega FROM orders WHERE session_id=$1 AND status=$2', [String(sessionId), String(stateFilter)])
@@ -281,45 +298,91 @@ async function dbGetOrdersBySession(sessionId, stateFilter) {
   return r.rows
 }
 async function dbGetOrdersByTable(sessionId, tableId) {
-  if (!db) return []
+  requireDB()
   await initDB()
   const r = await db.query('SELECT id, product, quantity, price, total, status, created_at, expires_at, emitter_id, receiver_id, emitter_table, receiver_table, mesa_entrega FROM orders WHERE session_id=$1 AND (emitter_table=$2 OR receiver_table=$2 OR mesa_entrega=$2)', [String(sessionId), String(tableId)])
   return r.rows
 }
 async function dbGetOrdersByUser(userId) {
-  if (!db) return []
+  requireDB()
   await initDB()
   const r = await db.query('SELECT id, product, quantity, price, total, status, created_at, expires_at, emitter_id, receiver_id, emitter_table, receiver_table, mesa_entrega FROM orders WHERE emitter_id=$1 OR receiver_id=$1', [String(userId)])
   return r.rows
 }
 async function dbSetTableClosed(sessionId, tableId, closed) {
-  if (!db) return
+  requireDB()
   await initDB()
   await db.query('INSERT INTO table_closures (session_id, table_id, closed) VALUES ($1,$2,$3) ON CONFLICT (session_id, table_id) DO UPDATE SET closed=EXCLUDED.closed', [String(sessionId), String(tableId), !!closed])
 }
 async function dbIsTableClosed(sessionId, tableId) {
-  if (!db) return false
+  requireDB()
   await initDB()
   const r = await db.query('SELECT closed FROM table_closures WHERE session_id=$1 AND table_id=$2', [String(sessionId), String(tableId)])
   if (!r.rows.length) return false
   return !!r.rows[0].closed
 }
-async function dbInsertWaiterCall(c) {
-  if (!db) return
-  await initDB()
+async function dbInsertWaiterCall(c, client = null) {
+  requireDB()
+  if (!client) await initDB()
   const vals = [String(c.id), String(c.sessionId), String(c.userId), String(c.tableId || ''), String(c.reason || ''), String(c.status || ''), Number(c.ts || 0)]
-  await db.query('INSERT INTO waiter_calls (id, session_id, user_id, table_id, reason, status, ts) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status', vals)
+  const runner = client || db
+  await runner.query('INSERT INTO waiter_calls (id, session_id, user_id, table_id, reason, status, ts) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status', vals)
 }
 async function dbUpdateWaiterCallStatus(id, status) {
-  if (!db) return
+  requireDB()
   await initDB()
   await db.query('UPDATE waiter_calls SET status=$2 WHERE id=$1', [String(id), String(status)])
 }
 async function dbGetWaiterCalls(sessionId) {
-  if (!db) return []
+  requireDB()
   await initDB()
   const r = await db.query('SELECT id, session_id, user_id, table_id, reason, status, ts FROM waiter_calls WHERE session_id=$1', [String(sessionId)])
   return r.rows
+}
+async function withDbTx(fn) {
+  requireDB()
+  await initDB()
+  const client = await db.connect()
+  try {
+    await client.query('BEGIN')
+    const out = await fn(client)
+    await client.query('COMMIT')
+    return out
+  } catch (e) {
+    try { await client.query('ROLLBACK') } catch {}
+    throw e
+  } finally {
+    try { client.release() } catch {}
+  }
+}
+async function dbGetIdempotent(key, route) {
+  requireDB()
+  await initDB()
+  const r = await db.query('SELECT status, response_json FROM idempotency_keys WHERE key=$1 AND route=$2', [String(key), String(route)])
+  if (!r.rows.length) return null
+  const row = r.rows[0]
+  let payload = null
+  try { payload = JSON.parse(row.response_json || '{}') } catch { payload = {} }
+  return { status: Number(row.status || 200), body: payload }
+}
+async function dbSetIdempotent(key, route, status, body) {
+  if (!key) return
+  requireDB()
+  await initDB()
+  const payload = JSON.stringify(body || {})
+  await db.query('INSERT INTO idempotency_keys (key, route, status, response_json, created_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (key) DO NOTHING', [String(key), String(route), Number(status || 200), payload, now()])
+}
+async function dbInsertEvent(evt, client = null) {
+  if (!evt) return
+  const payload = evt.payload ? JSON.stringify(evt.payload) : ''
+  const vals = [String(evt.id || genId('evt')), String(evt.sessionId || ''), String(evt.entityType || ''), String(evt.entityId || ''), String(evt.eventType || ''), payload, Number(evt.ts || now())]
+  if (client) {
+    await client.query('INSERT INTO events (id, session_id, entity_type, entity_id, event_type, payload_json, ts) VALUES ($1,$2,$3,$4,$5,$6,$7)', vals)
+    return
+  }
+  requireDB()
+  await initDB()
+  await db.query('INSERT INTO events (id, session_id, entity_type, entity_id, event_type, payload_json, ts) VALUES ($1,$2,$3,$4,$5,$6,$7)', vals)
 }
 
 // Autorización admin: requiere ADMIN_SECRET por header o query
@@ -462,6 +525,31 @@ function parseBody(req) {
     })
   })
 }
+function getIdempotencyKey(req) {
+  return String(req.headers['x-idempotency-key'] || '').trim()
+}
+function readRequestId(req) {
+  return String(req.headers['x-request-id'] || '').trim()
+}
+function asString(v) {
+  return String(v == null ? '' : v).trim()
+}
+function reqString(v, min = 1, max = 200) {
+  const s = asString(v)
+  if (!s || s.length < min) return ''
+  if (s.length > max) return s.slice(0, max)
+  return s
+}
+function reqInt(v, min = 0, max = 1000000000) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return min
+  if (n < min) return min
+  if (n > max) return max
+  return Math.floor(n)
+}
+function reqBool(v) {
+  return !!v
+}
 
 function genId(prefix) {
   return `${prefix}_${crypto.randomBytes(8).toString('hex')}`
@@ -563,10 +651,7 @@ function isBlockedPair(a, b) {
 function persistOrders(sessionId) {
   const list = []
   for (const o of state.orders.values()) if (o.sessionId === sessionId) list.push(o)
-  try { fs.writeFileSync(path.join(dataDir, `orders_${sessionId}.json`), JSON.stringify(list)) } catch {}
-  if (db) {
-    for (const o of list) { try { dbUpdateOrderStatus(o.id, o.status) } catch {} }
-  }
+  for (const o of list) { try { dbUpdateOrderStatus(o.id, o.status) } catch {} }
 }
 function persistReports(sessionId) {
   const list = state.reports.filter(r => r.sessionId === sessionId)
@@ -690,20 +775,29 @@ function serveStatic(req, res, pathname) {
 }
 
 const server = http.createServer(async (req, res) => {
-  const { pathname, query } = url.parse(req.url, true)
-  if (req.method === 'OPTIONS') {
-    res.writeHead(200, {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Admin-Secret',
-    })
-    res.end()
-    return
-  }
+  const startedAt = now()
+  const rid = readRequestId(req) || genId('req')
+  req.requestId = rid
+  res.setHeader('X-Request-Id', rid)
+  res.on('finish', () => {
+    const ms = now() - startedAt
+    log('info', 'http', { requestId: rid, method: req.method, path: req.url, status: res.statusCode, ms })
+  })
+  try {
+    const { pathname, query } = url.parse(req.url, true)
+    if (req.method === 'OPTIONS') {
+      res.writeHead(200, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Admin-Secret,X-Request-Id,X-Idempotency-Key',
+      })
+      res.end()
+      return
+    }
 
-  if (pathname.startsWith('/api/')) {
-    expireOldSessions()
-    if (pathname === '/api/session/start' && req.method === 'POST') {
+    if (pathname.startsWith('/api/')) {
+      expireOldSessions()
+      if (pathname === '/api/session/start' && req.method === 'POST') {
       try {
         const body = await parseBody(req)
         const venueId = String(body.venueId || 'default')
@@ -1344,43 +1438,61 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/api/consumption/invite' && req.method === 'POST') {
       const body = await parseBody(req)
-      const from = state.users.get(body.fromId)
-      const to = state.users.get(body.toId)
+      const fromId = reqString(body.fromId, 1, 80)
+      const toId = reqString(body.toId, 1, 80)
+      const from = state.users.get(fromId)
+      const to = state.users.get(toId)
       if (!from || !to) { json(res, 404, { error: 'no_user' }); return }
       if (isBlockedPair(from.id, to.id)) { json(res, 403, { error: 'blocked' }); return }
+      const idemKey = getIdempotencyKey(req)
+      if (idemKey) {
+        const prev = await dbGetIdempotent(idemKey, pathname)
+        if (prev) { json(res, prev.status, prev.body); return }
+      }
       const hourKey = from.id
       const bucket = state.rate.consumptionByUserHour.get(hourKey) || []
       const fresh = bucket.filter(ts => within(60 * 60 * 1000, ts))
       if (fresh.length >= 5) { json(res, 429, { error: 'rate_consumo' }); return }
       state.rate.consumptionByUserHour.set(hourKey, [...fresh, now()])
       const reqId = genId('cinv')
-      const note = String(body.note || '').slice(0, 140)
-      const qty = Math.max(1, Number(body.quantity || 1))
+      const note = reqString(body.note, 0, 140)
+      const qty = reqInt(body.quantity || 1, 1, 999)
+      const product = reqString(body.product, 1, 140)
+      if (!product) { json(res, 400, { error: 'no_product' }); return }
       const ttlMs = computeInviteTTL(to)
       state.consumptionInvites.set(reqId, { id: reqId, sessionId: from.sessionId, fromId: from.id, toId: to.id, createdAt: now(), expiresAt: now() + ttlMs, seenAt: 0, notSeenNotified: false })
-      sendToUser(to.id, 'consumption_invite', { requestId: reqId, from: { id: from.id, alias: from.alias, tableId: from.tableId || '', gender: (from.prefs && from.prefs.gender) ? from.prefs.gender : '' }, product: body.product, quantity: qty, note, expiresAt: now() + ttlMs })
+      sendToUser(to.id, 'consumption_invite', { requestId: reqId, from: { id: from.id, alias: from.alias, tableId: from.tableId || '', gender: (from.prefs && from.prefs.gender) ? from.prefs.gender : '' }, product, quantity: qty, note, expiresAt: now() + ttlMs })
+      if (idemKey) await dbSetIdempotent(idemKey, pathname, 200, { requestId: reqId })
       json(res, 200, { requestId: reqId })
       return
     }
     if (pathname === '/api/consumption/invite/bulk' && req.method === 'POST') {
       const body = await parseBody(req)
-      const from = state.users.get(body.fromId)
-      const to = state.users.get(body.toId)
+      const fromId = reqString(body.fromId, 1, 80)
+      const toId = reqString(body.toId, 1, 80)
+      const from = state.users.get(fromId)
+      const to = state.users.get(toId)
       if (!from || !to) { json(res, 404, { error: 'no_user' }); return }
       if (isBlockedPair(from.id, to.id)) { json(res, 403, { error: 'blocked' }); return }
+      const idemKey = getIdempotencyKey(req)
+      if (idemKey) {
+        const prev = await dbGetIdempotent(idemKey, pathname)
+        if (prev) { json(res, prev.status, prev.body); return }
+      }
       const hourKey = from.id
       const bucket = state.rate.consumptionByUserHour.get(hourKey) || []
       const fresh = bucket.filter(ts => within(60 * 60 * 1000, ts))
       if (fresh.length >= 5) { json(res, 429, { error: 'rate_consumo' }); return }
       state.rate.consumptionByUserHour.set(hourKey, [...fresh, now()])
-      const items = Array.isArray(body.items) ? body.items.map(it => ({ product: String(it.product || ''), quantity: Math.max(1, Number(it.quantity || 1)) })) : []
+      const items = Array.isArray(body.items) ? body.items.map(it => ({ product: reqString(it.product, 1, 140), quantity: reqInt(it.quantity || 1, 1, 999) })) : []
       const filtered = items.filter(it => it.product)
       if (!filtered.length) { json(res, 400, { error: 'no_items' }); return }
       const reqId = genId('cinv')
-      const note = String(body.note || '').slice(0, 140)
+      const note = reqString(body.note, 0, 140)
       const ttlMsBulk = computeInviteTTL(to)
       state.consumptionInvites.set(reqId, { id: reqId, sessionId: from.sessionId, fromId: from.id, toId: to.id, createdAt: now(), expiresAt: now() + ttlMsBulk, seenAt: 0, notSeenNotified: false })
       sendToUser(to.id, 'consumption_invite_bulk', { requestId: reqId, from: { id: from.id, alias: from.alias, tableId: from.tableId || '', gender: (from.prefs && from.prefs.gender) ? from.prefs.gender : '' }, items: filtered, note, expiresAt: now() + ttlMsBulk })
+      if (idemKey) await dbSetIdempotent(idemKey, pathname, 200, { requestId: reqId })
       json(res, 200, { requestId: reqId })
       return
     }
@@ -1397,11 +1509,13 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/api/consumption/respond' && req.method === 'POST') {
       const body = await parseBody(req)
-      const from = state.users.get(body.fromId)
-      const to = state.users.get(body.toId)
+      const fromId = reqString(body.fromId, 1, 80)
+      const toId = reqString(body.toId, 1, 80)
+      const from = state.users.get(fromId)
+      const to = state.users.get(toId)
       if (body.action !== 'accept') {
         if (from && to) {
-          const itemName = String(body.product || '')
+          const itemName = reqString(body.product, 1, 140)
           try { sendToUser(from.id, 'consumption_passed', { to: { id: to.id, alias: to.alias }, product: itemName }) } catch {}
         }
         json(res, 200, { ok: true })
@@ -1410,30 +1524,42 @@ const server = http.createServer(async (req, res) => {
       if (!from || !to) { json(res, 404, { error: 'no_user' }); return }
       const s = ensureSession(from.sessionId)
       const itemsBase = await getCatalogBaseForSession(s)
-      const itemName = String(body.product || '')
+      const itemName = reqString(body.product, 1, 140)
+      if (!itemName) { json(res, 400, { error: 'no_product' }); return }
       const found = itemsBase.find(i => i.name === itemName)
       const price = found ? Number(found.price || 0) : 0
+      const qty = reqInt(body.quantity || 1, 1, 999)
+      const idemKey = getIdempotencyKey(req)
+      if (idemKey) {
+        const prev = await dbGetIdempotent(idemKey, pathname)
+        if (prev) { json(res, prev.status, prev.body); return }
+      }
       const orderId = genId('ord')
       const expiresAt = now() + 10 * 60 * 1000
-      const qty = Math.max(1, Number(body.quantity || 1))
-      const order = { id: orderId, sessionId: from.sessionId, emitterId: from.id, receiverId: to.id, product: itemName, quantity: qty, price, total: price * qty, status: 'pendiente_cobro', createdAt: now(), expiresAt, emitterTable: from.tableId || '', receiverTable: to.tableId || '', mesaEntrega: to.tableId || '', isInvitation: true }
+      const createdAt = now()
+      const order = { id: orderId, sessionId: from.sessionId, emitterId: from.id, receiverId: to.id, product: itemName, quantity: qty, price, total: price * qty, status: 'pendiente_cobro', createdAt, expiresAt, emitterTable: from.tableId || '', receiverTable: to.tableId || '', mesaEntrega: to.tableId || '', isInvitation: true }
+      await withDbTx(async (client) => {
+        await dbInsertOrder(order, client)
+        await dbInsertEvent({ sessionId: order.sessionId, entityType: 'order', entityId: order.id, eventType: 'created', payload: { product: order.product, quantity: order.quantity, price: order.price, total: order.total, emitterId: order.emitterId, receiverId: order.receiverId }, ts: createdAt }, client)
+      })
       state.orders.set(orderId, order)
       sendToStaff(order.sessionId, 'order_new', { order })
       sendToUser(order.emitterId, 'order_update', { order })
       sendToUser(order.receiverId, 'order_update', { order })
       sendToUser(order.emitterId, 'consumption_accepted', { from: { id: to.id, alias: to.alias }, product: itemName, quantity: qty })
-      try { await dbInsertOrder(order) } catch {}
-      persistOrders(order.sessionId)
+      if (idemKey) await dbSetIdempotent(idemKey, pathname, 200, { orderId })
       json(res, 200, { orderId })
       return
     }
     if (pathname === '/api/consumption/respond/bulk' && req.method === 'POST') {
       const body = await parseBody(req)
-      const from = state.users.get(body.fromId)
-      const to = state.users.get(body.toId)
+      const fromId = reqString(body.fromId, 1, 80)
+      const toId = reqString(body.toId, 1, 80)
+      const from = state.users.get(fromId)
+      const to = state.users.get(toId)
       if (body.action !== 'accept') {
         if (from && to) {
-          const items = Array.isArray(body.items) ? body.items.map(it => ({ product: String(it.product || ''), quantity: Math.max(1, Number(it.quantity || 1)) })) : []
+          const items = Array.isArray(body.items) ? body.items.map(it => ({ product: reqString(it.product, 1, 140), quantity: reqInt(it.quantity || 1, 1, 999) })) : []
           const filtered = items.filter(it => it.product)
           try { sendToUser(from.id, 'consumption_passed', { to: { id: to.id, alias: to.alias }, items: filtered }) } catch {}
         }
@@ -1443,25 +1569,38 @@ const server = http.createServer(async (req, res) => {
       if (!from || !to) { json(res, 404, { error: 'no_user' }); return }
       const s = ensureSession(from.sessionId)
       const itemsBase = await getCatalogBaseForSession(s)
-      const items = Array.isArray(body.items) ? body.items.map(it => ({ product: String(it.product || ''), quantity: Math.max(1, Number(it.quantity || 1)) })) : []
+      const items = Array.isArray(body.items) ? body.items.map(it => ({ product: reqString(it.product, 1, 140), quantity: reqInt(it.quantity || 1, 1, 999) })) : []
       const filtered = items.filter(it => it.product)
-      const ids = []
-      for (const it of filtered) {
-        const found = itemsBase.find(i => i.name === it.product)
-        const price = found ? Number(found.price || 0) : 0
-        const total = price * Number(it.quantity || 1)
-        const orderId = genId('ord')
-        const expiresAt = now() + 10 * 60 * 1000
-        const order = { id: orderId, sessionId: from.sessionId, emitterId: from.id, receiverId: to.id, product: it.product, quantity: it.quantity, price, total, status: 'pendiente_cobro', createdAt: now(), expiresAt, emitterTable: from.tableId || '', receiverTable: to.tableId || '', mesaEntrega: to.tableId || '', isInvitation: true }
-        state.orders.set(orderId, order)
-        ids.push(orderId)
+      if (!filtered.length) { json(res, 400, { error: 'no_items' }); return }
+      const idemKey = getIdempotencyKey(req)
+      if (idemKey) {
+        const prev = await dbGetIdempotent(idemKey, pathname)
+        if (prev) { json(res, prev.status, prev.body); return }
+      }
+      const createdAt = now()
+      const orders = []
+      await withDbTx(async (client) => {
+        for (const it of filtered) {
+          const found = itemsBase.find(i => i.name === it.product)
+          const price = found ? Number(found.price || 0) : 0
+          const total = price * Number(it.quantity || 1)
+          const orderId = genId('ord')
+          const expiresAt = now() + 10 * 60 * 1000
+          const order = { id: orderId, sessionId: from.sessionId, emitterId: from.id, receiverId: to.id, product: it.product, quantity: it.quantity, price, total, status: 'pendiente_cobro', createdAt, expiresAt, emitterTable: from.tableId || '', receiverTable: to.tableId || '', mesaEntrega: to.tableId || '', isInvitation: true }
+          await dbInsertOrder(order, client)
+          await dbInsertEvent({ sessionId: order.sessionId, entityType: 'order', entityId: order.id, eventType: 'created', payload: { product: order.product, quantity: order.quantity, price: order.price, total: order.total, emitterId: order.emitterId, receiverId: order.receiverId }, ts: createdAt }, client)
+          orders.push(order)
+        }
+      })
+      for (const order of orders) {
+        state.orders.set(order.id, order)
         sendToStaff(order.sessionId, 'order_new', { order })
         sendToUser(order.emitterId, 'order_update', { order })
         sendToUser(order.receiverId, 'order_update', { order })
-        sendToUser(order.emitterId, 'consumption_accepted', { from: { id: to.id, alias: to.alias }, product: it.product, quantity: it.quantity })
-        try { await dbInsertOrder(order) } catch {}
+        sendToUser(order.emitterId, 'consumption_accepted', { from: { id: to.id, alias: to.alias }, product: order.product, quantity: order.quantity })
       }
-      if (ids.length) persistOrders(from.sessionId)
+      const ids = orders.map(o => o.id)
+      if (idemKey) await dbSetIdempotent(idemKey, pathname, 200, { orderIds: ids })
       json(res, 200, { orderIds: ids })
       return
     }
@@ -1483,53 +1622,76 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/api/order/new' && req.method === 'POST') {
       const body = await parseBody(req)
-      const u = state.users.get(body.userId)
+      const userId = reqString(body.userId, 1, 80)
+      const u = state.users.get(userId)
       if (!u) { json(res, 404, { error: 'no_user' }); return }
-      const orderId = genId('ord')
-      const expiresAt = now() + 10 * 60 * 1000
-      const itemName = String(body.product || '')
-      const qty = Math.max(1, Number(body.quantity || 1))
+      const itemName = reqString(body.product, 1, 140)
+      if (!itemName) { json(res, 400, { error: 'no_product' }); return }
+      const qty = reqInt(body.quantity || 1, 1, 999)
       const s = ensureSession(u.sessionId)
       const itemsBase = await getCatalogBaseForSession(s)
       const found = itemsBase.find(i => i.name === itemName)
       const price = found ? found.price : 0
       const total = price * qty
+      const idemKey = getIdempotencyKey(req)
+      if (idemKey) {
+        const prev = await dbGetIdempotent(idemKey, pathname)
+        if (prev) { json(res, prev.status, prev.body); return }
+      }
+      const orderId = genId('ord')
+      const expiresAt = now() + 10 * 60 * 1000
+      const createdAt = now()
       const mesaEntrega = u.tableId || ''
-      const order = { id: orderId, sessionId: u.sessionId, emitterId: u.id, receiverId: u.id, product: itemName, quantity: qty, price, total, status: 'pendiente_cobro', createdAt: now(), expiresAt, emitterTable: u.tableId || '', receiverTable: u.tableId || '', mesaEntrega }
+      const order = { id: orderId, sessionId: u.sessionId, emitterId: u.id, receiverId: u.id, product: itemName, quantity: qty, price, total, status: 'pendiente_cobro', createdAt, expiresAt, emitterTable: u.tableId || '', receiverTable: u.tableId || '', mesaEntrega }
+      await withDbTx(async (client) => {
+        await dbInsertOrder(order, client)
+        await dbInsertEvent({ sessionId: order.sessionId, entityType: 'order', entityId: order.id, eventType: 'created', payload: { product: order.product, quantity: order.quantity, price: order.price, total: order.total, emitterId: order.emitterId, receiverId: order.receiverId }, ts: createdAt }, client)
+      })
       state.orders.set(orderId, order)
       sendToStaff(order.sessionId, 'order_new', { order })
       sendToUser(u.id, 'order_update', { order })
-      try { await dbInsertOrder(order) } catch {}
-      persistOrders(order.sessionId)
+      if (idemKey) await dbSetIdempotent(idemKey, pathname, 200, { orderId })
       json(res, 200, { orderId })
       return
     }
     if (pathname === '/api/order/bulk' && req.method === 'POST') {
       const body = await parseBody(req)
-      const u = state.users.get(body.userId)
+      const userId = reqString(body.userId, 1, 80)
+      const u = state.users.get(userId)
       if (!u) { json(res, 404, { error: 'no_user' }); return }
       const s = ensureSession(u.sessionId)
       const itemsBase = await getCatalogBaseForSession(s)
-      const items = Array.isArray(body.items) ? body.items : []
-      const orderIds = []
-      for (const it of items) {
-        const name = String(it.product || '')
-        const qty = Math.max(1, Number(it.quantity || 1))
-        if (!name || qty <= 0) continue
-        const found = itemsBase.find(i => i.name === name)
-        const price = found ? Number(found.price || 0) : 0
-        const total = price * qty
-        const orderId = genId('ord')
-        const expiresAt = now() + 10 * 60 * 1000
-        const mesaEntrega = u.tableId || ''
-        const order = { id: orderId, sessionId: u.sessionId, emitterId: u.id, receiverId: u.id, product: name, quantity: qty, price, total, status: 'pendiente_cobro', createdAt: now(), expiresAt, emitterTable: u.tableId || '', receiverTable: u.tableId || '', mesaEntrega }
-        state.orders.set(orderId, order)
-        orderIds.push(orderId)
+      const items = Array.isArray(body.items) ? body.items.map(it => ({ product: reqString(it.product, 1, 140), quantity: reqInt(it.quantity || 1, 1, 999) })) : []
+      const filtered = items.filter(it => it.product)
+      if (!filtered.length) { json(res, 400, { error: 'no_items' }); return }
+      const idemKey = getIdempotencyKey(req)
+      if (idemKey) {
+        const prev = await dbGetIdempotent(idemKey, pathname)
+        if (prev) { json(res, prev.status, prev.body); return }
+      }
+      const createdAt = now()
+      const orders = []
+      await withDbTx(async (client) => {
+        for (const it of filtered) {
+          const found = itemsBase.find(i => i.name === it.product)
+          const price = found ? Number(found.price || 0) : 0
+          const total = price * it.quantity
+          const orderId = genId('ord')
+          const expiresAt = now() + 10 * 60 * 1000
+          const mesaEntrega = u.tableId || ''
+          const order = { id: orderId, sessionId: u.sessionId, emitterId: u.id, receiverId: u.id, product: it.product, quantity: it.quantity, price, total, status: 'pendiente_cobro', createdAt, expiresAt, emitterTable: u.tableId || '', receiverTable: u.tableId || '', mesaEntrega }
+          await dbInsertOrder(order, client)
+          await dbInsertEvent({ sessionId: order.sessionId, entityType: 'order', entityId: order.id, eventType: 'created', payload: { product: order.product, quantity: order.quantity, price: order.price, total: order.total, emitterId: order.emitterId, receiverId: order.receiverId }, ts: createdAt }, client)
+          orders.push(order)
+        }
+      })
+      for (const order of orders) {
+        state.orders.set(order.id, order)
         sendToStaff(order.sessionId, 'order_new', { order })
         sendToUser(u.id, 'order_update', { order })
-        try { await dbInsertOrder(order) } catch {}
       }
-      if (orderIds.length) persistOrders(u.sessionId)
+      const orderIds = orders.map(o => o.id)
+      if (idemKey) await dbSetIdempotent(idemKey, pathname, 200, { orderIds })
       json(res, 200, { orderIds })
       return
     }
@@ -1540,12 +1702,16 @@ const server = http.createServer(async (req, res) => {
       if (!order) { json(res, 404, { error: 'no_order' }); return }
       const status = body.status
       if (!['cobrado', 'entregado', 'cancelado', 'en_preparacion', 'expirado'].includes(status)) { json(res, 400, { error: 'bad_status' }); return }
+      await withDbTx(async (client) => {
+        const r = await client.query('SELECT status FROM orders WHERE id=$1 FOR UPDATE', [String(order.id)])
+        if (!r.rows.length) throw new Error('no_order')
+        await client.query('UPDATE orders SET status=$2 WHERE id=$1', [String(order.id), String(status)])
+        await dbInsertEvent({ sessionId: order.sessionId, entityType: 'order', entityId: order.id, eventType: 'status', payload: { status }, ts: now() }, client)
+      })
       order.status = status
       sendToUser(order.emitterId, 'order_update', { order })
       sendToUser(order.receiverId, 'order_update', { order })
       sendToStaff(order.sessionId, 'order_update', { order })
-      try { await dbUpdateOrderStatus(order.id, order.status) } catch {}
-      persistOrders(order.sessionId)
       json(res, 200, { ok: true })
       return
     }
@@ -1728,14 +1894,27 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/api/staff/table/close' && req.method === 'POST') {
       const body = await parseBody(req)
-      const s = ensureSession(body.sessionId)
+      const sessionId = reqString(body.sessionId, 1, 80)
+      const s = ensureSession(sessionId)
       if (!s) { json(res, 404, { error: 'no_session' }); return }
-      const t = String(body.tableId || '')
+      const t = reqString(body.tableId, 1, 40)
+      if (!t) { json(res, 400, { error: 'no_table' }); return }
+      const closed = reqBool(body.closed)
+      const idemKey = getIdempotencyKey(req)
+      if (idemKey) {
+        const prev = await dbGetIdempotent(idemKey, pathname)
+        if (prev) { json(res, prev.status, prev.body); return }
+      }
       s.closedTables = s.closedTables || new Set()
-      if (body.closed) s.closedTables.add(t)
+      if (closed) s.closedTables.add(t)
       else s.closedTables.delete(t)
-      try { await dbSetTableClosed(s.id, t, !!body.closed) } catch {}
-      sendToStaff(s.id, 'table_closed', { tableId: t, closed: !!body.closed })
+      await withDbTx(async (client) => {
+        await client.query('SELECT closed FROM table_closures WHERE session_id=$1 AND table_id=$2 FOR UPDATE', [String(s.id), String(t)])
+        await client.query('INSERT INTO table_closures (session_id, table_id, closed) VALUES ($1,$2,$3) ON CONFLICT (session_id, table_id) DO UPDATE SET closed=EXCLUDED.closed', [String(s.id), String(t), closed])
+        await dbInsertEvent({ sessionId: s.id, entityType: 'table', entityId: t, eventType: closed ? 'closed' : 'opened', payload: { closed }, ts: now() }, client)
+      })
+      sendToStaff(s.id, 'table_closed', { tableId: t, closed })
+      if (idemKey) await dbSetIdempotent(idemKey, pathname, 200, { ok: true })
       json(res, 200, { ok: true })
       return
     }
@@ -1867,14 +2046,26 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/api/waiter/call' && req.method === 'POST') {
       const body = await parseBody(req)
-      const u = state.users.get(body.userId)
+      const userId = reqString(body.userId, 1, 80)
+      const u = state.users.get(userId)
       if (!u) { json(res, 404, { error: 'no_user' }); return }
+      const idemKey = getIdempotencyKey(req)
+      if (idemKey) {
+        const prev = await dbGetIdempotent(idemKey, pathname)
+        if (prev) { json(res, prev.status, prev.body); return }
+      }
       const callId = genId('call')
-      const call = { id: callId, sessionId: u.sessionId, userId: u.id, tableId: u.tableId || '', reason: String(body.reason || ''), status: 'pendiente', ts: now() }
+      const reason = reqString(body.reason, 0, 140)
+      const ts = now()
+      const call = { id: callId, sessionId: u.sessionId, userId: u.id, tableId: u.tableId || '', reason, status: 'pendiente', ts }
+      await withDbTx(async (client) => {
+        await dbInsertWaiterCall(call, client)
+        await dbInsertEvent({ sessionId: call.sessionId, entityType: 'waiter_call', entityId: call.id, eventType: 'created', payload: { userId: call.userId, tableId: call.tableId, reason: call.reason }, ts }, client)
+      })
       state.waiterCalls.set(callId, call)
       sendToStaff(call.sessionId, 'waiter_call', { call })
       sendToUser(call.userId, 'waiter_update', { call })
-      try { await dbInsertWaiterCall(call) } catch {}
+      if (idemKey) await dbSetIdempotent(idemKey, pathname, 200, { callId })
       json(res, 200, { callId })
       return
     }
@@ -2298,10 +2489,14 @@ const server = http.createServer(async (req, res) => {
       json(res, 200, { ips, port, urls })
       return
     }
-    res.writeHead(404); res.end('Not found')
-    return
+      res.writeHead(404); res.end('Not found')
+      return
+    }
+    serveStatic(req, res, pathname)
+  } catch (e) {
+    log('error', 'http_error', { requestId: rid, method: req.method, path: req.url, error: String(e && (e.stack || e.message) || e) })
+    try { json(res, 500, { error: 'server_error', requestId: rid }) } catch {}
   }
-  serveStatic(req, res, pathname)
 })
 
 server.on('request', (req, res) => {
@@ -2312,7 +2507,7 @@ server.on('request', (req, res) => {
   }
 })
 
-setInterval(() => {
+setInterval(async () => {
   const nowTs = now()
   for (const o of state.orders.values()) {
     if (o.status === 'pendiente_cobro' && nowTs > o.expiresAt) {
@@ -2320,7 +2515,14 @@ setInterval(() => {
       sendToUser(o.emitterId, 'order_update', { order: o })
       sendToUser(o.receiverId, 'order_update', { order: o })
       sendToStaff(o.sessionId, 'order_update', { order: o })
-      persistOrders(o.sessionId)
+      try {
+        await withDbTx(async (client) => {
+          const r = await client.query('SELECT status FROM orders WHERE id=$1 FOR UPDATE', [String(o.id)])
+          if (!r.rows.length) return
+          await client.query('UPDATE orders SET status=$2 WHERE id=$1', [String(o.id), 'expirado'])
+          await dbInsertEvent({ sessionId: o.sessionId, entityType: 'order', entityId: o.id, eventType: 'status', payload: { status: 'expirado' }, ts: nowTs }, client)
+        })
+      } catch {}
     }
   }
   // Expirar invitaciones pendientes (>30s sin respuesta)
