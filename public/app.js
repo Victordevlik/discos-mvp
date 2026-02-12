@@ -256,6 +256,7 @@ function toggleTheme() {
 }
 
 function showStaffTab(tab) {
+  if (S.djOnly && tab !== 'dj') tab = 'dj'
   const contentMap = {
     panel: 'staff-panel-content',
     orders: 'staff-orders-content',
@@ -277,6 +278,7 @@ function showStaffTab(tab) {
     waiter: 'tab-staff-waiter', reportes: 'tab-staff-reportes', promos: 'tab-staff-promos', catalog: 'tab-staff-catalog', dj: 'tab-staff-dj'
   }
   const tId = tabMap[tab]; if (tId) { const el = q(tId); if (el) el.classList.add('active') }
+  applyDjOnlyUI()
   for (const el of document.querySelectorAll('#staff-menu .menu-item')) el.classList.remove('active')
   const menuMap = {
     panel: 'menu-staff-panel', orders: 'menu-staff-orders', mesas: 'menu-staff-mesas', users: 'menu-staff-users',
@@ -294,6 +296,15 @@ function showStaffTab(tab) {
   else if (tab === 'dj') loadDJRequests()
   S.staffTab = tab
   try { localStorage.setItem('discos_last_staff_tab', tab) } catch {}
+}
+function applyDjOnlyUI() {
+  const djOnly = !!S.djOnly
+  const menu = q('staff-menu'); if (menu) menu.style.display = djOnly ? 'none' : ''
+  const btnAnalytics = q('btn-staff-analytics'); if (btnAnalytics) btnAnalytics.style.display = djOnly ? 'none' : ''
+  for (const el of document.querySelectorAll('#staff-tabs .tab-item')) {
+    if (!djOnly) el.style.display = ''
+    else el.style.display = (el.id === 'tab-staff-dj') ? '' : 'none'
+  }
 }
 
 async function loadSessionInfo() {
@@ -324,7 +335,10 @@ async function renderVenueTitle() {
   try {
     const sess = await api(`/api/session/active${S.venueId ? ('?venueId=' + encodeURIComponent(S.venueId)) : ''}`)
     const el = q('staff-title')
-    if (el) el.textContent = `Panel de órdenes ${sess.venueName || S.venueId || ''}`
+    if (el) {
+      if (S.djOnly) el.textContent = `Panel DJ ${sess.venueName || S.venueId || ''}`
+      else el.textContent = `Panel de órdenes ${sess.venueName || S.venueId || ''}`
+    }
   } catch {}
 }
 async function api(path, opts = {}) {
@@ -3206,6 +3220,7 @@ function init() {
     const aj = u.searchParams.get('aj')
     const staffParam = u.searchParams.get('staff')
     const djParam = u.searchParams.get('dj')
+    S.djOnly = djParam === '1'
     if (vid && !modeParam && !staffParam && !djParam && !(aj === '1')) {
       show('screen-venue-type')
       return
@@ -3223,6 +3238,11 @@ function init() {
         }, 80)
       }
     } else if (djParam === '1') {
+      S.djOnly = true
+      if (!modeParam) {
+        restoreLocalUser().then(ok => { if (!ok) show('screen-venue-type') })
+        return
+      }
       show('screen-staff-welcome')
       S.autoStaffTab = 'dj'
       if (sid) {
@@ -3309,6 +3329,7 @@ async function restoreLocalUser() {
       staffParam = u.searchParams.get('staff') || ''
       djParam = u.searchParams.get('dj') || ''
     } catch {}
+    S.djOnly = djParam === '1'
     const m = getLocalUsers()
     const lastVenue = (() => { try { return localStorage.getItem('discos_last_venue') || '' } catch { return '' } })()
     let key = ''
@@ -3357,7 +3378,7 @@ async function restoreLocalUser() {
       const okActive = await ensureSessionActiveOffer()
       if (!okActive) { show('screen-staff-welcome'); return true }
       show('screen-staff')
-      showStaffTab('session')
+      showStaffTab(S.djOnly ? 'dj' : 'panel')
       await loadSessionInfo()
       startStaffEvents()
       loadOrders(); loadUsers(); loadReports(); loadAnalytics(); loadStaffPromos()
