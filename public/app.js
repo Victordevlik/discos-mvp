@@ -922,11 +922,20 @@ function dataUrlBytes(d) {
   const m = String(d || '').match(/^data:.*;base64,(.+)$/)
   return m ? Math.floor(m[1].length * 3 / 4) : 0
 }
-function loadImageFromFile(file) {
+async function loadImageFromFile(file) {
   if (window && window.createImageBitmap) {
-    return createImageBitmap(file)
+    try { return await createImageBitmap(file) } catch {}
   }
-  return new Promise((resolve, reject) => {
+  try {
+    return await new Promise((resolve, reject) => {
+      const img = new Image()
+      const url = URL.createObjectURL(file)
+      img.onload = () => { try { URL.revokeObjectURL(url) } catch {}; resolve(img) }
+      img.onerror = () => { try { URL.revokeObjectURL(url) } catch {}; reject(new Error('img_load_fail')) }
+      img.src = url
+    })
+  } catch {}
+  return await new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => {
       const img = new Image()

@@ -160,22 +160,43 @@ async function listPublicTables() {
   return r.rows.map(w => w.table_name)
 }
 async function readVenues() {
-  requireDB()
-  await initDB()
-  const r = await db.query('SELECT venue_id, name, credits, active, pin, email FROM venues')
-  const obj = {}
-  for (const row of r.rows) obj[row.venue_id] = { name: row.name, credits: Number(row.credits || 0), active: !!row.active, pin: row.pin || '', email: row.email || '' }
-  return obj
+  const filePath = path.join(dataDir, 'venues.json')
+  const readFile = () => {
+    try {
+      const raw = fs.readFileSync(filePath, 'utf8')
+      const data = JSON.parse(raw || '{}')
+      return (data && typeof data === 'object') ? data : {}
+    } catch {}
+    return {}
+  }
+  if (!db) return readFile()
+  try {
+    await initDB()
+    const r = await db.query('SELECT venue_id, name, credits, active, pin, email FROM venues')
+    const obj = {}
+    for (const row of r.rows) obj[row.venue_id] = { name: row.name, credits: Number(row.credits || 0), active: !!row.active, pin: row.pin || '', email: row.email || '' }
+    return obj
+  } catch {
+    return readFile()
+  }
 }
 async function writeVenues(obj) {
-  requireDB()
-  await initDB()
-  const entries = Object.entries(obj)
-  for (const [id, v] of entries) {
-    await db.query(
-      'INSERT INTO venues (venue_id, name, credits, active, pin, email) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (venue_id) DO UPDATE SET name=EXCLUDED.name, credits=EXCLUDED.credits, active=EXCLUDED.active, pin=EXCLUDED.pin, email=EXCLUDED.email',
-      [String(id), String(v.name || id), Number(v.credits || 0), v.active !== false, String(v.pin || ''), String(v.email || '')]
-    )
+  const filePath = path.join(dataDir, 'venues.json')
+  const writeFile = () => {
+    try { fs.writeFileSync(filePath, JSON.stringify(obj || {})) } catch {}
+  }
+  if (!db) { writeFile(); return }
+  try {
+    await initDB()
+    const entries = Object.entries(obj)
+    for (const [id, v] of entries) {
+      await db.query(
+        'INSERT INTO venues (venue_id, name, credits, active, pin, email) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (venue_id) DO UPDATE SET name=EXCLUDED.name, credits=EXCLUDED.credits, active=EXCLUDED.active, pin=EXCLUDED.pin, email=EXCLUDED.email',
+        [String(id), String(v.name || id), Number(v.credits || 0), v.active !== false, String(v.pin || ''), String(v.email || '')]
+      )
+    }
+  } catch {
+    writeFile()
   }
 }
 async function dbReadGlobalCatalog(mode) {
@@ -1207,6 +1228,7 @@ const server = http.createServer(async (req, res) => {
       u.receiveMode = body.receiveMode || 'all'
       u.prefs = Object.assign({}, u.prefs || {}, (body.prefs || {}))
       u.zone = body.zone || ''
+      try { u.lastActiveAt = now() } catch {}
       try { await dbUpsertUser(u) } catch {}
       json(res, 200, { ok: true })
       return
@@ -1220,11 +1242,14 @@ const server = http.createServer(async (req, res) => {
       const max = Number(query.ageMax || 200)
       const excludeId = String(query.excludeUserId || '')
       const arr = []
+      const activeWindowMs = 20 * 60 * 1000
       for (const u of state.users.values()) {
         if (u.sessionId !== sessionId || u.role !== 'user') continue
         if (only && !u.available) continue
         if (excludeId && u.id === excludeId) continue
         if (u.danceState && u.danceState !== 'idle') continue
+        const lastActiveAt = Number(u.lastActiveAt || 0)
+        if (lastActiveAt && (now() - lastActiveAt) > activeWindowMs) continue
         if (excludeId) {
           const key = `${excludeId}:${u.id}`
           const passes = Number(state.rate.passesByPair.get(key) || 0)
