@@ -66,16 +66,48 @@ const GMAIL_SMTP_HOST = String(process.env.GMAIL_SMTP_HOST || 'smtp.gmail.com')
 const GMAIL_SMTP_PORT = Number(process.env.GMAIL_SMTP_PORT || 465)
 const GMAIL_SMTP_SECURE = String(process.env.GMAIL_SMTP_SECURE || 'true') === 'true'
 
-const DB_REQUIRED = String(process.env.DB_REQUIRED || 'true') === 'true'
-const DB_FAILFAST = String(process.env.DB_FAILFAST || (DB_REQUIRED ? 'true' : 'false')) === 'true'
+const DB_REQUIRED = String(process.env.DB_REQUIRED || 'false') === 'true'
+const DB_FAILFAST = String(process.env.DB_FAILFAST || 'false') === 'true'
 let db = null
 let dbReady = false
 let dbConn = ''
 let lastDbError = ''
+let dbTriedNoSsl = false
+let dbSslMode = 'auto'
+async function bootstrapDB() {
+  try {
+    await initDB()
+    await ensureGlobalCatalogSeed()
+  } catch (e) {
+    const msg = String(e && (e.stack || e.message) || e)
+    const isSslRelated = /ECONNRESET|SSL|ssl|self signed|no pg_hba/i.test(msg)
+    if (!dbTriedNoSsl && dbSslMode !== 'off' && isSslRelated) {
+      dbTriedNoSsl = true
+      try { await db.end() } catch {}
+      db = new Pool({ connectionString: dbConn, ssl: false })
+      try {
+        await initDB()
+        await ensureGlobalCatalogSeed()
+        lastDbError = ''
+        log('warn', 'db_bootstrap_retry_no_ssl')
+        return
+      } catch (e2) {
+        lastDbError = String(e2 && (e2.stack || e2.message) || e2)
+        log('error', 'db_bootstrap_failed', { error: lastDbError })
+        if (DB_FAILFAST) process.exit(1)
+        return
+      }
+    }
+    lastDbError = msg
+    log('error', 'db_bootstrap_failed', { error: lastDbError })
+    if (DB_FAILFAST) process.exit(1)
+  }
+}
 try {
   const { Pool } = require('pg')
   const candidates = [
     String(process.env.DATABASE_URL || ''),
+    String(process.env.DATABASE_PUBLIC_URL || ''),
     String(process.env.RAILWAY_DATABASE_URL || ''),
     String(process.env.POSTGRES_URL || ''),
     String(process.env.POSTGRESQL_URL || ''),
@@ -94,16 +126,11 @@ try {
     const sslEnv = String(process.env.DB_SSL || '').toLowerCase()
     const wantsNoSsl = sslEnv === 'false' || /sslmode=disable/i.test(dbConn) || /localhost|127\.0\.0\.1/i.test(dbConn)
     const ssl = wantsNoSsl ? false : { require: true, rejectUnauthorized: false }
+    dbSslMode = wantsNoSsl ? 'off' : (sslEnv === 'true' ? 'on' : 'auto')
+    dbTriedNoSsl = wantsNoSsl
     db = new Pool({ connectionString: dbConn, ssl })
     ;(async () => {
-      try {
-        await initDB()
-        await ensureGlobalCatalogSeed()
-      } catch (e) {
-        lastDbError = String(e && (e.stack || e.message) || e)
-        log('error', 'db_bootstrap_failed', { error: lastDbError })
-        if (DB_FAILFAST) process.exit(1)
-      }
+      await bootstrapDB()
     })()
   }
 } catch (e) {
