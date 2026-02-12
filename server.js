@@ -2192,12 +2192,18 @@ const server = http.createServer(async (req, res) => {
         for (const u of state.users.values()) {
           if (u.sessionId !== s.id || u.role !== 'user') continue
           if (String(u.tableId || '') !== String(t)) continue
-          u.tableId = ''
           affected.push(u)
         }
         for (const u of affected) {
+          u.tableId = ''
+          u.sessionId = ''
           try { await dbUpsertUser(u) } catch {}
           sendToUser(u.id, 'table_closed', { tableId: t })
+          sendToUser(u.id, 'session_end', { sessionId: s.id, tableId: t })
+          const list = state.sseUsers.get(u.id) || []
+          for (const res of list) { try { res.end() } catch {} state.sseUserMeta.delete(res) }
+          state.sseUsers.delete(u.id)
+          state.users.delete(u.id)
         }
       }
       sendToStaff(s.id, 'table_closed', { tableId: t, closed })
