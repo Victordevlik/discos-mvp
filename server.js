@@ -65,6 +65,7 @@ const GMAIL_SMTP_PASS = String(process.env.GMAIL_SMTP_PASS || '')
 const GMAIL_SMTP_HOST = String(process.env.GMAIL_SMTP_HOST || 'smtp.gmail.com')
 const GMAIL_SMTP_PORT = Number(process.env.GMAIL_SMTP_PORT || 465)
 const GMAIL_SMTP_SECURE = String(process.env.GMAIL_SMTP_SECURE || 'true') === 'true'
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000
 
 const DB_REQUIRED = String(process.env.DB_REQUIRED || 'false') === 'true'
 const DB_FAILFAST = String(process.env.DB_FAILFAST || 'false') === 'true'
@@ -752,6 +753,16 @@ function csvEscape(v) {
 }
 
 function ensureSession(sessionId) { return state.sessions.get(sessionId) }
+function ensureSessionExpiry(s) {
+  if (!s) return
+  if (!s.startedAt) s.startedAt = now()
+  if (!s.expiresAt) s.expiresAt = Number(s.startedAt) + SESSION_TTL_MS
+}
+function isSessionExpired(s) {
+  if (!s) return true
+  ensureSessionExpiry(s)
+  return Number(s.expiresAt || 0) <= now()
+}
 
 function sendToUser(userId, event, data) {
   const clients = state.sseUsers.get(userId)
@@ -947,10 +958,18 @@ function endAndArchive(sessionId) {
 }
 function expireOldSessions() {
   for (const s of state.sessions.values()) {
-    if (s.active && (now() - s.startedAt) >= 12 * 60 * 60 * 1000) {
-      endAndArchive(s.id)
-    }
+    if (isSessionExpired(s)) endAndArchive(s.id)
   }
+}
+function deactivateSession(sessionId) {
+  const s = ensureSession(sessionId)
+  if (!s) return
+  ensureSessionExpiry(s)
+  s.active = false
+  s.endedAt = now()
+  const staffConns = state.sseStaff.get(sessionId) || []
+  for (const res of staffConns) { try { res.end() } catch {} state.sseStaffMeta.delete(res) }
+  state.sseStaff.delete(sessionId)
 }
 
 function serveStatic(req, res, pathname) {
@@ -993,8 +1012,10 @@ const server = http.createServer(async (req, res) => {
         const venueId = String(body.venueId || 'default')
         const mode = normalizeMode(body.mode || '')
         for (const s of state.sessions.values()) {
-          if (s.active && (now() - s.startedAt) < 12 * 60 * 60 * 1000 && s.venueId === venueId) {
+          ensureSessionExpiry(s)
+          if (!isSessionExpired(s) && s.venueId === venueId) {
             if (mode && s.mode !== mode) s.mode = mode
+            s.active = true
             json(res, 200, { sessionId: s.id, pin: s.pin, venueId, reused: true, mode: s.mode || mode })
             return
           }
@@ -1008,7 +1029,8 @@ const server = http.createServer(async (req, res) => {
         await writeVenues(venues)
         const sessionId = genId('sess')
         const pin = String(Math.floor(1000 + Math.random() * 9000))
-        state.sessions.set(sessionId, { id: sessionId, venueId, venue: body.venue || 'Venue', startedAt: now(), active: true, pin, publicBaseUrl: '', closedTables: new Set(), mode })
+        const startedAt = now()
+        state.sessions.set(sessionId, { id: sessionId, venueId, venue: body.venue || 'Venue', startedAt, expiresAt: startedAt + SESSION_TTL_MS, active: true, pin, publicBaseUrl: '', closedTables: new Set(), mode })
         json(res, 200, { sessionId, pin, venueId, mode })
         return
       } catch (e) {
@@ -1019,17 +1041,17 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/session/active' && req.method === 'GET') {
       const venueId = String(query.venueId || '')
       for (const s of state.sessions.values()) {
-        if (s.active && (now() - s.startedAt) < 12 * 60 * 60 * 1000) {
-          if (!venueId || s.venueId === venueId) {
-            let venueName = s.venue || ''
-            try {
-              const venues = await readVenues()
-              const v = venues[s.venueId]
-              venueName = (v && v.name) ? v.name : (venueName || s.venueId)
-            } catch {}
-            json(res, 200, { active: true, sessionId: s.id, pin: s.pin, venueId: s.venueId, venueName, mode: s.mode || 'disco' })
-            return
-          }
+        ensureSessionExpiry(s)
+        if (isSessionExpired(s)) continue
+        if (!venueId || s.venueId === venueId) {
+          let venueName = s.venue || ''
+          try {
+            const venues = await readVenues()
+            const v = venues[s.venueId]
+            venueName = (v && v.name) ? v.name : (venueName || s.venueId)
+          } catch {}
+          json(res, 200, { active: true, sessionId: s.id, pin: s.pin, venueId: s.venueId, venueName, mode: s.mode || 'disco' })
+          return
         }
       }
       json(res, 200, { active: false, error: 'no_active' })
@@ -1058,7 +1080,7 @@ const server = http.createServer(async (req, res) => {
         if (v && String(v.pin || '') && pinStr === String(v.pin)) okVenuePin = true
       } catch {}
       if (!okAdmin && !okSessionPin && !okVenuePin && !okGlobalPin) { json(res, 403, { error: 'forbidden' }); return }
-      endAndArchive(body.sessionId)
+      deactivateSession(body.sessionId)
       json(res, 200, { ok: true })
       return
     }

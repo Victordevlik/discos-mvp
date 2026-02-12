@@ -1804,11 +1804,13 @@ function startStaffEvents() {
   S.staffSSE.addEventListener('waiter_call', e => {
     const data = JSON.parse(e.data)
     scheduleStaffWaiterUpdate()
+    if (S.staffTab === 'orders') scheduleStaffOrdersUpdate()
     if (S.staffTab !== 'waiter') { showError(`Llamado de mesero: Mesa ${data.call.tableId || '-'}`); setTimeout(() => showError(''), 1500) }
   })
   S.staffSSE.addEventListener('waiter_update', e => {
     const data = JSON.parse(e.data)
     scheduleStaffWaiterUpdate()
+    if (S.staffTab === 'orders') scheduleStaffOrdersUpdate()
     if (S.staffTab !== 'waiter') { showError(`Llamado actualizado: ${data.call.status}`); setTimeout(() => showError(''), 1200) }
   })
   S.staffSSE.addEventListener('table_closed', e => {
@@ -1919,6 +1921,9 @@ async function loadOrders(state = '') {
   const qs = state ? `&state=${encodeURIComponent(state)}` : ''
   const r = await api(`/api/staff/orders?sessionId=${encodeURIComponent(S.sessionId)}${qs}`)
   const container = q('staff-orders-list') || q('orders')
+  let waiterResp = null
+  try { waiterResp = await api(`/api/staff/waiter?sessionId=${encodeURIComponent(S.sessionId)}`) } catch {}
+  const waiterList = (waiterResp && waiterResp.calls ? waiterResp.calls : []).slice().filter(c => c.status !== 'atendido' && c.status !== 'cancelado').sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0))
   const listAsc = (r.orders || []).slice().sort((a, b) => {
     const ta = Number(a.createdAt || 0), tb = Number(b.createdAt || 0)
     if (ta !== tb) return ta - tb
@@ -1926,7 +1931,9 @@ async function loadOrders(state = '') {
     return ia.localeCompare(ib)
   })
   const filtered = state ? listAsc : listAsc.filter(o => o.status !== 'cobrado')
-  const sig = buildSig(filtered, o => [o.id, o.status, o.quantity, o.total, o.product, o.emitterId, o.receiverId, o.receiverTable, o.emitterTable, o.mesaEntrega, o.createdAt, o.isInvitation].join('~'))
+  const sigOrders = buildSig(filtered, o => [o.id, o.status, o.quantity, o.total, o.product, o.emitterId, o.receiverId, o.receiverTable, o.emitterTable, o.mesaEntrega, o.createdAt, o.isInvitation].join('~'))
+  const sigWaiter = buildSig(waiterList, c => [c.id, c.status, c.tableId, c.userAlias, c.userId, c.reason, c.ts].join('~'))
+  const sig = `${sigOrders}__${sigWaiter}`
   S.ui = S.ui || {}
   S.ui.staffOrdersSigMap = S.ui.staffOrdersSigMap || {}
   const sigKey = state || '__open__'
@@ -1934,6 +1941,26 @@ async function loadOrders(state = '') {
   S.ui.staffOrdersSigMap[sigKey] = sig
   container.innerHTML = ''
   await ensureCatalogIndex()
+  if (waiterList.length) {
+    const wTitle = document.createElement('div')
+    wTitle.className = 'section-title'
+    wTitle.textContent = 'Llamados mesero'
+    container.append(wTitle)
+    for (const c of waiterList) {
+      const div = document.createElement('div')
+      div.className = 'card'
+      const info = document.createElement('div')
+      info.textContent = `Mesa ${c.tableId || '-'} • ${c.userAlias ? c.userAlias : c.userId} • ${c.reason} • ${c.status} • ${formatTimeShort(c.ts)}`
+      const row = document.createElement('div')
+      row.className = 'row'
+      const b1 = document.createElement('button'); b1.className = 'info'; b1.textContent = 'En camino'; b1.onclick = async () => { await api(`/api/staff/waiter/${c.id}`, { method: 'POST', body: JSON.stringify({ status: 'en_camino' }) }); loadOrders(state) }
+      const b2 = document.createElement('button'); b2.className = 'success'; b2.textContent = 'Atendido'; b2.onclick = async () => { await api(`/api/staff/waiter/${c.id}`, { method: 'POST', body: JSON.stringify({ status: 'atendido' }) }); loadOrders(state) }
+      const b3 = document.createElement('button'); b3.className = 'danger'; b3.textContent = 'Cancelar'; b3.onclick = async () => { await api(`/api/staff/waiter/${c.id}`, { method: 'POST', body: JSON.stringify({ status: 'cancelado' }) }); loadOrders(state) }
+      row.append(b1, b2, b3)
+      div.append(info, row)
+      container.append(div)
+    }
+  }
   const groups = new Map()
   for (const o of filtered) {
     const mesa = String(o.mesaEntrega || o.receiverTable || o.emitterTable || '').trim()
@@ -1949,10 +1976,29 @@ async function loadOrders(state = '') {
     return String(a).localeCompare(String(b))
   })
   for (const key of keys) {
+    const card = document.createElement('div')
+    card.className = 'card'
+    const head = document.createElement('div')
+    head.className = 'row'
     const title = document.createElement('div')
-    title.className = 'section-title'
     title.textContent = key === 'sin_mesa' ? 'Sin mesa' : `Mesa ${key}`
-    container.append(title)
+    const countChip = document.createElement('span')
+    countChip.className = 'chip'
+    countChip.textContent = `${groups.get(key).length} órdenes`
+    const total = groups.get(key).reduce((acc, o) => acc + Number(o.total || 0), 0)
+    const totalChip = document.createElement('span')
+    totalChip.className = 'chip'
+    totalChip.textContent = `$${total}`
+    const btn = document.createElement('button')
+    btn.className = 'info'
+    btn.textContent = 'Ver pedidos'
+    const chips = document.createElement('div')
+    chips.className = 'row'
+    chips.append(countChip, totalChip)
+    head.append(title, chips, btn)
+    const details = document.createElement('div')
+    details.style.display = 'none'
+    btn.onclick = () => { details.style.display = details.style.display === 'none' ? '' : 'none' }
     for (const o of groups.get(key)) {
       const div = document.createElement('div')
       div.className = 'card'
@@ -1982,8 +2028,10 @@ async function loadOrders(state = '') {
       const b3 = document.createElement('button'); b3.className = 'danger'; b3.textContent = 'Cancelar'; b3.onclick = () => updateOrder(o.id, 'cancelado')
       row.append(b0, b1, b2, b3)
       div.append(info, row)
-      container.append(div)
+      details.append(div)
     }
+    card.append(head, details)
+    container.append(card)
   }
   const list = q('staff-orders-list')
   if (list) {
