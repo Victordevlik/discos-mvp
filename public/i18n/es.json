@@ -9,5 +9,9 @@
   "gender_male": "Hombre",
   "gender_female": "Mujer",
   "gender_other": "Otro",
-  "gender_na": "Prefiero no decir"
+  "gender_na": "Prefiero no decir",
+  "catalog_bootstrap_title": "Carta del local",
+  "catalog_bootstrap_text": "¿Quieres copiar la carta global para ahorrar tiempo o prefieres crear la tuya desde cero?",
+  "catalog_bootstrap_copy": "Copiar carta global",
+  "catalog_bootstrap_new": "Crear desde 0"
 }

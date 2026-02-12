@@ -1830,6 +1830,33 @@ async function ensureSessionActiveOffer() {
     return false
   } catch { return false }
 }
+async function promptCatalogBootstrap() {
+  return await new Promise(resolve => {
+    const title = t('catalog_bootstrap_title') || 'Carta del local'
+    const msg = t('catalog_bootstrap_text') || '¿Quieres copiar la carta global para ahorrar tiempo o prefieres crear la tuya desde cero?'
+    showModal(title, msg, 'info')
+    const row = document.querySelector('#modal .row')
+    const closeBtn = q('modal-close')
+    if (!row || !closeBtn) { resolve(''); return }
+    const btnCopy = document.createElement('button')
+    btnCopy.className = 'success'
+    btnCopy.textContent = t('catalog_bootstrap_copy') || 'Copiar carta global'
+    const btnNew = document.createElement('button')
+    btnNew.className = 'secondary'
+    btnNew.textContent = t('catalog_bootstrap_new') || 'Crear desde 0'
+    const cleanup = () => {
+      try { btnCopy.remove() } catch {}
+      try { btnNew.remove() } catch {}
+      try { closeBtn.onclick = () => { const m = q('modal'); if (m) m.classList.remove('show') } } catch {}
+    }
+    const finish = (val) => { const m = q('modal'); if (m) m.classList.remove('show'); cleanup(); resolve(val) }
+    btnCopy.onclick = () => finish('copy')
+    btnNew.onclick = () => finish('new')
+    closeBtn.onclick = () => finish('')
+    row.insertBefore(btnCopy, closeBtn)
+    row.insertBefore(btnNew, closeBtn)
+  })
+}
 async function getCatalogData(force = false) {
   const ttl = 60000
   S.cache = S.cache || {}
@@ -2163,7 +2190,7 @@ function bind() {
   const btnStaff2TableClose = q('btn-staff2-table-close'); if (btnStaff2TableClose) btnStaff2TableClose.onclick = closeStaffTable2
   const btnStaffCatalogSave = q('btn-staff-catalog-save'); if (btnStaffCatalogSave) btnStaffCatalogSave.onclick = saveStaffCatalog
   const btnStaffCatalogUseGlobal = q('btn-staff-catalog-use-global'); if (btnStaffCatalogUseGlobal) btnStaffCatalogUseGlobal.onclick = useGlobalCatalog
-  const btnStaffCatalogCopyGlobal = q('btn-staff-catalog-copy-global'); if (btnStaffCatalogCopyGlobal) btnStaffCatalogCopyGlobal.onclick = copyGlobalToSession
+  const btnStaffCatalogCopyGlobal = q('btn-staff-catalog-copy-global'); if (btnStaffCatalogCopyGlobal) btnStaffCatalogCopyGlobal.onclick = () => copyGlobalToSession(false)
   const btnStaffCatalogAdd = q('btn-staff-catalog-add'); if (btnStaffCatalogAdd) btnStaffCatalogAdd.onclick = () => {
     const name = q('staff-catalog-add-name')?.value.trim()
     const price = Number(q('staff-catalog-add-price')?.value || 0)
@@ -3604,11 +3631,23 @@ function maybeSuggestPairings(product) {
 async function loadStaffCatalogEditor() {
   try {
     const r = await api(`/api/catalog${S.sessionId ? ('?sessionId=' + encodeURIComponent(S.sessionId)) : ''}`)
+    if (S.sessionId && r && r.source !== 'venue' && r.venueInitialized === false && !S.catalogBootstrapPrompted) {
+      S.catalogBootstrapPrompted = true
+      const choice = await promptCatalogBootstrap()
+      S.catalogBootstrapPrompted = false
+      if (choice === 'copy') { await copyGlobalToSession(true); return }
+      if (choice === 'new') { await initEmptyVenueCatalog(); return }
+    }
     const srcEl = q('staff-catalog-source')
     if (srcEl) {
-      const map = { session: 'Fuente: Carta del venue (sesión)', global: 'Fuente: Carta global', file: 'Fuente: Carta global (archivo)' }
+      const map = { venue: 'Fuente: Carta del venue', session: 'Fuente: Carta del venue (sesión)', global: 'Fuente: Carta global', file: 'Fuente: Carta global (archivo)' }
       srcEl.textContent = map[r.source] || 'Fuente: Carta'
     }
+    const useGlobalBtn = q('btn-staff-catalog-use-global')
+    const copyGlobalBtn = q('btn-staff-catalog-copy-global')
+    const showGlobalButtons = r.source !== 'venue'
+    if (useGlobalBtn) useGlobalBtn.style.display = showGlobalButtons ? '' : 'none'
+    if (copyGlobalBtn) copyGlobalBtn.style.display = showGlobalButtons ? '' : 'none'
     const container = q('staff-catalog-list')
     if (!container) return
     container.innerHTML = ''
@@ -3698,11 +3737,17 @@ async function useGlobalCatalog() {
     await loadStaffCatalogEditor()
   } catch (e) { showError(String(e.message)) }
 }
-async function copyGlobalToSession() {
+async function initEmptyVenueCatalog() {
+  try {
+    await api('/api/staff/catalog', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, items: [], initVenueCatalog: true }) })
+    await loadStaffCatalogEditor()
+  } catch (e) { showError(String(e.message)) }
+}
+async function copyGlobalToSession(initVenueCatalog = false) {
   try {
     const r = await api(`/api/catalog${isRestaurantMode() ? '?mode=restaurant' : ''}`)
     const items = r.items || []
-    await api('/api/staff/catalog', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, items }) })
+    await api('/api/staff/catalog', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, items, initVenueCatalog: !!initVenueCatalog }) })
     await loadStaffCatalogEditor()
   } catch (e) { showError(String(e.message)) }
 }

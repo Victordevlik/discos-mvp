@@ -150,6 +150,8 @@ async function initDB() {
   await db.query('CREATE TABLE IF NOT EXISTS catalog_items (session_id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, category TEXT, subcategory TEXT, PRIMARY KEY (session_id, name))')
   await db.query('ALTER TABLE IF EXISTS catalog_items ADD COLUMN IF NOT EXISTS category TEXT')
   await db.query('ALTER TABLE IF EXISTS catalog_items ADD COLUMN IF NOT EXISTS subcategory TEXT')
+  await db.query('CREATE TABLE IF NOT EXISTS venue_catalog_items (venue_id TEXT NOT NULL, mode TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, category TEXT, subcategory TEXT, PRIMARY KEY (venue_id, mode, name))')
+  await db.query('CREATE TABLE IF NOT EXISTS venue_catalog_meta (venue_id TEXT NOT NULL, mode TEXT NOT NULL, initialized BOOLEAN NOT NULL, PRIMARY KEY (venue_id, mode))')
   await db.query('CREATE TABLE IF NOT EXISTS idempotency_keys (key TEXT PRIMARY KEY, route TEXT NOT NULL, status INTEGER NOT NULL, response_json TEXT NOT NULL, created_at BIGINT NOT NULL)')
   await db.query('CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, session_id TEXT, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, event_type TEXT NOT NULL, payload_json TEXT, ts BIGINT NOT NULL)')
   lastDbError = ''
@@ -286,6 +288,45 @@ async function dbWriteSessionCatalog(sessionId, items) {
   for (const it of Array.isArray(items) ? items : []) {
     await db.query('INSERT INTO catalog_items (session_id, name, price, category, subcategory) VALUES ($1,$2,$3,$4,$5)', [String(sessionId), String(it.name || ''), Number(it.price || 0), String(it.category || 'otros'), String(it.subcategory || '')])
   }
+}
+async function dbReadVenueCatalog(venueId, mode) {
+  requireDB()
+  await initDB()
+  const r = await db.query('SELECT name, price, category, subcategory FROM venue_catalog_items WHERE venue_id=$1 AND mode=$2 ORDER BY name', [String(venueId || 'default'), normalizeMode(mode)])
+  return r.rows.map(w => ({ name: w.name, price: Number(w.price || 0), category: String(w.category || 'otros'), subcategory: String(w.subcategory || '') }))
+}
+async function dbWriteVenueCatalog(venueId, mode, items) {
+  requireDB()
+  await initDB()
+  const v = String(venueId || 'default')
+  const m = normalizeMode(mode)
+  await db.query('DELETE FROM venue_catalog_items WHERE venue_id=$1 AND mode=$2', [v, m])
+  for (const it of Array.isArray(items) ? items : []) {
+    await db.query('INSERT INTO venue_catalog_items (venue_id, mode, name, price, category, subcategory) VALUES ($1,$2,$3,$4,$5,$6)', [v, m, String(it.name || ''), Number(it.price || 0), String(it.category || 'otros'), String(it.subcategory || '')])
+  }
+}
+async function dbDeleteVenueCatalog(venueId, mode) {
+  requireDB()
+  await initDB()
+  await db.query('DELETE FROM venue_catalog_items WHERE venue_id=$1 AND mode=$2', [String(venueId || 'default'), normalizeMode(mode)])
+}
+async function dbIsVenueCatalogInitialized(venueId, mode) {
+  requireDB()
+  await initDB()
+  const r = await db.query('SELECT initialized FROM venue_catalog_meta WHERE venue_id=$1 AND mode=$2', [String(venueId || 'default'), normalizeMode(mode)])
+  if (!r.rows.length) return false
+  return !!r.rows[0].initialized
+}
+async function dbSetVenueCatalogInitialized(venueId, mode, initialized) {
+  requireDB()
+  await initDB()
+  const v = String(venueId || 'default')
+  const m = normalizeMode(mode)
+  if (!initialized) {
+    await db.query('DELETE FROM venue_catalog_meta WHERE venue_id=$1 AND mode=$2', [v, m])
+    return
+  }
+  await db.query('INSERT INTO venue_catalog_meta (venue_id, mode, initialized) VALUES ($1,$2,$3) ON CONFLICT (venue_id, mode) DO UPDATE SET initialized=EXCLUDED.initialized', [v, m, true])
 }
 async function dbUpsertUser(u) {
   requireDB()
@@ -465,6 +506,10 @@ function normalizeMode(mode) {
 function catalogSessionIdForMode(mode) {
   return normalizeMode(mode) === 'restaurant' ? 'global_restaurant' : 'global_disco'
 }
+function venueCatalogPath(venueId, mode) {
+  const safe = String(venueId || 'default').replace(/[^a-zA-Z0-9_-]/g, '_')
+  return path.join(dataDir, `catalog_${safe}_${normalizeMode(mode)}.json`)
+}
 
 const defaultCatalog = [
   // Cervezas
@@ -553,6 +598,29 @@ function writeGlobalCatalog(mode, items) {
     else fs.writeFileSync(p, JSON.stringify({ restaurant: [], disco: clean }))
   } catch {}
 }
+function readVenueCatalogFile(venueId, mode) {
+  try {
+    const p = venueCatalogPath(venueId, mode)
+    if (!fs.existsSync(p)) return []
+    const raw = fs.readFileSync(p, 'utf-8')
+    const parsed = JSON.parse(raw || '[]')
+    if (Array.isArray(parsed) && parsed.length) return parsed.map(sanitizeItem)
+  } catch {}
+  return []
+}
+function writeVenueCatalogFile(venueId, mode, items) {
+  try {
+    const clean = Array.isArray(items) ? items.map(sanitizeItem) : []
+    const p = venueCatalogPath(venueId, mode)
+    fs.writeFileSync(p, JSON.stringify(clean))
+  } catch {}
+}
+function deleteVenueCatalogFile(venueId, mode) {
+  try {
+    const p = venueCatalogPath(venueId, mode)
+    if (fs.existsSync(p)) fs.unlinkSync(p)
+  } catch {}
+}
 async function getGlobalCatalogForMode(mode) {
   if (db) {
     const items = await dbReadGlobalCatalog(mode)
@@ -560,12 +628,33 @@ async function getGlobalCatalogForMode(mode) {
   }
   return readGlobalCatalog(mode)
 }
+async function getVenueCatalogState(venueId, mode) {
+  if (!venueId) return { items: [], initialized: false }
+  if (db) {
+    try {
+      const initialized = await dbIsVenueCatalogInitialized(venueId, mode)
+      if (!initialized) return { items: [], initialized: false }
+      const items = await dbReadVenueCatalog(venueId, mode)
+      return { items: Array.isArray(items) ? items : [], initialized: true }
+    } catch {}
+  }
+  try {
+    const p = venueCatalogPath(venueId, mode)
+    if (!fs.existsSync(p)) return { items: [], initialized: false }
+    const items = readVenueCatalogFile(venueId, mode)
+    return { items: Array.isArray(items) ? items : [], initialized: true }
+  } catch {}
+  return { items: [], initialized: false }
+}
 function getSessionMode(s) {
   return s && s.mode ? normalizeMode(s.mode) : 'disco'
 }
 async function getCatalogBaseForSession(s) {
-  if (s && Array.isArray(s.catalog) && s.catalog.length) return s.catalog
   const mode = getSessionMode(s)
+  const venueId = s && s.venueId ? s.venueId : ''
+  const venueState = await getVenueCatalogState(venueId, mode)
+  if (venueState.initialized) return venueState.items
+  if (s && Array.isArray(s.catalog) && s.catalog.length) return s.catalog
   return await getGlobalCatalogForMode(mode)
 }
 
@@ -2409,6 +2498,8 @@ const server = http.createServer(async (req, res) => {
       const body = await parseBody(req)
       const s = ensureSession(body.sessionId)
       const mode = normalizeMode(body.mode || (s && s.mode) || '')
+      const initVenueCatalog = !!body.initVenueCatalog
+      const resetVenueCatalog = !!body.resetVenueCatalog
       const items = Array.isArray(body.items) ? body.items : []
       const clean = []
       for (const it of items) {
@@ -2424,11 +2515,30 @@ const server = http.createServer(async (req, res) => {
         clean.push({ name, price, category, subcategory, combo, includes, discount })
       }
       if (s) s.catalog = clean
+      const venueId = s && s.venueId ? s.venueId : ''
       if (db) {
-        if (s) { try { await dbWriteSessionCatalog(s.id, clean) } catch {} }
+        if (s && venueId) {
+          try {
+            if (resetVenueCatalog) {
+              await dbDeleteVenueCatalog(venueId, mode)
+              await dbSetVenueCatalogInitialized(venueId, mode, false)
+            } else {
+              if (clean.length) await dbWriteVenueCatalog(venueId, mode, clean)
+              else await dbDeleteVenueCatalog(venueId, mode)
+              await dbSetVenueCatalogInitialized(venueId, mode, true)
+            }
+          } catch {}
+        } else if (s) {
+          try { await dbWriteSessionCatalog(s.id, clean) } catch {}
+        }
         else { try { await dbWriteGlobalCatalog(mode, clean) } catch {} }
       } else {
-        if (!s) writeGlobalCatalog(mode, clean)
+        if (s && venueId) {
+          if (resetVenueCatalog) deleteVenueCatalogFile(venueId, mode)
+          else writeVenueCatalogFile(venueId, mode, clean)
+        } else if (!s) {
+          writeGlobalCatalog(mode, clean)
+        }
       }
       if (s) sendToStaff(s.id, 'catalog_update', { items: s.catalog })
       json(res, 200, { ok: true })
@@ -2436,15 +2546,25 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/api/catalog' && req.method === 'GET') {
       const sessionId = query.sessionId
+      const s = sessionId ? ensureSession(sessionId) : null
+      const mode = s && s.mode ? s.mode : query.mode
+      const venueId = (s && s.venueId) ? s.venueId : String(query.venueId || '')
       if (db) {
         let items = []
         let source = ''
-        if (sessionId) {
-          try { items = await dbReadSessionCatalog(sessionId) } catch {}
-          if (items && items.length) source = 'session'
+        let venueInitialized = false
+        if (venueId) {
+          const st = await getVenueCatalogState(venueId, mode)
+          venueInitialized = st.initialized
+          if (venueInitialized) {
+            items = st.items || []
+            source = 'venue'
+          }
         }
-        const s = sessionId ? ensureSession(sessionId) : null
-        const mode = s && s.mode ? s.mode : query.mode
+        if ((!items || !items.length) && !venueInitialized && sessionId) {
+          try { items = await dbReadSessionCatalog(sessionId) } catch {}
+          if (items && items.length && !source) source = 'session'
+        }
         if (!items || !items.length) {
           try { items = await dbReadGlobalCatalog(mode) } catch {}
           if (items && items.length && !source) source = 'global'
@@ -2453,15 +2573,32 @@ const server = http.createServer(async (req, res) => {
           try { items = readGlobalCatalog(mode) } catch {}
           if (!source) source = 'file'
         }
-        json(res, 200, { items, source })
+        json(res, 200, { items, source, venueInitialized })
         return
       }
-      const s = sessionId ? ensureSession(sessionId) : null
+      let items = []
+      let source = ''
+      let venueInitialized = false
+      if (venueId) {
+        try {
+          const p = venueCatalogPath(venueId, mode)
+          if (fs.existsSync(p)) {
+            venueInitialized = true
+            items = readVenueCatalogFile(venueId, mode)
+            source = 'venue'
+          }
+        } catch {}
+      }
       const useSession = !!(s && Array.isArray(s.catalog) && s.catalog.length)
-      const mode = s && s.mode ? s.mode : query.mode
-      const base = readGlobalCatalog(mode)
-      const items = useSession ? s.catalog : base
-      json(res, 200, { items, source: useSession ? 'session' : 'file' })
+      if ((!items || !items.length) && !venueInitialized && useSession) {
+        items = s.catalog
+        if (!source) source = 'session'
+      }
+      if (!items || !items.length) {
+        items = readGlobalCatalog(mode)
+        if (!source) source = 'file'
+      }
+      json(res, 200, { items, source, venueInitialized })
       return
     }
     if (pathname === '/api/survey/submit' && req.method === 'POST') {
