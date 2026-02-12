@@ -3181,7 +3181,7 @@ function init() {
     const aj = u.searchParams.get('aj')
     const staffParam = u.searchParams.get('staff')
     const djParam = u.searchParams.get('dj')
-    if (vid && !modeParam && !staffParam && !djParam && !(sid && aj === '1')) {
+    if (vid && !modeParam && !staffParam && !djParam && !(aj === '1')) {
       show('screen-venue-type')
       return
     }
