@@ -2565,11 +2565,11 @@ const server = http.createServer(async (req, res) => {
           try { items = await dbReadSessionCatalog(sessionId) } catch {}
           if (items && items.length && !source) source = 'session'
         }
-        if (!items || !items.length) {
+        if (!venueInitialized && (!items || !items.length)) {
           try { items = await dbReadGlobalCatalog(mode) } catch {}
           if (items && items.length && !source) source = 'global'
         }
-        if (!items || !items.length) {
+        if (!venueInitialized && (!items || !items.length)) {
           try { items = readGlobalCatalog(mode) } catch {}
           if (!source) source = 'file'
         }
@@ -2594,7 +2594,7 @@ const server = http.createServer(async (req, res) => {
         items = s.catalog
         if (!source) source = 'session'
       }
-      if (!items || !items.length) {
+      if (!venueInitialized && (!items || !items.length)) {
         items = readGlobalCatalog(mode)
         if (!source) source = 'file'
       }
