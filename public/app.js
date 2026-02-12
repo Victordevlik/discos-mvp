@@ -2,16 +2,6 @@
 let S = { sessionId: '', venueId: '', user: null, staff: null, role: '', sse: null, staffSSE: null, currentInvite: null, meeting: null, consumptionReq: null, nav: { history: [], current: '' }, notifications: { invites: 0 }, timers: { userPoll: 0, staffPoll: 0, userReconnect: 0, staffReconnect: 0, catalogSave: 0, modalHide: 0 }, staffTab: '', cart: [], messageTTL: 4000, modalShownAt: 0, isMeetingReceiver: false, meetingPlan: '', sched: {}, loading: {}, catalogGroups: {}, catalogCat: '', catalogSubcat: '', waiterReason: '', invitesQueue: [], inInviteFlow: false, missed: [], skipConfirmInvite: false, audioCtx: null, modalKind: '', appMode: '' }
 
 function q(id) { return document.getElementById(id) }
-function getDeviceId() {
-  try {
-    let v = localStorage.getItem('discos_device_id')
-    if (v) return v
-    v = `dev_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`
-    localStorage.setItem('discos_device_id', v)
-    return v
-  } catch {}
-  return `dev_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`
-}
 function isRestaurantMode() { return S.appMode === 'restaurant' }
 function normalizeModeParam(mode) {
   const m = String(mode || '').toLowerCase()
@@ -846,6 +836,31 @@ async function join(role, codeOverride = '', pinOverride = '') {
     if (role === 'staff' && !pin) { showError('Ingresa el PIN de sesión'); return }
     let alias = ''
     if (role === 'user') {
+      try {
+        const u = new URL(location.href)
+        if (u.searchParams.get('dj') === '1') { showError('Acceso DJ solo staff'); return }
+      } catch {}
+      const venueKey = S.venueId || 'default'
+      let local = null
+      try {
+        const m = getLocalUsers()
+        if (m && m[venueKey]) local = m[venueKey]
+      } catch {}
+      if (local && local.role === 'user' && local.userId && local.sessionId && local.sessionId === code) {
+        const existing = await api(`/api/user/get?userId=${encodeURIComponent(local.userId)}`).catch(() => null)
+        if (existing && existing.user) {
+          S.user = existing.user
+          S.role = 'user'
+          S.sessionId = existing.user.sessionId
+          await syncSessionMode(S.sessionId)
+          try { saveLocalUser() } catch {}
+          startEvents()
+          show('screen-user-home')
+          showError('Ya estás registrado en esta sesión')
+          setTimeout(() => showError(''), 1200)
+          return
+        }
+      }
       alias = (q('alias') ? q('alias').value.trim() : '')
       if (!alias) {
         alias = await promptInput('Ingresa tu alias', 'Tu alias')
@@ -855,14 +870,14 @@ async function join(role, codeOverride = '', pinOverride = '') {
     S.sessionId = code
     let r = null
     try {
-      r = await api('/api/join', { method: 'POST', body: JSON.stringify({ sessionId: code, role, pin, alias, deviceId: role === 'user' ? (S.deviceId || getDeviceId()) : '' }) })
+      r = await api('/api/join', { method: 'POST', body: JSON.stringify({ sessionId: code, role, pin, alias }) })
     } catch (e) {
       if (role === 'user' && String(e.message) === 'no_session') {
         let active = null
         try { active = await api(`/api/session/active${S.venueId ? ('?venueId=' + encodeURIComponent(S.venueId)) : ''}`) } catch {}
         if (active && active.sessionId) {
           S.sessionId = active.sessionId
-          r = await api('/api/join', { method: 'POST', body: JSON.stringify({ sessionId: active.sessionId, role, pin: '', alias, deviceId: role === 'user' ? (S.deviceId || getDeviceId()) : '' }) })
+          r = await api('/api/join', { method: 'POST', body: JSON.stringify({ sessionId: active.sessionId, role, pin: '', alias }) })
         } else {
           showError('Sin sesión activa para este local'); return
         }
@@ -876,12 +891,7 @@ async function join(role, codeOverride = '', pinOverride = '') {
     try { saveLocalUser() } catch {}
     if (role === 'user') {
       const aliasInput = q('alias'); if (aliasInput) aliasInput.value = S.user.alias || alias
-      if (r && r.existing) {
-        show('screen-user-home')
-        renderUserHeader()
-      } else {
-        show('screen-profile')
-      }
+      show('screen-profile')
     } else {
       show('screen-staff')
       showStaffTab('session')
@@ -3182,7 +3192,6 @@ async function startScanQR() {
 
 function init() {
   bind()
-  S.deviceId = getDeviceId()
   try {
     const u = new URL(location.href)
     if (document && document.documentElement) document.documentElement.lang = 'es'
@@ -3214,20 +3223,14 @@ function init() {
         }, 80)
       }
     } else if (djParam === '1') {
-      restoreLocalUser().then(async ok => {
-        if (ok && S.role === 'user') { openDJRequest(); return }
-        try {
-          const r = await api(`/api/session/active?venueId=${encodeURIComponent(vid)}`)
-          if (r && r.sessionId) {
-            setTimeout(async () => {
-              await join('user', r.sessionId)
-              openDJRequest()
-            }, 50)
-            return
-          }
-        } catch {}
-        show('screen-welcome')
-      })
+      show('screen-staff-welcome')
+      S.autoStaffTab = 'dj'
+      if (sid) {
+        setTimeout(async () => {
+          const pin = await promptInput('Ingresa el PIN de sesión', 'PIN de venue')
+          if (pin) { await join('staff', sid, pin) }
+        }, 80)
+      }
     } else if (sid && aj === '1') {
       restoreLocalUser().then(ok => {
         if (ok) return
@@ -3334,7 +3337,7 @@ async function restoreLocalUser() {
     }
     if (!d || !d.sessionId || !d.userId || !d.role) return false
     if (ajParam === '1' && staffParam !== '1' && djParam !== '1' && d.role === 'staff') { return false }
-    if (djParam === '1' && d.role === 'staff') { return false }
+    if (djParam === '1' && d.role !== 'staff') { return false }
     if (sidParam && ajParam === '1' && sidParam !== d.sessionId) { return false }
     S.venueId = d.venueId || (S.venueId || 'default')
     if (d.role === 'staff') {

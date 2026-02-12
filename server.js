@@ -396,26 +396,6 @@ async function dbGetUsersBySession(sessionId) {
   const r = await db.query('SELECT id, alias, selfie_approved, muted FROM users WHERE session_id=$1 AND role=$2', [String(sessionId), 'user'])
   return r.rows.map(w => ({ id: w.id, alias: w.alias || '', selfieApproved: !!w.selfie_approved, muted: !!w.muted }))
 }
-async function dbFindUserByDevice(sessionId, deviceId) {
-  requireDB()
-  await initDB()
-  const r = await db.query('SELECT id, session_id, role, alias, selfie, selfie_approved, available, prefs_json, zone, muted, receive_mode, table_id, visibility, paused_until, silenced FROM users WHERE session_id=$1 AND role=$2', [String(sessionId), 'user'])
-  for (const w of r.rows) {
-    let prefs = {}
-    try { prefs = typeof w.prefs_json === 'string' ? JSON.parse(w.prefs_json || '{}') : (w.prefs_json || {}) } catch {}
-    const did = String(prefs.deviceId || '')
-    if (did && did === String(deviceId)) {
-      return {
-        id: w.id, sessionId: w.session_id, role: w.role, alias: w.alias || '',
-        selfie: w.selfie || '', selfieApproved: !!w.selfie_approved, available: !!w.available,
-        prefs, zone: w.zone || '', muted: !!w.muted, receiveMode: w.receive_mode || 'all',
-        tableId: w.table_id || '', visibility: w.visibility || 'visible', pausedUntil: Number(w.paused_until || 0), silenced: !!w.silenced,
-        deviceId: did
-      }
-    }
-  }
-  return null
-}
 async function dbInsertOrder(o, client = null) {
   requireDB()
   if (!client) await initDB()
@@ -1192,7 +1172,6 @@ const server = http.createServer(async (req, res) => {
       const s = ensureSession(body.sessionId)
       if (!s) { json(res, 404, { error: 'no_session' }); return }
       const role = body.role === 'staff' ? 'staff' : 'user'
-      const deviceId = String(body.deviceId || '').trim().slice(0, 80)
       if (role === 'staff') {
         const pinStr = String(body.pin || '')
         const okSessionPin = pinStr === String(s.pin)
@@ -1205,25 +1184,11 @@ const server = http.createServer(async (req, res) => {
         } catch {}
         if (!pinStr || (!okSessionPin && !okGlobalPin && !okVenuePin)) { json(res, 403, { error: 'bad_pin' }); return }
       } else {
-        if (deviceId) {
-          let existing = null
-          for (const u of state.users.values()) {
-            if (u.sessionId !== s.id || u.role !== 'user') continue
-            const did = String(u.deviceId || (u.prefs && u.prefs.deviceId) || '')
-            if (did && did === deviceId) { existing = u; break }
-          }
-          if (!existing && db) {
-            try { existing = await dbFindUserByDevice(s.id, deviceId) } catch {}
-            if (existing && existing.id && !state.users.get(existing.id)) state.users.set(existing.id, existing)
-          }
-          if (existing) { json(res, 200, { user: existing, existing: true }); return }
-        }
         const alias = String(body.alias || '').trim().slice(0, 32)
         if (!alias) { json(res, 400, { error: 'alias_required' }); return }
       }
       const id = genId(role === 'staff' ? 'staff' : 'user')
-      const user = { id, sessionId: body.sessionId, role, alias: role === 'user' ? String(body.alias || '').trim().slice(0, 32) : '', selfie: '', selfieApproved: false, available: false, prefs: { tags: [], gender: '', deviceId: role === 'user' ? deviceId : '' }, zone: '', muted: false, receiveMode: 'all', allowedSenders: new Set(), tableId: '', visibility: 'visible', pausedUntil: 0, silenced: false, danceState: 'idle', dancePartnerId: '', meetingId: '' }
-      if (role === 'user' && deviceId) user.deviceId = deviceId
+      const user = { id, sessionId: body.sessionId, role, alias: role === 'user' ? String(body.alias || '').trim().slice(0, 32) : '', selfie: '', selfieApproved: false, available: false, prefs: { tags: [], gender: '' }, zone: '', muted: false, receiveMode: 'all', allowedSenders: new Set(), tableId: '', visibility: 'visible', pausedUntil: 0, silenced: false, danceState: 'idle', dancePartnerId: '', meetingId: '' }
       state.users.set(id, user)
       try { await dbUpsertUser(user) } catch {}
       json(res, 200, { user })
