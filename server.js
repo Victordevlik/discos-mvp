@@ -528,6 +528,22 @@ function normalizeMode(mode) {
   if (v === 'restaurant' || v === '1') return 'restaurant'
   return 'disco'
 }
+function getCategoryLabelsForMode(mode) {
+  if (normalizeMode(mode) === 'restaurant') {
+    return { cervezas: 'Hamburguesas', botellas: 'Perros calientes', cocteles: 'Pizzas', sodas: 'Bebidas', otros: 'Otros' }
+  }
+  return { cervezas: 'Cerveza', botellas: 'Botella', cocteles: 'Coctel', sodas: 'Soda', otros: 'Otro' }
+}
+function formatCatalogItemLabel(mode, item) {
+  if (!item) return ''
+  const catKey = String(item.category || '').toLowerCase()
+  const labels = getCategoryLabelsForMode(mode)
+  const cat = labels[catKey] || item.category || ''
+  const sub = String(item.subcategory || '').trim()
+  if (cat && sub) return `${cat} • ${sub} • ${item.name}`
+  if (cat) return `${cat} • ${item.name}`
+  return item.name
+}
 function catalogSessionIdForMode(mode) {
   return normalizeMode(mode) === 'restaurant' ? 'global_restaurant' : 'global_disco'
 }
@@ -1897,6 +1913,24 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/staff/orders' && req.method === 'GET') {
       const sessionId = query.sessionId
       const stateFilter = query.state || ''
+      const s = ensureSession(sessionId)
+      const mode = getSessionMode(s)
+      let catalogIndex = null
+      try {
+        const itemsBase = s ? await getCatalogBaseForSession(s) : await getGlobalCatalogForMode(mode)
+        const idx = {}
+        for (const it of Array.isArray(itemsBase) ? itemsBase : []) {
+          const key = String(it.name || '').toLowerCase()
+          if (key) idx[key] = it
+        }
+        catalogIndex = idx
+      } catch {}
+      const labelFor = (name) => {
+        if (!catalogIndex) return ''
+        const key = String(name || '').toLowerCase()
+        const it = catalogIndex[key]
+        return formatCatalogItemLabel(mode, it)
+      }
       if (db) {
         const rows = await dbGetOrdersBySession(sessionId, stateFilter || null)
         const out = []
@@ -1904,6 +1938,7 @@ const server = http.createServer(async (req, res) => {
           out.push({
             id: r.id,
             product: r.product,
+            productLabel: labelFor(r.product),
             quantity: Number(r.quantity || 1),
             price: Number(r.price || 0),
             total: Number(r.total || 0),
@@ -1927,6 +1962,7 @@ const server = http.createServer(async (req, res) => {
           list.push({
             id: o.id,
             product: o.product,
+            productLabel: labelFor(o.product),
             quantity: Number(o.quantity || 1),
             price: Number(o.price || 0),
             total: Number(o.total || 0),
@@ -2092,6 +2128,19 @@ const server = http.createServer(async (req, res) => {
         await client.query('INSERT INTO table_closures (session_id, table_id, closed) VALUES ($1,$2,$3) ON CONFLICT (session_id, table_id) DO UPDATE SET closed=EXCLUDED.closed', [String(s.id), String(t), closed])
         await dbInsertEvent({ sessionId: s.id, entityType: 'table', entityId: t, eventType: closed ? 'closed' : 'opened', payload: { closed }, ts: now() }, client)
       })
+      if (closed) {
+        const affected = []
+        for (const u of state.users.values()) {
+          if (u.sessionId !== s.id || u.role !== 'user') continue
+          if (String(u.tableId || '') !== String(t)) continue
+          u.tableId = ''
+          affected.push(u)
+        }
+        for (const u of affected) {
+          try { await dbUpsertUser(u) } catch {}
+          sendToUser(u.id, 'table_closed', { tableId: t })
+        }
+      }
       sendToStaff(s.id, 'table_closed', { tableId: t, closed })
       if (idemKey) await dbSetIdempotent(idemKey, pathname, 200, { ok: true })
       json(res, 200, { ok: true })

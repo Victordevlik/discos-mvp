@@ -1416,6 +1416,18 @@ function updateTipSticker() {
     const msg = `Estado de tu llamado: ${data.call.status}`
     if (document.hidden) { S.missed.push(msg) } else { showError(msg); setTimeout(() => showError(''), 1200) }
   })
+  S.sse.addEventListener('table_closed', e => {
+    const data = JSON.parse(e.data)
+    const closedId = String(data.tableId || '').trim()
+    if (S.user && closedId && String(S.user.tableId || '') === closedId) {
+      S.user.tableId = ''
+      const ut = q('user-table'); if (ut) ut.textContent = '-'
+      const tc = q('user-table-chip'); if (tc) tc.textContent = 'Mesa -'
+      showError(`Mesa ${closedId} cerrada, selecciona una nueva`)
+      setTimeout(() => showError(''), 1500)
+      openSelectTable()
+    }
+  })
   S.sse.addEventListener('meeting_expired', e => {
     S.meeting = null
     show('screen-user-home')
@@ -1885,8 +1897,10 @@ function formatOrderProductFull(name) {
   const key = String(name || '').toLowerCase()
   const it = S.catalogIndex ? S.catalogIndex[key] : null
   if (!it) return name
+  const catKey = (it.category || '').toLowerCase()
   const cats = { cervezas: 'Cerveza', botellas: 'Botella', cocteles: 'Coctel', sodas: 'Soda', otros: 'Otro' }
-  const cat = cats[(it.category || '').toLowerCase()] || (it.category || '')
+  const meta = getCatalogMeta()
+  const cat = isRestaurantMode() ? (meta.labels[catKey] || it.category || '') : (cats[catKey] || it.category || '')
   const sub = String(it.subcategory || '').trim()
   if (cat && sub) return `${cat} • ${sub} • ${it.name}`
   if (cat) return `${cat} • ${it.name}`
@@ -1919,37 +1933,57 @@ async function loadOrders(state = '') {
   if (S.ui.staffOrdersSigMap[sigKey] === sig) return
   S.ui.staffOrdersSigMap[sigKey] = sig
   container.innerHTML = ''
+  await ensureCatalogIndex()
+  const groups = new Map()
   for (const o of filtered) {
-    const div = document.createElement('div')
-    div.className = 'card'
-    const info = document.createElement('div')
-    const chip = document.createElement('span')
-    chip.className = 'chip ' + (o.status === 'pendiente_cobro' ? 'pending' : o.status)
-    chip.textContent = o.status.replace('_', ' ')
-    const mesaInfo = (o.mesaEntrega || o.receiverTable || o.emitterTable) ? ` • Mesa entrega ${o.mesaEntrega || o.receiverTable}` : ''
-    const emAlias = (S.usersIndex && S.usersIndex[o.emitterId] ? S.usersIndex[o.emitterId].alias : o.emitterId)
-    const reAlias = (S.usersIndex && S.usersIndex[o.receiverId] ? S.usersIndex[o.receiverId].alias : o.receiverId)
-    const amountTxt = ` • $${o.total || 0}`
-    await ensureCatalogIndex()
-    const label = formatOrderProductFull(o.product)
-    const timeTxt = o.createdAt ? ` • ${formatTimeShort(o.createdAt)}` : ''
-    info.textContent = `${label} x${o.quantity || 1}${amountTxt} • Emisor ${emAlias} → Receptor ${reAlias}${mesaInfo}${timeTxt}`
-    info.append(chip)
-    if (o.isInvitation) {
-      const invChip = document.createElement('span')
-      invChip.className = 'chip'
-      invChip.textContent = 'Invitación'
-      info.append(invChip)
+    const mesa = String(o.mesaEntrega || o.receiverTable || o.emitterTable || '').trim()
+    const key = mesa || 'sin_mesa'
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(o)
+  }
+  const keys = Array.from(groups.keys()).sort((a, b) => {
+    if (a === 'sin_mesa') return 1
+    if (b === 'sin_mesa') return -1
+    const na = Number(a), nb = Number(b)
+    if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb
+    return String(a).localeCompare(String(b))
+  })
+  for (const key of keys) {
+    const title = document.createElement('div')
+    title.className = 'section-title'
+    title.textContent = key === 'sin_mesa' ? 'Sin mesa' : `Mesa ${key}`
+    container.append(title)
+    for (const o of groups.get(key)) {
+      const div = document.createElement('div')
+      div.className = 'card'
+      const info = document.createElement('div')
+      const chip = document.createElement('span')
+      chip.className = 'chip ' + (o.status === 'pendiente_cobro' ? 'pending' : o.status)
+      chip.textContent = o.status.replace('_', ' ')
+      const mesaInfo = (o.mesaEntrega || o.receiverTable || o.emitterTable) ? ` • Mesa entrega ${o.mesaEntrega || o.receiverTable}` : ''
+      const emAlias = (S.usersIndex && S.usersIndex[o.emitterId] ? S.usersIndex[o.emitterId].alias : o.emitterId)
+      const reAlias = (S.usersIndex && S.usersIndex[o.receiverId] ? S.usersIndex[o.receiverId].alias : o.receiverId)
+      const amountTxt = ` • $${o.total || 0}`
+      const label = o.productLabel || formatOrderProductFull(o.product)
+      const timeTxt = o.createdAt ? ` • ${formatTimeShort(o.createdAt)}` : ''
+      info.textContent = `${label} x${o.quantity || 1}${amountTxt} • Emisor ${emAlias} → Receptor ${reAlias}${mesaInfo}${timeTxt}`
+      info.append(chip)
+      if (o.isInvitation) {
+        const invChip = document.createElement('span')
+        invChip.className = 'chip'
+        invChip.textContent = 'Invitación'
+        info.append(invChip)
+      }
+      const row = document.createElement('div')
+      row.className = 'row'
+      const b1 = document.createElement('button'); b1.className = 'success'; b1.textContent = 'Cobrado'; b1.onclick = () => updateOrder(o.id, 'cobrado')
+      const b0 = document.createElement('button'); b0.className = 'warning'; b0.textContent = 'En preparación'; b0.onclick = () => updateOrder(o.id, 'en_preparacion')
+      const b2 = document.createElement('button'); b2.className = 'info'; b2.textContent = 'Entregado'; b2.onclick = () => updateOrder(o.id, 'entregado')
+      const b3 = document.createElement('button'); b3.className = 'danger'; b3.textContent = 'Cancelar'; b3.onclick = () => updateOrder(o.id, 'cancelado')
+      row.append(b0, b1, b2, b3)
+      div.append(info, row)
+      container.append(div)
     }
-    const row = document.createElement('div')
-    row.className = 'row'
-    const b1 = document.createElement('button'); b1.className = 'success'; b1.textContent = 'Cobrado'; b1.onclick = () => updateOrder(o.id, 'cobrado')
-    const b0 = document.createElement('button'); b0.className = 'warning'; b0.textContent = 'En preparación'; b0.onclick = () => updateOrder(o.id, 'en_preparacion')
-    const b2 = document.createElement('button'); b2.className = 'info'; b2.textContent = 'Entregado'; b2.onclick = () => updateOrder(o.id, 'entregado')
-    const b3 = document.createElement('button'); b3.className = 'danger'; b3.textContent = 'Cancelar'; b3.onclick = () => updateOrder(o.id, 'cancelado')
-    row.append(b0, b1, b2, b3)
-    div.append(info, row)
-    container.append(div)
   }
   const list = q('staff-orders-list')
   if (list) {
