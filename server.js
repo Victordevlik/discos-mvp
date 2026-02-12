@@ -1050,8 +1050,7 @@ const server = http.createServer(async (req, res) => {
         const mode = normalizeMode(body.mode || '')
         for (const s of state.sessions.values()) {
           ensureSessionExpiry(s)
-          if (!isSessionExpired(s) && s.venueId === venueId) {
-            if (mode && s.mode !== mode) s.mode = mode
+          if (!isSessionExpired(s) && s.venueId === venueId && getSessionMode(s) === mode) {
             s.active = true
             json(res, 200, { sessionId: s.id, pin: s.pin, venueId, reused: true, mode: s.mode || mode })
             return
@@ -1077,10 +1076,11 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/api/session/active' && req.method === 'GET') {
       const venueId = String(query.venueId || '')
+      const mode = normalizeMode(query.mode || '')
       for (const s of state.sessions.values()) {
         ensureSessionExpiry(s)
         if (isSessionExpired(s)) continue
-        if (!venueId || s.venueId === venueId) {
+        if ((!venueId || s.venueId === venueId) && getSessionMode(s) === mode) {
           let venueName = s.venue || ''
           try {
             const venues = await readVenues()

@@ -311,7 +311,9 @@ async function loadSessionInfo() {
   try {
     let pin = ''
     try {
-      const r = await api(`/api/session/active${S.venueId ? ('?venueId=' + encodeURIComponent(S.venueId)) : ''}`)
+      const mode = isRestaurantMode() ? 'restaurant' : 'disco'
+      const qv = S.venueId ? ('venueId=' + encodeURIComponent(S.venueId) + '&') : ''
+      const r = await api(`/api/session/active?${qv}mode=${encodeURIComponent(mode)}`)
       pin = r.pin || ''
       if (r.mode) applyMode(r.mode)
     } catch {}
@@ -333,7 +335,9 @@ async function loadSessionInfo() {
 
 async function renderVenueTitle() {
   try {
-    const sess = await api(`/api/session/active${S.venueId ? ('?venueId=' + encodeURIComponent(S.venueId)) : ''}`)
+    const mode = isRestaurantMode() ? 'restaurant' : 'disco'
+    const qv = S.venueId ? ('venueId=' + encodeURIComponent(S.venueId) + '&') : ''
+    const sess = await api(`/api/session/active?${qv}mode=${encodeURIComponent(mode)}`)
     const el = q('staff-title')
     if (el) {
       if (S.djOnly) el.textContent = `Panel DJ ${sess.venueName || S.venueId || ''}`
@@ -888,7 +892,9 @@ async function join(role, codeOverride = '', pinOverride = '') {
     } catch (e) {
       if (role === 'user' && String(e.message) === 'no_session') {
         let active = null
-        try { active = await api(`/api/session/active${S.venueId ? ('?venueId=' + encodeURIComponent(S.venueId)) : ''}`) } catch {}
+        const activeMode = getModeFromUrl() || (isRestaurantMode() ? 'restaurant' : 'disco')
+        const qv = S.venueId ? ('venueId=' + encodeURIComponent(S.venueId) + '&') : ''
+        try { active = await api(`/api/session/active?${qv}mode=${encodeURIComponent(activeMode === 'restaurant' ? 'restaurant' : 'disco')}`) } catch {}
         if (active && active.sessionId) {
           S.sessionId = active.sessionId
           r = await api('/api/join', { method: 'POST', body: JSON.stringify({ sessionId: active.sessionId, role, pin: '', alias }) })
@@ -1752,7 +1758,9 @@ async function startStaffSession() {
     } catch {}
     let r = null
     const mode = getModeFromUrl() || (isRestaurantMode() ? 'restaurant' : '')
-    try { r = await api(`/api/session/active${S.venueId ? ('?venueId=' + encodeURIComponent(S.venueId)) : ''}`) } catch {}
+    const activeMode = mode === 'restaurant' ? 'restaurant' : 'disco'
+    const qv = S.venueId ? ('venueId=' + encodeURIComponent(S.venueId) + '&') : ''
+    try { r = await api(`/api/session/active?${qv}mode=${encodeURIComponent(activeMode)}`) } catch {}
     if (!r || !r.sessionId) r = await api('/api/session/start', { method: 'POST', body: JSON.stringify({ venueId: S.venueId || 'default', mode }) })
     const joinCodeEl = q('join-code'); if (joinCodeEl) joinCodeEl.value = r.sessionId
     S.sessionId = r.sessionId
