@@ -11,7 +11,9 @@ const LOG_LEVELS = { debug: 10, info: 20, warn: 30, error: 40 }
 function log(level, msg, extra = {}) {
   const lvl = LOG_LEVELS[level] || 20
   if (lvl < (LOG_LEVELS[LOG_LEVEL] || 20)) return
-  const payload = { ts: Date.now(), level, service: SERVICE_NAME, msg, ...extra }
+  const err = extra && extra.error ? String(extra.error) : ''
+  const msgOut = err ? `${msg} | ${err}` : msg
+  const payload = { ts: Date.now(), level, service: SERVICE_NAME, msg: msgOut, ...extra }
   try { process.stdout.write(JSON.stringify(payload) + '\n') } catch {}
 }
 
@@ -86,7 +88,10 @@ try {
     process.exit(1)
   }
   if (dbConn) {
-    db = new Pool({ connectionString: dbConn, ssl: { require: true, rejectUnauthorized: false } })
+    const sslEnv = String(process.env.DB_SSL || '').toLowerCase()
+    const wantsNoSsl = sslEnv === 'false' || /sslmode=disable/i.test(dbConn) || /localhost|127\.0\.0\.1/i.test(dbConn)
+    const ssl = wantsNoSsl ? false : { require: true, rejectUnauthorized: false }
+    db = new Pool({ connectionString: dbConn, ssl })
     ;(async () => {
       try {
         await initDB()
