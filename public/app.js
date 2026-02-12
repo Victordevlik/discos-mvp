@@ -311,9 +311,8 @@ async function loadSessionInfo() {
       const inp = q('public-base'); if (inp && baseCandidate) inp.value = baseCandidate
     } catch {}
     let base = baseCandidate || location.origin
-    // QR y link de sesión incluyen venueId + sessionId
     const modeQuery = isRestaurantMode() ? '&mode=restaurant' : ''
-    const url = `${base}/?venueId=${encodeURIComponent(S.venueId || 'default')}&sessionId=${encodeURIComponent(S.sessionId)}&aj=1${modeQuery}`
+    const url = `${base}/?venueId=${encodeURIComponent(S.venueId || 'default')}&aj=1${modeQuery}`
     const pd = q('pin-display'); if (pd) pd.textContent = pin
     const qrImg = q('qr-session'); if (qrImg) qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`
     const share = q('share-url'); if (share) { share.href = url; share.title = url }
@@ -1817,6 +1816,10 @@ function startStaffEvents() {
     scheduleStaffAnalyticsUpdate()
     viewStaffTableHistory()
   })
+  S.staffSSE.addEventListener('session_expired', e => {
+    showModal('Sesión expirada', 'Mesas cerradas y sesión finalizada. Inicia nueva sesión para continuar.', 'error')
+    setTimeout(() => showError(''), 2500)
+  })
   S.staffSSE.addEventListener('dj_request', e => { scheduleStaffDJUpdate() })
   S.staffSSE.addEventListener('dj_update', e => { scheduleStaffDJUpdate() })
   S.staffSSE.addEventListener('dj_toggle', e => {
@@ -2325,7 +2328,8 @@ function bind() {
         baseCandidate = (pb.publicBaseUrl || '').trim()
       } catch {}
       const base = baseCandidate || location.origin
-      const href = `${base}/?venueId=${encodeURIComponent(S.venueId || 'default')}&sessionId=${encodeURIComponent(S.sessionId)}&aj=1`
+      const modeQuery = isRestaurantMode() ? '&mode=restaurant' : ''
+      const href = `${base}/?venueId=${encodeURIComponent(S.venueId || 'default')}&aj=1${modeQuery}`
       await navigator.clipboard.writeText(href)
       showError('Link copiado')
       setTimeout(() => showError(''), 1000)
@@ -2340,7 +2344,8 @@ function bind() {
         baseCandidate = (pb.publicBaseUrl || '').trim()
       } catch {}
       const base = baseCandidate || location.origin
-      const href = `${base}/?venueId=${encodeURIComponent(S.venueId || 'default')}&sessionId=${encodeURIComponent(S.sessionId)}&staff=1`
+      const modeQuery = isRestaurantMode() ? '&mode=restaurant' : ''
+      const href = `${base}/?venueId=${encodeURIComponent(S.venueId || 'default')}&staff=1${modeQuery}`
       await navigator.clipboard.writeText(href)
       showError('Link Staff copiado')
       setTimeout(() => showError(''), 1000)
@@ -2355,7 +2360,8 @@ function bind() {
         baseCandidate = (pb.publicBaseUrl || '').trim()
       } catch {}
       const base = baseCandidate || location.origin
-      const href = `${base}/?venueId=${encodeURIComponent(S.venueId || 'default')}&sessionId=${encodeURIComponent(S.sessionId)}&dj=1`
+      const modeQuery = isRestaurantMode() ? '&mode=restaurant' : ''
+      const href = `${base}/?venueId=${encodeURIComponent(S.venueId || 'default')}&dj=1${modeQuery}`
       await navigator.clipboard.writeText(href)
       showError('Link DJ copiado')
       setTimeout(() => showError(''), 1000)
@@ -3132,7 +3138,9 @@ async function startScanQR() {
           try {
             const u = new URL(data)
             const sid = u.searchParams.get('sessionId') || u.searchParams.get('s')
-            if (sid) {
+            const vid = u.searchParams.get('venueId') || ''
+            const aj = u.searchParams.get('aj') || ''
+            if (sid || (vid && aj === '1')) {
               const tracks = stream.getTracks(); tracks.forEach(t => t.stop())
               location.href = data
               return
@@ -3206,6 +3214,15 @@ function init() {
       restoreLocalUser().then(ok => {
         if (ok) return
         setTimeout(() => join('user', sid), 50)
+      })
+    } else if (!sid && aj === '1' && vid) {
+      restoreLocalUser().then(async ok => {
+        if (ok) return
+        try {
+          const r = await api(`/api/session/active?venueId=${encodeURIComponent(vid)}`)
+          if (r && r.sessionId) { setTimeout(() => join('user', r.sessionId), 50); return }
+        } catch {}
+        show('screen-welcome')
       })
     } else {
       restoreLocalUser().then(ok => {

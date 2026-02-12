@@ -956,9 +956,46 @@ function endAndArchive(sessionId) {
   for (const [k, v] of state.meetings) if (v.sessionId === sessionId) state.meetings.delete(k)
   for (const [k, v] of state.orders) if (v.sessionId === sessionId) state.orders.delete(k)
 }
-function expireOldSessions() {
+async function closeAllTablesForSession(sessionId) {
+  const s = ensureSession(sessionId)
+  if (!s) return
+  s.closedTables = s.closedTables || new Set()
+  const tables = new Set()
+  const affected = []
+  for (const u of state.users.values()) {
+    if (u.sessionId !== sessionId || u.role !== 'user') continue
+    const t = String(u.tableId || '').trim()
+    if (t) {
+      tables.add(t)
+      affected.push({ user: u, tableId: t })
+      u.tableId = ''
+    }
+  }
+  if (db && tables.size) {
+    await withDbTx(async (client) => {
+      for (const t of tables) {
+        await client.query('SELECT closed FROM table_closures WHERE session_id=$1 AND table_id=$2 FOR UPDATE', [String(s.id), String(t)])
+        await client.query('INSERT INTO table_closures (session_id, table_id, closed) VALUES ($1,$2,$3) ON CONFLICT (session_id, table_id) DO UPDATE SET closed=EXCLUDED.closed', [String(s.id), String(t), true])
+        await dbInsertEvent({ sessionId: s.id, entityType: 'table', entityId: t, eventType: 'closed', payload: { closed: true }, ts: now() }, client)
+      }
+    })
+  }
+  for (const t of tables) {
+    s.closedTables.add(t)
+    sendToStaff(s.id, 'table_closed', { tableId: t, closed: true })
+  }
+  for (const entry of affected) {
+    try { await dbUpsertUser(entry.user) } catch {}
+    sendToUser(entry.user.id, 'table_closed', { tableId: entry.tableId })
+  }
+}
+async function expireOldSessions() {
   for (const s of state.sessions.values()) {
-    if (isSessionExpired(s)) endAndArchive(s.id)
+    if (isSessionExpired(s)) {
+      sendToStaff(s.id, 'session_expired', { sessionId: s.id, venueId: s.venueId || '', expiredAt: now() })
+      await closeAllTablesForSession(s.id)
+      endAndArchive(s.id)
+    }
   }
 }
 function deactivateSession(sessionId) {
@@ -1005,7 +1042,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname.startsWith('/api/')) {
-      expireOldSessions()
+      await expireOldSessions()
       if (pathname === '/api/session/start' && req.method === 'POST') {
       try {
         const body = await parseBody(req)
