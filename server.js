@@ -66,10 +66,12 @@ const GMAIL_SMTP_HOST = String(process.env.GMAIL_SMTP_HOST || 'smtp.gmail.com')
 const GMAIL_SMTP_PORT = Number(process.env.GMAIL_SMTP_PORT || 465)
 const GMAIL_SMTP_SECURE = String(process.env.GMAIL_SMTP_SECURE || 'true') === 'true'
 
-const DB_REQUIRED = true
+const DB_REQUIRED = String(process.env.DB_REQUIRED || 'true') === 'true'
+const DB_FAILFAST = String(process.env.DB_FAILFAST || (DB_REQUIRED ? 'true' : 'false')) === 'true'
 let db = null
 let dbReady = false
 let dbConn = ''
+let lastDbError = ''
 try {
   const { Pool } = require('pg')
   const candidates = [
@@ -84,8 +86,9 @@ try {
   ].filter(v => !!v)
   dbConn = candidates[0] || ''
   if (!dbConn && DB_REQUIRED) {
+    lastDbError = 'db_missing'
     log('error', 'db_missing')
-    process.exit(1)
+    if (DB_FAILFAST) process.exit(1)
   }
   if (dbConn) {
     const sslEnv = String(process.env.DB_SSL || '').toLowerCase()
@@ -97,14 +100,16 @@ try {
         await initDB()
         await ensureGlobalCatalogSeed()
       } catch (e) {
-        log('error', 'db_bootstrap_failed', { error: String(e && (e.stack || e.message) || e) })
-        if (DB_REQUIRED) process.exit(1)
+        lastDbError = String(e && (e.stack || e.message) || e)
+        log('error', 'db_bootstrap_failed', { error: lastDbError })
+        if (DB_FAILFAST) process.exit(1)
       }
     })()
   }
 } catch (e) {
-  log('error', 'db_init_failed', { error: String(e && (e.stack || e.message) || e) })
-  if (DB_REQUIRED) process.exit(1)
+  lastDbError = String(e && (e.stack || e.message) || e)
+  log('error', 'db_init_failed', { error: lastDbError })
+  if (DB_FAILFAST) process.exit(1)
 }
 async function initDB() {
   if (!db || dbReady) return !!db
@@ -120,6 +125,7 @@ async function initDB() {
   await db.query('ALTER TABLE IF EXISTS catalog_items ADD COLUMN IF NOT EXISTS subcategory TEXT')
   await db.query('CREATE TABLE IF NOT EXISTS idempotency_keys (key TEXT PRIMARY KEY, route TEXT NOT NULL, status INTEGER NOT NULL, response_json TEXT NOT NULL, created_at BIGINT NOT NULL)')
   await db.query('CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, session_id TEXT, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, event_type TEXT NOT NULL, payload_json TEXT, ts BIGINT NOT NULL)')
+  lastDbError = ''
   dbReady = true
   return true
 }
@@ -153,7 +159,7 @@ async function sendEmail(to, subject, text) {
 }
 async function isDBConnected() {
   if (!db) return false
-  try { await db.query('SELECT 1'); return true } catch { return false }
+  try { await db.query('SELECT 1'); lastDbError = ''; return true } catch (e) { lastDbError = String(e && (e.stack || e.message) || e); return false }
 }
 function requireDB() {
   if (!db) throw new Error('db_required')
@@ -1169,7 +1175,7 @@ const server = http.createServer(async (req, res) => {
       if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
       if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
       const connected = await isDBConnected()
-      json(res, 200, { connected })
+      json(res, 200, { connected, error: lastDbError || '' })
       return
     }
     if (pathname === '/api/admin/db-tables' && req.method === 'GET') {

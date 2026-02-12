@@ -267,10 +267,18 @@
         const st = await api('/api/admin/db-status?admin_secret=' + encodeURIComponent(secret))
         const el = document.getElementById('db-status')
         if (el) {
-          el.textContent = st.connected ? 'DB conectada: los cambios persisten entre reinicios y deploys' : 'Sin DB: los cambios se guardan en archivo y pueden perderse en reinicios/deploys'
+          let msg = st.connected ? 'DB conectada: los cambios persisten entre reinicios y deploys' : 'Sin DB: los cambios se guardan en archivo y pueden perderse en reinicios/deploys'
+          if (st && st.error) msg += ` • Error: ${st.error}`
+          el.textContent = msg
           el.className = 'info ' + (st.connected ? 'ok' : 'warn')
         }
-      } catch {}
+      } catch (e) {
+        const el = document.getElementById('db-status')
+        if (el) {
+          el.textContent = String(e.message || e || 'Error consultando DB')
+          el.className = 'info warn'
+        }
+      }
       const r = await api('/api/admin/venues?admin_secret=' + encodeURIComponent(secret))
       VENUES_CACHE = r.venues || []
       renderSummary(VENUES_CACHE)
