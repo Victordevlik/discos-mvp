@@ -3279,12 +3279,14 @@ async function restoreLocalUser() {
     let ajParam = ''
     let venueParam = ''
     let staffParam = ''
+    let djParam = ''
     try {
       const u = new URL(location.href)
       sidParam = u.searchParams.get('sessionId') || u.searchParams.get('s') || ''
       ajParam = u.searchParams.get('aj') || ''
       venueParam = u.searchParams.get('venueId') || ''
       staffParam = u.searchParams.get('staff') || ''
+      djParam = u.searchParams.get('dj') || ''
     } catch {}
     const m = getLocalUsers()
     const lastVenue = (() => { try { return localStorage.getItem('discos_last_venue') || '' } catch { return '' } })()
@@ -3313,6 +3315,7 @@ async function restoreLocalUser() {
       }
     }
     if (!d || !d.sessionId || !d.userId || !d.role) return false
+    if (ajParam === '1' && staffParam !== '1' && djParam !== '1' && d.role === 'staff') { return false }
     if (sidParam && ajParam === '1' && sidParam !== d.sessionId) { return false }
     S.venueId = d.venueId || (S.venueId || 'default')
     if (d.role === 'staff') {
