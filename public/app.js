@@ -3634,7 +3634,8 @@ async function loadStaffCatalogEditor() {
       ? `?sessionId=${encodeURIComponent(S.sessionId)}${S.venueId ? ('&venueId=' + encodeURIComponent(S.venueId)) : ''}`
       : (S.venueId ? `?venueId=${encodeURIComponent(S.venueId)}` : '')
     const r = await api(`/api/catalog${qs}`)
-    if (S.sessionId && r && r.source !== 'venue' && r.venueInitialized === false && !S.catalogBootstrapPrompted) {
+    const needsBootstrap = r && r.source !== 'venue' && r.venueInitialized !== true
+    if (S.sessionId && needsBootstrap && !S.catalogBootstrapPrompted) {
       S.catalogBootstrapPrompted = true
       const choice = await promptCatalogBootstrap()
       S.catalogBootstrapPrompted = false
