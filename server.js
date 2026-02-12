@@ -2515,9 +2515,9 @@ const server = http.createServer(async (req, res) => {
         clean.push({ name, price, category, subcategory, combo, includes, discount })
       }
       if (s) s.catalog = clean
-      const venueId = s && s.venueId ? s.venueId : ''
+      const venueId = s && s.venueId ? s.venueId : String(body.venueId || '')
       if (db) {
-        if (s && venueId) {
+        if (venueId) {
           try {
             if (resetVenueCatalog) {
               await dbDeleteVenueCatalog(venueId, mode)
@@ -2533,7 +2533,7 @@ const server = http.createServer(async (req, res) => {
         }
         else { try { await dbWriteGlobalCatalog(mode, clean) } catch {} }
       } else {
-        if (s && venueId) {
+        if (venueId) {
           if (resetVenueCatalog) deleteVenueCatalogFile(venueId, mode)
           else writeVenueCatalogFile(venueId, mode, clean)
         } else if (!s) {

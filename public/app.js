@@ -3630,7 +3630,10 @@ function maybeSuggestPairings(product) {
 }
 async function loadStaffCatalogEditor() {
   try {
-    const r = await api(`/api/catalog${S.sessionId ? ('?sessionId=' + encodeURIComponent(S.sessionId)) : ''}`)
+    const qs = S.sessionId
+      ? `?sessionId=${encodeURIComponent(S.sessionId)}${S.venueId ? ('&venueId=' + encodeURIComponent(S.venueId)) : ''}`
+      : (S.venueId ? `?venueId=${encodeURIComponent(S.venueId)}` : '')
+    const r = await api(`/api/catalog${qs}`)
     if (S.sessionId && r && r.source !== 'venue' && r.venueInitialized === false && !S.catalogBootstrapPrompted) {
       S.catalogBootstrapPrompted = true
       const choice = await promptCatalogBootstrap()
@@ -3739,7 +3742,7 @@ async function useGlobalCatalog() {
 }
 async function initEmptyVenueCatalog() {
   try {
-    await api('/api/staff/catalog', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, items: [], initVenueCatalog: true }) })
+    await api('/api/staff/catalog', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, venueId: S.venueId || '', items: [], initVenueCatalog: true }) })
     await loadStaffCatalogEditor()
   } catch (e) { showError(String(e.message)) }
 }
@@ -3747,7 +3750,7 @@ async function copyGlobalToSession(initVenueCatalog = false) {
   try {
     const r = await api(`/api/catalog${isRestaurantMode() ? '?mode=restaurant' : ''}`)
     const items = r.items || []
-    await api('/api/staff/catalog', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, items, initVenueCatalog: !!initVenueCatalog }) })
+    await api('/api/staff/catalog', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, venueId: S.venueId || '', items, initVenueCatalog: !!initVenueCatalog }) })
     await loadStaffCatalogEditor()
   } catch (e) { showError(String(e.message)) }
 }
