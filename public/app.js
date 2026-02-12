@@ -2196,13 +2196,15 @@ function bind() {
     const price = Number(q('staff-catalog-add-price')?.value || 0)
     const catVal = (q('staff-catalog-add-category')?.value || 'otros').toLowerCase()
     const subVal = (q('staff-catalog-add-subcategory')?.value || '').trim()
+    const descVal = (q('staff-catalog-add-description')?.value || '').trim()
     const container = q('staff-catalog-list')
     if (!container || !name) return
+    if (isRestaurantMode() && !descVal) { showError('Agrega una descripción'); return }
     const row = document.createElement('div')
     row.className = 'row'
-    const nameInput = document.createElement('input'); nameInput.type = 'text'; nameInput.placeholder = 'Nombre'; nameInput.value = name
-    const priceInput = document.createElement('input'); priceInput.type = 'number'; priceInput.min = '0'; priceInput.value = price
-    const category = document.createElement('select')
+    const nameInput = document.createElement('input'); nameInput.type = 'text'; nameInput.placeholder = 'Nombre'; nameInput.value = name; nameInput.className = 'catalog-name'
+    const priceInput = document.createElement('input'); priceInput.type = 'number'; priceInput.min = '0'; priceInput.value = price; priceInput.className = 'catalog-price'
+    const category = document.createElement('select'); category.className = 'catalog-cat'
     for (const opt of ['cervezas','botellas','cocteles','sodas','otros']) {
       const o = document.createElement('option')
       o.value = opt
@@ -2210,18 +2212,21 @@ function bind() {
       category.append(o)
     }
     category.value = catVal
-    const subInput = document.createElement('input'); subInput.type = 'text'; subInput.placeholder = 'Subcategoría'; subInput.value = subVal
+    const subInput = document.createElement('input'); subInput.type = 'text'; subInput.placeholder = 'Subcategoría'; subInput.value = subVal; subInput.className = 'catalog-sub'
+    const descInput = document.createElement('input'); descInput.type = 'text'; descInput.placeholder = 'Descripción'; descInput.value = descVal; descInput.className = 'catalog-desc'
     nameInput.oninput = scheduleCatalogSave
     priceInput.oninput = scheduleCatalogSave
     category.oninput = scheduleCatalogSave
     subInput.oninput = scheduleCatalogSave
+    descInput.oninput = scheduleCatalogSave
     const del = document.createElement('button'); del.className = 'danger'; del.textContent = 'Eliminar'; del.onclick = () => { try { row.remove(); scheduleCatalogSave() } catch {} }
-    row.append(nameInput, priceInput, category, subInput, del)
+    row.append(nameInput, priceInput, category, subInput, descInput, del)
     container.append(row)
     const inpName = q('staff-catalog-add-name'); if (inpName) inpName.value = ''
     const inpPrice = q('staff-catalog-add-price'); if (inpPrice) inpPrice.value = ''
     const inpCat = q('staff-catalog-add-category'); if (inpCat) inpCat.value = 'otros'
     const inpSub = q('staff-catalog-add-subcategory'); if (inpSub) inpSub.value = ''
+    const inpDesc = q('staff-catalog-add-description'); if (inpDesc) inpDesc.value = ''
     saveStaffCatalog()
   }
   const anUsers = q('an-users'); if (anUsers) anUsers.onclick = () => { showStaffTab('users'); loadUsers() }
@@ -3494,6 +3499,62 @@ function renderCatalogSubcats(cat, labels, names, subgroups) {
     itemsEl.append(div)
   }
 }
+function findCatalogItemByName(name) {
+  const key = String(name || '').toLowerCase()
+  if (S.catalogIndex && S.catalogIndex[key]) return S.catalogIndex[key]
+  for (const arr of Object.values(S.catalogGroups || {})) {
+    for (const it of arr || []) {
+      if (String(it.name || '').toLowerCase() === key) return it
+    }
+  }
+  return null
+}
+function openRestaurantItemModal(it) {
+  const item = it || {}
+  const title = String(item.name || '')
+  const desc = String(item.description || '').trim()
+  const priceLabel = formatPriceShort(Number(item.price || 0))
+  showModal(title, '', 'info')
+  const modalText = q('modal-text')
+  const row = document.querySelector('#modal .row')
+  const closeBtn = q('modal-close')
+  if (modalText) {
+    modalText.innerHTML = ''
+    const price = document.createElement('div')
+    price.className = 'chip'
+    price.textContent = priceLabel
+    const d = document.createElement('div')
+    d.textContent = desc || 'Sin descripción'
+    const qtyRow = document.createElement('div')
+    qtyRow.className = 'row'
+    const qtyLabel = document.createElement('div')
+    qtyLabel.textContent = 'Cantidad'
+    const qtyInput = document.createElement('input')
+    qtyInput.type = 'number'
+    qtyInput.min = '1'
+    qtyInput.value = '1'
+    qtyInput.style.maxWidth = '90px'
+    qtyRow.append(qtyLabel, qtyInput)
+    modalText.append(price, d, qtyRow)
+  }
+  if (!row || !closeBtn) return
+  const btnAdd = document.createElement('button')
+  btnAdd.className = 'success'
+  btnAdd.textContent = 'Agregar al carrito'
+  const cleanup = () => {
+    try { btnAdd.remove() } catch {}
+    try { closeBtn.onclick = () => { const m = q('modal'); if (m) m.classList.remove('show') } } catch {}
+  }
+  const finish = () => { const m = q('modal'); if (m) m.classList.remove('show'); cleanup() }
+  btnAdd.onclick = () => {
+    const qtyInput = modalText ? modalText.querySelector('input[type="number"]') : null
+    const qty = qtyInput ? Number(qtyInput.value || 1) : 1
+    addItemToCart(title, qty)
+    finish()
+  }
+  closeBtn.onclick = () => finish()
+  row.insertBefore(btnAdd, closeBtn)
+}
 function renderCatalogItems(cat, labels, items) {
   const catsEl = q('catalog-cats'), itemsEl = q('catalog-list'), back = q('btn-catalog-back')
   if (!catsEl || !itemsEl) return
@@ -3523,7 +3584,11 @@ function renderCatalogItems(cat, labels, items) {
     const price = document.createElement('span')
     price.className = 'chip'
     price.textContent = formatPriceShort(it.price)
-    div.onclick = () => { const p = q('product'); if (p) p.value = it.name }
+    if (isRestaurantMode()) {
+      div.onclick = () => openRestaurantItemModal(it)
+    } else {
+      div.onclick = () => { const p = q('product'); if (p) p.value = it.name }
+    }
     div.append(name, price)
     itemsEl.append(div)
   }
@@ -3562,11 +3627,17 @@ function addToCart() {
   const product = q('product') ? q('product').value : ''
   const qty = Math.max(1, Number(q('quantity') ? q('quantity').value : 1))
   if (!product) { showError('Selecciona un producto'); return }
-  S.cart.push({ product, quantity: qty })
+  addItemToCart(product, qty)
   const inp = q('product'); if (inp) inp.value = ''
   const qn = q('quantity'); if (qn) qn.value = '1'
+}
+function addItemToCart(product, qty) {
+  const name = String(product || '').trim()
+  const qv = Math.max(1, Number(qty || 1))
+  if (!name) { showError('Selecciona un producto'); return }
+  S.cart.push({ product: name, quantity: qv })
   renderCart()
-  maybeSuggestPairings(product)
+  maybeSuggestPairings(name)
 }
 function applyCatalogSearch() {
   const inp = q('catalog-search')
@@ -3606,7 +3677,13 @@ async function showCatalogTop() {
       const chip = document.createElement('span')
       chip.className = 'top-night-item'
       chip.textContent = `${name} • ${items[name]}`
-      chip.onclick = () => { const p = q('product'); if (p) p.value = name }
+      chip.onclick = () => {
+        if (isRestaurantMode()) {
+          const it = findCatalogItemByName(name)
+          if (it) { openRestaurantItemModal(it); return }
+        }
+        const p = q('product'); if (p) p.value = name
+      }
       itemsRow.append(chip)
     }
     top.append(itemsRow)
@@ -3662,11 +3739,14 @@ async function loadStaffCatalogEditor() {
       name.type = 'text'
       name.placeholder = 'Nombre'
       name.value = it.name
+      name.className = 'catalog-name'
       const price = document.createElement('input')
       price.type = 'number'
       price.min = '0'
       price.value = Number(it.price || 0)
+      price.className = 'catalog-price'
       const category = document.createElement('select')
+      category.className = 'catalog-cat'
       for (const opt of ['cervezas','botellas','cocteles','sodas','otros']) {
         const o = document.createElement('option')
         o.value = opt
@@ -3678,6 +3758,12 @@ async function loadStaffCatalogEditor() {
       subInput.type = 'text'
       subInput.placeholder = 'Subcategoría'
       subInput.value = String(it.subcategory || '')
+      subInput.className = 'catalog-sub'
+      const descInput = document.createElement('input')
+      descInput.type = 'text'
+      descInput.placeholder = 'Descripción'
+      descInput.value = String(it.description || '')
+      descInput.className = 'catalog-desc'
       const combo = document.createElement('input')
       combo.type = 'checkbox'
       combo.checked = !!it.combo
@@ -3686,23 +3772,26 @@ async function loadStaffCatalogEditor() {
       includes.type = 'text'
       includes.placeholder = 'Incluye (coma)'
       includes.value = Array.isArray(it.includes) ? it.includes.join(',') : ''
+      includes.className = 'catalog-includes'
       const discount = document.createElement('input')
       discount.type = 'number'
       discount.min = '0'
       discount.max = '100'
       discount.placeholder = '% desc'
       discount.value = Number(it.discount || 0)
+      discount.className = 'catalog-discount'
       name.oninput = scheduleCatalogSave
       price.oninput = scheduleCatalogSave
       category.oninput = scheduleCatalogSave
       subInput.oninput = scheduleCatalogSave
+      descInput.oninput = scheduleCatalogSave
       combo.onchange = scheduleCatalogSave
       includes.oninput = scheduleCatalogSave
       discount.oninput = scheduleCatalogSave
       const del = document.createElement('button'); del.className = 'danger'; del.textContent = 'Eliminar'; del.onclick = () => { try { row.remove(); scheduleCatalogSave() } catch {} }
       const lblCombo = document.createElement('label'); lblCombo.textContent = 'Combo'; lblCombo.style.marginLeft = '8px'
       lblCombo.appendChild(combo)
-      row.append(name, price, category, subInput, lblCombo, includes, discount, del)
+      row.append(name, price, category, subInput, descInput, lblCombo, includes, discount, del)
       container.append(row)
     }
   } catch {}
@@ -3713,22 +3802,26 @@ async function saveStaffCatalog() {
     if (!list) return
     const items = []
     for (const row of list.children) {
-      const nameInput = row.querySelector('input[type="text"]')
-      const priceInput = row.querySelector('input[type="number"]')
-      const catSelect = row.querySelector('select')
-      const subInput = (() => { const arr = row.querySelectorAll('input[type=\"text\"]'); return arr.length > 1 ? arr[1] : null })()
+      const nameInput = row.querySelector('.catalog-name')
+      const priceInput = row.querySelector('.catalog-price')
+      const catSelect = row.querySelector('.catalog-cat')
+      const subInput = row.querySelector('.catalog-sub')
+      const descInput = row.querySelector('.catalog-desc')
       const comboInput = row.querySelector('input[type="checkbox"]')
-      const includesInput = (() => { const arr = row.querySelectorAll('input[type=\"text\"]'); return arr.length > 2 ? arr[2] : null })()
-      const discInput = (() => { const arr = row.querySelectorAll('input[type=\"number\"]'); return arr.length > 1 ? arr[1] : null })()
+      const includesInput = row.querySelector('.catalog-includes')
+      const discInput = row.querySelector('.catalog-discount')
       if (!nameInput || !priceInput || !catSelect) continue
       const name = nameInput.value.trim()
       const price = Number(priceInput.value || 0)
       const category = (catSelect.value || 'otros').toLowerCase()
       const subcategory = subInput ? String(subInput.value || '').trim() : ''
+      const description = descInput ? String(descInput.value || '').trim() : ''
       const combo = !!(comboInput && comboInput.checked)
       const includes = includesInput ? String(includesInput.value || '').split(',').map(s => s.trim()).filter(Boolean) : []
       const discount = discInput ? Math.max(0, Math.min(100, Number(discInput.value || 0))) : 0
-      items.push({ name, price, category, subcategory, combo, includes, discount })
+      if (!name) continue
+      if (isRestaurantMode() && !description) { showError('Agrega una descripción'); return }
+      items.push({ name, price, category, subcategory, description, combo, includes, discount })
     }
     const s = await api('/api/staff/catalog', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, items }) })
     if (s && s.ok) { showError('Carta guardada'); setTimeout(() => showError(''), 1000) }

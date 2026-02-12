@@ -147,10 +147,12 @@ async function initDB() {
   await db.query('CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, emitter_id TEXT NOT NULL, receiver_id TEXT NOT NULL, product TEXT NOT NULL, quantity INTEGER NOT NULL, price INTEGER NOT NULL, total INTEGER NOT NULL, status TEXT NOT NULL, created_at BIGINT NOT NULL, expires_at BIGINT NOT NULL, emitter_table TEXT, receiver_table TEXT, mesa_entrega TEXT, is_invitation BOOLEAN)')
   await db.query('CREATE TABLE IF NOT EXISTS table_closures (session_id TEXT NOT NULL, table_id TEXT NOT NULL, closed BOOLEAN NOT NULL, PRIMARY KEY (session_id, table_id))')
   await db.query('CREATE TABLE IF NOT EXISTS waiter_calls (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, user_id TEXT NOT NULL, table_id TEXT, reason TEXT, status TEXT, ts BIGINT NOT NULL)')
-  await db.query('CREATE TABLE IF NOT EXISTS catalog_items (session_id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, category TEXT, subcategory TEXT, PRIMARY KEY (session_id, name))')
+  await db.query('CREATE TABLE IF NOT EXISTS catalog_items (session_id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, category TEXT, subcategory TEXT, description TEXT, PRIMARY KEY (session_id, name))')
   await db.query('ALTER TABLE IF EXISTS catalog_items ADD COLUMN IF NOT EXISTS category TEXT')
   await db.query('ALTER TABLE IF EXISTS catalog_items ADD COLUMN IF NOT EXISTS subcategory TEXT')
-  await db.query('CREATE TABLE IF NOT EXISTS venue_catalog_items (venue_id TEXT NOT NULL, mode TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, category TEXT, subcategory TEXT, PRIMARY KEY (venue_id, mode, name))')
+  await db.query('ALTER TABLE IF EXISTS catalog_items ADD COLUMN IF NOT EXISTS description TEXT')
+  await db.query('CREATE TABLE IF NOT EXISTS venue_catalog_items (venue_id TEXT NOT NULL, mode TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, category TEXT, subcategory TEXT, description TEXT, PRIMARY KEY (venue_id, mode, name))')
+  await db.query('ALTER TABLE IF EXISTS venue_catalog_items ADD COLUMN IF NOT EXISTS description TEXT')
   await db.query('CREATE TABLE IF NOT EXISTS venue_catalog_meta (venue_id TEXT NOT NULL, mode TEXT NOT NULL, initialized BOOLEAN NOT NULL, PRIMARY KEY (venue_id, mode))')
   await db.query('CREATE TABLE IF NOT EXISTS idempotency_keys (key TEXT PRIMARY KEY, route TEXT NOT NULL, status INTEGER NOT NULL, response_json TEXT NOT NULL, created_at BIGINT NOT NULL)')
   await db.query('CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, session_id TEXT, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, event_type TEXT NOT NULL, payload_json TEXT, ts BIGINT NOT NULL)')
@@ -245,16 +247,16 @@ async function dbReadGlobalCatalog(mode) {
   const sessionId = catalogSessionIdForMode(mode)
   let rows = []
   try {
-    const r = await db.query('SELECT name, price, category, subcategory FROM catalog_items WHERE session_id=$1 ORDER BY name', [sessionId])
+    const r = await db.query('SELECT name, price, category, subcategory, description FROM catalog_items WHERE session_id=$1 ORDER BY name', [sessionId])
     rows = r.rows || []
   } catch {}
   if (!rows.length && normalizeMode(mode) === 'restaurant') {
     try {
-      const legacy = await db.query('SELECT name, price, category, subcategory FROM catalog_items WHERE session_id=$1 ORDER BY name', ['global'])
+      const legacy = await db.query('SELECT name, price, category, subcategory, description FROM catalog_items WHERE session_id=$1 ORDER BY name', ['global'])
       rows = legacy.rows || []
     } catch {}
   }
-  return rows.map(w => ({ name: w.name, price: Number(w.price || 0), category: String(w.category || 'otros'), subcategory: String(w.subcategory || '') }))
+  return rows.map(w => ({ name: w.name, price: Number(w.price || 0), category: String(w.category || 'otros'), subcategory: String(w.subcategory || ''), description: String(w.description || '') }))
 }
 async function dbWriteGlobalCatalog(mode, items) {
   requireDB()
@@ -262,7 +264,29 @@ async function dbWriteGlobalCatalog(mode, items) {
   const sessionId = catalogSessionIdForMode(mode)
   await db.query('DELETE FROM catalog_items WHERE session_id=$1', [sessionId])
   for (const it of Array.isArray(items) ? items : []) {
-    await db.query('INSERT INTO catalog_items (session_id, name, price, category, subcategory) VALUES ($1,$2,$3,$4,$5)', [sessionId, String(it.name || ''), Number(it.price || 0), String(it.category || 'otros'), String(it.subcategory || '')])
+    await db.query('INSERT INTO catalog_items (session_id, name, price, category, subcategory, description) VALUES ($1,$2,$3,$4,$5,$6)', [sessionId, String(it.name || ''), Number(it.price || 0), String(it.category || 'otros'), String(it.subcategory || ''), String(it.description || '')])
+  }
+}
+async function dbFillGlobalRestaurantDescriptions() {
+  requireDB()
+  await initDB()
+  const fileItems = readGlobalCatalog('restaurant')
+  if (!Array.isArray(fileItems) || !fileItems.length) return
+  const map = new Map()
+  for (const it of fileItems) {
+    const name = String(it.name || '').trim()
+    const desc = String(it.description || '').trim()
+    if (name && desc) map.set(name, desc)
+  }
+  if (!map.size) return
+  const sessionIds = [catalogSessionIdForMode('restaurant'), 'global']
+  for (const sessionId of sessionIds) {
+    for (const [name, desc] of map.entries()) {
+      await db.query(
+        "UPDATE catalog_items SET description=$1 WHERE session_id=$2 AND name=$3 AND (description IS NULL OR description='')",
+        [desc, sessionId, name]
+      )
+    }
   }
 }
 async function ensureGlobalCatalogSeed() {
@@ -273,27 +297,28 @@ async function ensureGlobalCatalogSeed() {
     if (!disco.length) await dbWriteGlobalCatalog('disco', readGlobalCatalog('disco'))
     const rest = await dbReadGlobalCatalog('restaurant')
     if (!rest.length) await dbWriteGlobalCatalog('restaurant', readGlobalCatalog('restaurant'))
+    else await dbFillGlobalRestaurantDescriptions()
   } catch {}
 }
 async function dbReadSessionCatalog(sessionId) {
   requireDB()
   await initDB()
-  const r = await db.query('SELECT name, price, category, subcategory FROM catalog_items WHERE session_id=$1 ORDER BY name', [String(sessionId)])
-  return r.rows.map(w => ({ name: w.name, price: Number(w.price || 0), category: String(w.category || 'otros'), subcategory: String(w.subcategory || '') }))
+  const r = await db.query('SELECT name, price, category, subcategory, description FROM catalog_items WHERE session_id=$1 ORDER BY name', [String(sessionId)])
+  return r.rows.map(w => ({ name: w.name, price: Number(w.price || 0), category: String(w.category || 'otros'), subcategory: String(w.subcategory || ''), description: String(w.description || '') }))
 }
 async function dbWriteSessionCatalog(sessionId, items) {
   requireDB()
   await initDB()
   await db.query('DELETE FROM catalog_items WHERE session_id=$1', [String(sessionId)])
   for (const it of Array.isArray(items) ? items : []) {
-    await db.query('INSERT INTO catalog_items (session_id, name, price, category, subcategory) VALUES ($1,$2,$3,$4,$5)', [String(sessionId), String(it.name || ''), Number(it.price || 0), String(it.category || 'otros'), String(it.subcategory || '')])
+    await db.query('INSERT INTO catalog_items (session_id, name, price, category, subcategory, description) VALUES ($1,$2,$3,$4,$5,$6)', [String(sessionId), String(it.name || ''), Number(it.price || 0), String(it.category || 'otros'), String(it.subcategory || ''), String(it.description || '')])
   }
 }
 async function dbReadVenueCatalog(venueId, mode) {
   requireDB()
   await initDB()
-  const r = await db.query('SELECT name, price, category, subcategory FROM venue_catalog_items WHERE venue_id=$1 AND mode=$2 ORDER BY name', [String(venueId || 'default'), normalizeMode(mode)])
-  return r.rows.map(w => ({ name: w.name, price: Number(w.price || 0), category: String(w.category || 'otros'), subcategory: String(w.subcategory || '') }))
+  const r = await db.query('SELECT name, price, category, subcategory, description FROM venue_catalog_items WHERE venue_id=$1 AND mode=$2 ORDER BY name', [String(venueId || 'default'), normalizeMode(mode)])
+  return r.rows.map(w => ({ name: w.name, price: Number(w.price || 0), category: String(w.category || 'otros'), subcategory: String(w.subcategory || ''), description: String(w.description || '') }))
 }
 async function dbWriteVenueCatalog(venueId, mode, items) {
   requireDB()
@@ -302,7 +327,7 @@ async function dbWriteVenueCatalog(venueId, mode, items) {
   const m = normalizeMode(mode)
   await db.query('DELETE FROM venue_catalog_items WHERE venue_id=$1 AND mode=$2', [v, m])
   for (const it of Array.isArray(items) ? items : []) {
-    await db.query('INSERT INTO venue_catalog_items (venue_id, mode, name, price, category, subcategory) VALUES ($1,$2,$3,$4,$5,$6)', [v, m, String(it.name || ''), Number(it.price || 0), String(it.category || 'otros'), String(it.subcategory || '')])
+    await db.query('INSERT INTO venue_catalog_items (venue_id, mode, name, price, category, subcategory, description) VALUES ($1,$2,$3,$4,$5,$6,$7)', [v, m, String(it.name || ''), Number(it.price || 0), String(it.category || 'otros'), String(it.subcategory || ''), String(it.description || '')])
   }
 }
 async function dbDeleteVenueCatalog(venueId, mode) {
@@ -552,7 +577,8 @@ function sanitizeItem(it) {
   const rawCat = String(it.category || '').toLowerCase().slice(0, 24)
   const category = allowedCategories.includes(rawCat) ? rawCat : 'otros'
   const subcategory = String(it.subcategory || '').slice(0, 60)
-  return { name, price, category, subcategory }
+  const description = String(it.description || '').slice(0, 240)
+  return { name, price, category, subcategory, description }
 }
 function readGlobalCatalog(mode) {
   const m = normalizeMode(mode)
@@ -1008,13 +1034,14 @@ const server = http.createServer(async (req, res) => {
       const adminSecret = String(req.headers['x-admin-secret'] || query.admin_secret || '')
       const okAdmin = ADMIN_SECRET && adminSecret === ADMIN_SECRET
       const okSessionPin = pinStr === String(s.pin)
+      const okGlobalPin = (ALLOW_GLOBAL_STAFF_PIN && GLOBAL_STAFF_PIN && pinStr === GLOBAL_STAFF_PIN)
       let okVenuePin = false
       try {
         const venues = await readVenues()
         const v = venues[s.venueId]
         if (v && String(v.pin || '') && pinStr === String(v.pin)) okVenuePin = true
       } catch {}
-      if (!okAdmin && !okSessionPin && !okVenuePin) { json(res, 403, { error: 'forbidden' }); return }
+      if (!okAdmin && !okSessionPin && !okVenuePin && !okGlobalPin) { json(res, 403, { error: 'forbidden' }); return }
       endAndArchive(body.sessionId)
       json(res, 200, { ok: true })
       return
@@ -2508,11 +2535,12 @@ const server = http.createServer(async (req, res) => {
         const rawCat = String(it.category || '').toLowerCase().slice(0, 24)
         const category = allowedCategories.includes(rawCat) ? rawCat : 'otros'
         const subcategory = String(it.subcategory || '').slice(0, 60)
+        const description = String(it.description || '').slice(0, 240)
         const combo = !!it.combo
         const includes = Array.isArray(it.includes) ? it.includes.map(x => String(x || '').slice(0, 60)).filter(x => x) : []
         const discount = Math.max(0, Math.min(100, Number(it.discount || 0)))
         if (!name) continue
-        clean.push({ name, price, category, subcategory, combo, includes, discount })
+        clean.push({ name, price, category, subcategory, description, combo, includes, discount })
       }
       if (s) s.catalog = clean
       const venueId = s && s.venueId ? s.venueId : String(body.venueId || '')
