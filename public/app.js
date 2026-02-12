@@ -3222,7 +3222,12 @@ function init() {
     const djParam = u.searchParams.get('dj')
     S.djOnly = djParam === '1'
     if (vid && !modeParam && !staffParam && !djParam && !(aj === '1')) {
-      show('screen-venue-type')
+      const m = getLocalUsers()
+      if (m && m[vid] && m[vid].role === 'staff') {
+        restoreLocalUser().then(ok => { if (!ok) show('screen-venue-type') })
+      } else {
+        show('screen-venue-type')
+      }
       return
     }
     if (staffParam === '1') {
