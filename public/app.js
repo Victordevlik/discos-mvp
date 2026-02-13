@@ -858,7 +858,7 @@ async function join(role, codeOverride = '', pinOverride = '') {
         const u = new URL(location.href)
         if (u.searchParams.get('dj') === '1') { showError('Acceso DJ solo staff'); return }
       } catch {}
-      const venueKey = S.venueId || 'default'
+      const venueKey = makeLocalKey(S.venueId || 'default', getCurrentModeKey())
       let local = null
       try {
         const m = getLocalUsers()
@@ -1888,7 +1888,8 @@ async function ensureSessionActiveOffer() {
       try { const u = new URL(location.href); v = u.searchParams.get('venueId') || '' } catch {}
     }
     if (!v) v = 'default'
-    const r = await api(`/api/session/active?venueId=${encodeURIComponent(v)}`).catch(() => null)
+    const mode = isRestaurantMode() ? 'restaurant' : 'disco'
+    const r = await api(`/api/session/active?venueId=${encodeURIComponent(v)}&mode=${encodeURIComponent(mode)}`).catch(() => null)
     if (r && r.sessionId && r.venueId === v) return true
     show('screen-staff-welcome')
     return false
@@ -1971,9 +1972,6 @@ async function loadOrders(state = '') {
   const qs = state ? `&state=${encodeURIComponent(state)}` : ''
   const r = await api(`/api/staff/orders?sessionId=${encodeURIComponent(S.sessionId)}${qs}`)
   const container = q('staff-orders-list') || q('orders')
-  let waiterResp = null
-  try { waiterResp = await api(`/api/staff/waiter?sessionId=${encodeURIComponent(S.sessionId)}`) } catch {}
-  const waiterList = (waiterResp && waiterResp.calls ? waiterResp.calls : []).slice().filter(c => c.status !== 'atendido' && c.status !== 'cancelado').sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0))
   const listAsc = (r.orders || []).slice().sort((a, b) => {
     const ta = Number(a.createdAt || 0), tb = Number(b.createdAt || 0)
     if (ta !== tb) return ta - tb
@@ -1982,8 +1980,7 @@ async function loadOrders(state = '') {
   })
   const filtered = state ? listAsc : listAsc.filter(o => o.status !== 'cobrado')
   const sigOrders = buildSig(filtered, o => [o.id, o.status, o.quantity, o.total, o.product, o.emitterId, o.receiverId, o.receiverTable, o.emitterTable, o.mesaEntrega, o.createdAt, o.isInvitation].join('~'))
-  const sigWaiter = buildSig(waiterList, c => [c.id, c.status, c.tableId, c.userAlias, c.userId, c.reason, c.ts].join('~'))
-  const sig = `${sigOrders}__${sigWaiter}`
+  const sig = sigOrders
   S.ui = S.ui || {}
   S.ui.staffOrdersSigMap = S.ui.staffOrdersSigMap || {}
   const sigKey = state || '__open__'
@@ -1991,26 +1988,6 @@ async function loadOrders(state = '') {
   S.ui.staffOrdersSigMap[sigKey] = sig
   container.innerHTML = ''
   await ensureCatalogIndex()
-  if (waiterList.length) {
-    const wTitle = document.createElement('div')
-    wTitle.className = 'section-title'
-    wTitle.textContent = 'Llamados mesero'
-    container.append(wTitle)
-    for (const c of waiterList) {
-      const div = document.createElement('div')
-      div.className = 'card'
-      const info = document.createElement('div')
-      info.textContent = `Mesa ${c.tableId || '-'} • ${c.userAlias ? c.userAlias : c.userId} • ${c.reason} • ${c.status} • ${formatTimeShort(c.ts)}`
-      const row = document.createElement('div')
-      row.className = 'row'
-      const b1 = document.createElement('button'); b1.className = 'info'; b1.textContent = 'En camino'; b1.onclick = async () => { await api(`/api/staff/waiter/${c.id}`, { method: 'POST', body: JSON.stringify({ status: 'en_camino' }) }); loadOrders(state) }
-      const b2 = document.createElement('button'); b2.className = 'success'; b2.textContent = 'Atendido'; b2.onclick = async () => { await api(`/api/staff/waiter/${c.id}`, { method: 'POST', body: JSON.stringify({ status: 'atendido' }) }); loadOrders(state) }
-      const b3 = document.createElement('button'); b3.className = 'danger'; b3.textContent = 'Cancelar'; b3.onclick = async () => { await api(`/api/staff/waiter/${c.id}`, { method: 'POST', body: JSON.stringify({ status: 'cancelado' }) }); loadOrders(state) }
-      row.append(b1, b2, b3)
-      div.append(info, row)
-      container.append(div)
-    }
-  }
   const groups = new Map()
   for (const o of filtered) {
     const mesa = String(o.mesaEntrega || o.receiverTable || o.emitterTable || '').trim()
@@ -3231,7 +3208,9 @@ function init() {
     S.djOnly = djParam === '1'
     if (vid && !modeParam && !staffParam && !djParam && !(aj === '1')) {
       const m = getLocalUsers()
-      if (m && m[vid] && m[vid].role === 'staff') {
+      const modeKey = getModeKey(modeParam || '')
+      const staffKey = makeLocalKey(vid, modeKey)
+      if (m && m[staffKey] && m[staffKey].role === 'staff') {
         restoreLocalUser().then(ok => { if (!ok) show('screen-venue-type') })
       } else {
         show('screen-venue-type')
@@ -3273,7 +3252,9 @@ function init() {
       restoreLocalUser().then(async ok => {
         if (ok) return
         try {
-          const r = await api(`/api/session/active?venueId=${encodeURIComponent(vid)}`)
+          const mode = getModeFromUrl() || (isRestaurantMode() ? 'restaurant' : '')
+          const modeKey = mode === 'restaurant' ? 'restaurant' : 'disco'
+          const r = await api(`/api/session/active?venueId=${encodeURIComponent(vid)}&mode=${encodeURIComponent(modeKey)}`)
           if (r && r.sessionId) { setTimeout(() => join('user', r.sessionId), 50); return }
         } catch {}
         show('screen-welcome')
@@ -3292,19 +3273,43 @@ function init() {
 }
 
 init()
+function getModeKey(mode) {
+  return normalizeModeParam(mode) === 'restaurant' ? 'restaurant' : 'disco'
+}
+function getCurrentModeKey() {
+  const m = getModeFromUrl() || (isRestaurantMode() ? 'restaurant' : '')
+  return getModeKey(m)
+}
+function makeLocalKey(venueId, mode) {
+  return `${venueId || 'default'}::${getModeKey(mode)}`
+}
+function getLastVenueKey(modeKey) {
+  try { return localStorage.getItem(`discos_last_venue_${modeKey}`) || '' } catch { return '' }
+}
+function setLastVenueKey(modeKey, venueId) {
+  try { localStorage.setItem(`discos_last_venue_${modeKey}`, venueId || '') } catch {}
+}
 function getLocalUsers() {
   try {
     const rawMap = localStorage.getItem('discos_users')
     if (rawMap) {
       const obj = JSON.parse(rawMap || '{}')
-      return typeof obj === 'object' && obj ? obj : {}
+      if (typeof obj === 'object' && obj) {
+        const out = {}
+        for (const k of Object.keys(obj)) {
+          if (String(k).includes('::')) out[k] = obj[k]
+          else out[makeLocalKey(k, '')] = obj[k]
+        }
+        return out
+      }
+      return {}
     }
     const raw = localStorage.getItem('discos_user')
     if (raw) {
       const d = JSON.parse(raw || '{}')
       if (d && d.venueId) {
         const m = {}
-        m[d.venueId] = { sessionId: d.sessionId || '', role: d.role || '', userId: d.userId || '' }
+        m[makeLocalKey(d.venueId, '')] = { sessionId: d.sessionId || '', role: d.role || '', userId: d.userId || '' }
         return m
       }
     }
@@ -3316,15 +3321,19 @@ function setLocalUsers(map) {
 }
 function saveLocalUser() {
   const v = S.venueId || 'default'
+  const modeKey = getCurrentModeKey()
   const m = getLocalUsers()
-  m[v] = { sessionId: S.sessionId || '', role: S.role || (S.user ? S.user.role : ''), userId: S.user ? S.user.id : '' }
+  const k = makeLocalKey(v, modeKey)
+  m[k] = { sessionId: S.sessionId || '', role: S.role || (S.user ? S.user.role : ''), userId: S.user ? S.user.id : '' }
   setLocalUsers(m)
-  try { localStorage.setItem('discos_last_venue', v) } catch {}
+  setLastVenueKey(modeKey, v)
 }
 function removeLocalUser(venueId) {
   const v = venueId || (S.venueId || 'default')
+  const modeKey = getCurrentModeKey()
+  const k = makeLocalKey(v, modeKey)
   const m = getLocalUsers()
-  if (m[v]) { delete m[v] }
+  if (m[k]) { delete m[k] }
   setLocalUsers(m)
 }
 async function restoreLocalUser() {
@@ -3334,6 +3343,7 @@ async function restoreLocalUser() {
     let venueParam = ''
     let staffParam = ''
     let djParam = ''
+    let modeParam = ''
     try {
       const u = new URL(location.href)
       sidParam = u.searchParams.get('sessionId') || u.searchParams.get('s') || ''
@@ -3341,32 +3351,46 @@ async function restoreLocalUser() {
       venueParam = u.searchParams.get('venueId') || ''
       staffParam = u.searchParams.get('staff') || ''
       djParam = u.searchParams.get('dj') || ''
+      modeParam = normalizeModeParam(u.searchParams.get('mode') || u.searchParams.get('restaurant') || '')
     } catch {}
     S.djOnly = djParam === '1'
     const m = getLocalUsers()
-    const lastVenue = (() => { try { return localStorage.getItem('discos_last_venue') || '' } catch { return '' } })()
+    const modeKey = getModeKey(modeParam || (isRestaurantMode() ? 'restaurant' : ''))
+    const lastVenue = getLastVenueKey(modeKey)
     let key = ''
     let d = null
-    if (venueParam && m[venueParam]) {
-      key = venueParam
-      d = { sessionId: m[key].sessionId, userId: m[key].userId, role: m[key].role, venueId: key }
+    if (venueParam) {
+      const k = makeLocalKey(venueParam, modeKey)
+      if (m[k]) {
+        key = k
+        d = { sessionId: m[k].sessionId, userId: m[k].userId, role: m[k].role, venueId: venueParam }
+      }
     }
     if (!d && sidParam) {
       const entries = Object.entries(m)
       for (const [k, v] of entries) {
-        if (v && v.sessionId === sidParam) { key = k; d = { sessionId: v.sessionId, userId: v.userId, role: v.role, venueId: k }; break }
+        const parts = String(k).split('::')
+        const kVenue = parts[0] || ''
+        const kMode = parts[1] || 'disco'
+        if (kMode !== modeKey) continue
+        if (v && v.sessionId === sidParam) { key = k; d = { sessionId: v.sessionId, userId: v.userId, role: v.role, venueId: kVenue }; break }
       }
     }
-    if (!d && lastVenue && m[lastVenue]) {
-      key = lastVenue
-      d = { sessionId: m[key].sessionId, userId: m[key].userId, role: m[key].role, venueId: key }
+    if (!d && lastVenue) {
+      const k = makeLocalKey(lastVenue, modeKey)
+      if (m[k]) {
+        key = k
+        d = { sessionId: m[k].sessionId, userId: m[k].userId, role: m[k].role, venueId: lastVenue }
+      }
     }
     if (!d) {
-      const keys = Object.keys(m)
+      const keys = Object.keys(m).filter(k => String(k).endsWith(`::${modeKey}`))
       if (keys.length === 1) {
         key = keys[0]
         const v = m[key]
-        d = { sessionId: v.sessionId, userId: v.userId, role: v.role, venueId: key }
+        const parts = String(key).split('::')
+        const kVenue = parts[0] || ''
+        d = { sessionId: v.sessionId, userId: v.userId, role: v.role, venueId: kVenue }
       }
     }
     if (!d || !d.sessionId || !d.userId || !d.role) return false
