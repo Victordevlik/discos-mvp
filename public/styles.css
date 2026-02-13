@@ -108,6 +108,8 @@ body[data-theme="light"] .chip.sticker { background:#fff3a1; border-color:#e0a33
 #mesa-people .row.compact button { padding: 6px 10px; font-size: 13px }
 #promos-list .card, #staff-promos-list .card { display:flex; justify-content:space-between; align-items:center }
 h2 { font-size: 24px; margin: 0 0 12px 0 }
+#staff-title { font-size: 18px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; padding: 6px 12px; border-radius: 12px; border: 1px solid #3a3b5c; background: rgba(27,28,44,0.65); color: var(--primary2) }
+body[data-theme="light"] #staff-title { border-color:#dbe1f3; background:#f3f5fd; color:#3747ff }
 .section-title { color: var(--muted); font-size: 14px; margin: 6px 0 }
 #screen-consumption .row { margin: 10px 0; gap: 10px }
 #catalog-cats .card, #catalog-list .card { display:flex; align-items:center; justify-content:space-between; padding: 12px; margin: 8px 0; border-color:#3a3b5c; background: rgba(27,28,44,0.70) }

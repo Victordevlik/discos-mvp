@@ -264,22 +264,22 @@
       <div class="row">
         <button id="btn-catalog-back" class="secondary" style="display:none">Volver a categorías</button>
       </div>
-      <div class="section-title">Tip: selecciona un producto; se carga en “Producto”. Usa el buscador: escribe 2–3 letras para filtrar rápido.</div>
+      <div id="catalog-tip" class="section-title">Tip: selecciona un producto; se carga en “Producto”. Usa el buscador: escribe 2–3 letras para filtrar rápido.</div>
       <div class="row">
         <input id="catalog-search" placeholder="Buscar en carta">
       </div>
       <div class="row" id="catalog-top"></div>
       <div id="catalog-cats" class="grid"></div>
       <div id="catalog-list" class="grid"></div>
-      <div class="row">
+      <div class="row" id="catalog-product-row">
         <label>Producto seleccionado</label>
         <input id="product" placeholder="Producto" readonly>
       </div>
-      <div class="row">
+      <div class="row" id="catalog-qty-row">
         <label>Cantidad</label>
         <input id="quantity" type="number" min="1" value="1">
       </div>
-      <div class="row">
+      <div class="row" id="catalog-add-row">
         <button id="btn-add-to-cart" class="info">Agregar al carrito</button>
       </div>
       <div id="cart-section">

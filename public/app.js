@@ -48,7 +48,7 @@ function applyRestaurantMode() {
   setTxt('#welcome-subtitle', 'Ordena, llama al mesero y revisa tu cuenta en segundos.')
   setTxt('#venue-type-title', 'Selecciona el tipo de venue')
   setTxt('#staff-welcome-title', 'Ingreso Restaurante')
-  setTxt('#staff-title', 'Panel de restaurante')
+  setTxt('#staff-title', 'Restaurante — Panel de órdenes')
   setTxt('#staff-panel-title', 'Escanéame para unirte al restaurante')
   setTxt('#tab-staff-catalog', 'Menú')
   setTxt('#menu-staff-catalog', 'Menú')
@@ -70,7 +70,7 @@ function applyRestaurantMode() {
   setTxt('#nav-orders span', 'Órdenes')
   setTxt('#home-hero-main', 'Disfruta tu experiencia')
   setTxt('#home-hero-sub', 'Pide, consulta tu cuenta y llama al mesero')
-  const hideIds = ['home-availability-title', 'home-availability-row', 'home-end-dance-row', 'tip-refresh-bailar', 'btn-end-dance', 'screen-disponibles-select', 'screen-disponibles', 'screen-meeting', 'screen-user-invite', 'screen-invite-received', 'screen-mesas', 'screen-dj-request', 'fab-call', 'fab-call-label', 'tab-staff-dj', 'staff-dj-content', 'btn-copy-link-dj']
+  const hideIds = ['home-availability-title', 'home-availability-row', 'home-end-dance-row', 'tip-refresh-bailar', 'btn-end-dance', 'screen-disponibles-select', 'screen-disponibles', 'screen-meeting', 'screen-user-invite', 'screen-invite-received', 'screen-mesas', 'screen-dj-request', 'fab-call', 'fab-call-label', 'tab-staff-dj', 'staff-dj-content', 'btn-copy-link-dj', 'catalog-tip', 'catalog-product-row', 'catalog-qty-row', 'catalog-add-row']
   for (const id of hideIds) { const el = q(id); if (el) el.style.display = 'none' }
 }
 function applyDiscoMode() {
@@ -81,7 +81,7 @@ function applyDiscoMode() {
   setTxt('#welcome-subtitle', 'Conecta, baila y comparte consumos — seguro y sin fricción.')
   setTxt('#venue-type-title', 'Selecciona el tipo de venue')
   setTxt('#staff-welcome-title', 'Ingreso Staff')
-  setTxt('#staff-title', 'Panel de órdenes')
+  setTxt('#staff-title', 'Discoteca — Panel de órdenes')
   setTxt('#staff-panel-title', 'Escanéame para unirte a la fiesta')
   setTxt('#tab-staff-catalog', 'Carta')
   setTxt('#menu-staff-catalog', 'Carta')
@@ -103,7 +103,7 @@ function applyDiscoMode() {
   setTxt('#nav-orders span', 'Órdenes')
   setTxt('#home-hero-main', 'Activa tu modo fiesta')
   setTxt('#home-hero-sub', 'Hazte visible y súmate al baile ahora')
-  const showIds = ['home-availability-title', 'home-availability-row', 'home-end-dance-row', 'screen-disponibles-select', 'screen-disponibles', 'screen-meeting', 'screen-user-invite', 'screen-invite-received', 'screen-mesas', 'screen-dj-request', 'fab-call', 'fab-call-label', 'tab-staff-dj', 'staff-dj-content', 'btn-copy-link-dj']
+  const showIds = ['home-availability-title', 'home-availability-row', 'home-end-dance-row', 'screen-disponibles-select', 'screen-disponibles', 'screen-meeting', 'screen-user-invite', 'screen-invite-received', 'screen-mesas', 'screen-dj-request', 'fab-call', 'fab-call-label', 'tab-staff-dj', 'staff-dj-content', 'btn-copy-link-dj', 'catalog-tip', 'catalog-product-row', 'catalog-qty-row', 'catalog-add-row']
   for (const id of showIds) { const el = q(id); if (el) el.style.display = '' }
 }
 function chooseVenueMode(mode) {
@@ -340,8 +340,10 @@ async function renderVenueTitle() {
     const sess = await api(`/api/session/active?${qv}mode=${encodeURIComponent(mode)}`)
     const el = q('staff-title')
     if (el) {
-      if (S.djOnly) el.textContent = `Panel DJ ${sess.venueName || S.venueId || ''}`
-      else el.textContent = `Panel de órdenes ${sess.venueName || S.venueId || ''}`
+      const modeLabel = mode === 'restaurant' ? 'Restaurante' : 'Discoteca'
+      const venueLabel = sess.venueName || S.venueId || ''
+      if (S.djOnly) el.textContent = `${modeLabel} — Panel DJ ${venueLabel}`
+      else el.textContent = `${modeLabel} — Panel de órdenes ${venueLabel}`
     }
   } catch {}
 }
