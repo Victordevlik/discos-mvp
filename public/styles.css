@@ -124,6 +124,17 @@ h2 { font-size: 24px; margin: 0 0 12px 0 }
 body[data-theme="light"] #staff-title { border-color:#dbe1f3; background:#f3f5fd; color:#3747ff }
 .section-title { color: var(--muted); font-size: 14px; margin: 6px 0 }
 #screen-consumption .row { margin: 10px 0; gap: 10px }
+#screen-consumption .card { padding: 16px }
+.catalog-steps { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 10px; margin: 8px 0 14px 0 }
+.catalog-step { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; border: 1px solid #32345a; background: rgba(27,28,44,0.7) }
+body[data-theme="light"] .catalog-step { background: #f3f5fd; border-color: #dbe1f3 }
+.catalog-step .step-num { width: 28px; height: 28px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; color: #fff; background: linear-gradient(135deg, var(--primary), var(--accent)) }
+.catalog-step .step-text { font-size: 13px; color: var(--text); font-weight: 600 }
+.catalog-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr); gap: 14px; align-items: start }
+.catalog-browse, .catalog-order { display: flex; flex-direction: column; gap: 6px }
+#catalog-top { display: flex; flex-wrap: wrap; gap: 8px }
+#catalog-cats { margin-top: 4px }
+#catalog-list { margin-top: 4px }
 #catalog-cats .card, #catalog-list .card { display:flex; align-items:center; justify-content:space-between; padding: 12px; margin: 8px 0; border-color:#3a3b5c; background: rgba(27,28,44,0.70) }
 body[data-theme="light"] #catalog-cats .card, body[data-theme="light"] #catalog-list .card { background:#f3f5fd; border-color:#dbe1f3 }
 #catalog-cats .card > div:first-child, #catalog-list .card > div:first-child { font-weight: 600; overflow: hidden; white-space: nowrap; text-overflow: ellipsis }
@@ -131,6 +142,12 @@ body[data-theme="light"] #catalog-cats .card, body[data-theme="light"] #catalog-
 /* Mostrar nombres completos en productos */
 #catalog-list .card { align-items: flex-start }
 #catalog-list .card > div:first-child { overflow: visible; white-space: normal; text-overflow: unset; flex: 1; margin-right: 10px }
+#catalog-list .card .chip { font-weight: 700 }
+#cart-section { padding: 12px; border-radius: 14px; border: 1px solid #32345a; background: rgba(23,24,38,0.6) }
+body[data-theme="light"] #cart-section { background: #fff; border-color: #dbe1f3 }
+#cart-section h3 { margin: 0 0 8px 0 }
+#cart-list .row { align-items: center }
+#cart-list .row button { white-space: nowrap }
 .topbar { display:none; position: sticky; top:0; padding: 8px 16px; background: rgba(22,12,44,0.85); backdrop-filter: blur(12px); border-bottom:1px solid rgba(96,74,166,0.45); z-index: 10 }
 .topbar.show { display:flex; justify-content: space-between; align-items: center }
 .navbar { position: fixed; bottom: 0; left: 0; right: 0; display: grid; grid-template-columns: repeat(5,1fr); gap: 6px; padding: 8px 10px; background: rgba(22,12,44,0.85); backdrop-filter: blur(12px); border-top: 1px solid rgba(96,74,166,0.45) }
@@ -390,6 +407,8 @@ body[data-theme="light"] #user-header.party { background: linear-gradient(135deg
   #screen-mesa-view .party-title { font-size: 24px }
   #available-list .row.compact { flex-direction: row }
   #available-list .row.compact button { width: auto; flex: 1 }
+  .catalog-steps { grid-template-columns: repeat(2, minmax(0, 1fr)) }
+  .catalog-layout { grid-template-columns: 1fr }
 }
 @media (max-width: 480px) {
   .screen { padding: 16px; padding-bottom: 88px }
@@ -412,6 +431,10 @@ body[data-theme="light"] #user-header.party { background: linear-gradient(135deg
   #catalog-list h3 { font-size: 15px; margin: 2px 0 6px 0 }
   #catalog-cats .card, #catalog-list .card { padding: 10px; margin: 6px 0 }
   .chip { font-size: 12px }
+  .catalog-steps { grid-template-columns: 1fr }
+  .catalog-step { padding: 10px }
+  #catalog-top { flex-direction: column; align-items: stretch }
+  #cart-section { padding: 10px }
 }
 @media (max-width: 360px) {
   .screen { padding: 14px; padding-bottom: 92px }

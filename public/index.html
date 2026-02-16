@@ -264,37 +264,49 @@
       <div class="row">
         <button id="btn-catalog-back" class="secondary" style="display:none">Volver a categorías</button>
       </div>
-      <div id="catalog-tip" class="section-title">Tip: selecciona un producto; se carga en “Producto”. Usa el buscador: escribe 2–3 letras para filtrar rápido.</div>
-      <div class="row">
-        <input id="catalog-search" placeholder="Buscar en carta">
+      <div id="catalog-tip" class="section-title">Guía rápida para pedir</div>
+      <div class="catalog-steps">
+        <div class="catalog-step"><div class="step-num">1</div><div class="step-text">Elige una categoría</div></div>
+        <div class="catalog-step"><div class="step-num">2</div><div class="step-text">Toca un producto</div></div>
+        <div class="catalog-step"><div class="step-num">3</div><div class="step-text">Agrega al carrito</div></div>
+        <div class="catalog-step"><div class="step-num">4</div><div class="step-text">Confirma tu pedido</div></div>
       </div>
-      <div class="row" id="catalog-top"></div>
-      <div id="catalog-cats" class="grid"></div>
-      <div id="catalog-list" class="grid"></div>
-      <div class="row" id="catalog-product-row">
-        <label>Producto seleccionado</label>
-        <input id="product" placeholder="Producto" readonly>
-      </div>
-      <div class="row" id="catalog-qty-row">
-        <label>Cantidad</label>
-        <input id="quantity" type="number" min="1" value="1">
-      </div>
-      <div class="row" id="catalog-add-row">
-        <button id="btn-add-to-cart" class="info">Agregar al carrito</button>
-      </div>
-      <div id="cart-section">
-        <h3>Carrito</h3>
-        <div id="cart-list"></div>
-      </div>
-      <label id="consumption-target-label" style="display:none">Receptor (ID)</label>
-      <input id="consumption-target" placeholder="ID de persona" style="display:none">
-      <div id="consumption-note-row" class="row" style="display:none">
-        <label>Mensaje (opcional)</label>
-        <input id="consumption-note" placeholder="Ej. Te invito una bebida">
-      </div>
-      <button id="btn-consumption-send" class="success">Enviar invitación</button>
-      <div class="row">
-        <button id="btn-order-table" class="success">Pedir para mi mesa</button>
+      <div class="catalog-layout">
+        <div class="catalog-browse">
+          <div class="row">
+            <input id="catalog-search" placeholder="Buscar en carta">
+          </div>
+          <div class="row" id="catalog-top"></div>
+          <div id="catalog-cats" class="grid"></div>
+          <div id="catalog-list" class="grid"></div>
+          <div class="row" id="catalog-product-row">
+            <label>Producto seleccionado</label>
+            <input id="product" placeholder="Producto" readonly>
+          </div>
+          <div class="row" id="catalog-qty-row">
+            <label>Cantidad</label>
+            <input id="quantity" type="number" min="1" value="1">
+          </div>
+          <div class="row" id="catalog-add-row">
+            <button id="btn-add-to-cart" class="info">Agregar al carrito</button>
+          </div>
+        </div>
+        <div class="catalog-order">
+          <div id="cart-section">
+            <h3>Carrito</h3>
+            <div id="cart-list"></div>
+          </div>
+          <label id="consumption-target-label" style="display:none">Receptor (ID)</label>
+          <input id="consumption-target" placeholder="ID de persona" style="display:none">
+          <div id="consumption-note-row" class="row" style="display:none">
+            <label>Mensaje (opcional)</label>
+            <input id="consumption-note" placeholder="Ej. Te invito una bebida">
+          </div>
+          <button id="btn-consumption-send" class="success">Enviar invitación</button>
+          <div class="row">
+            <button id="btn-order-table" class="success">Pedir para mi mesa</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -356,6 +368,7 @@
         <button class="btn-waiter-reason warning" data-reason="hielo">Traer hielo</button>
         <button class="btn-waiter-reason warning" data-reason="pasabocas">Traer pasabocas</button>
         <button class="btn-waiter-reason warning" data-reason="limpieza">Limpiar la mesa</button>
+        <button class="btn-waiter-reason warning" data-reason="pin_cambio_mesa">PIN cambio de mesa</button>
         <button class="btn-waiter-reason warning" data-reason="otro">Otro…</button>
       </div>
       <div class="row" id="waiter-reasons-restaurant" style="display:none">
@@ -364,6 +377,7 @@
         <button class="btn-waiter-reason warning" data-reason="cubiertos">Traer cubiertos</button>
         <button class="btn-waiter-reason warning" data-reason="servilletas">Traer servilletas</button>
         <button class="btn-waiter-reason warning" data-reason="limpieza">Limpiar la mesa</button>
+        <button class="btn-waiter-reason warning" data-reason="pin_cambio_mesa">PIN cambio de mesa</button>
         <button class="btn-waiter-reason warning" data-reason="otro">Otro…</button>
       </div>
     </div>
@@ -399,6 +413,7 @@
     <div class="card">
       <div id="select-table-list"></div>
       <div class="row">
+        <input id="select-table-pin" type="password" inputmode="numeric" placeholder="PIN cambio de mesa">
         <input id="select-table-manual" placeholder="Número de mesa (ej. 8)">
         <button id="btn-select-table-save" class="success">Guardar</button>
       </div>
@@ -475,6 +490,13 @@
             <button id="btn-copy-link" class="info">Copiar link para usuarios</button>
             <button id="btn-copy-link-staff" class="info">Copiar link Staff</button>
             <button id="btn-copy-link-dj" class="info">Copiar link DJ</button>
+          </div>
+        </div>
+        <div class="card">
+          <h3>PIN cambio de mesa</h3>
+          <div class="row">
+            <button id="btn-generate-table-pin" class="warning">Generar PIN</button>
+            <input id="staff-table-change-pin" placeholder="PIN actual" readonly>
           </div>
         </div>
       </div>

@@ -1639,10 +1639,31 @@ const server = http.createServer(async (req, res) => {
       json(res, 200, { ok: true })
       return
     }
+    if (pathname === '/api/staff/table-change-pin' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const staff = state.users.get(body.staffId)
+      if (!staff || staff.role !== 'staff') { json(res, 403, { error: 'no_staff' }); return }
+      const s = ensureSession(body.sessionId)
+      if (!s) { json(res, 404, { error: 'no_session' }); return }
+      if (staff.sessionId !== s.id) { json(res, 403, { error: 'forbidden' }); return }
+      const pin = String(crypto.randomInt(0, 1000000)).padStart(6, '0')
+      s.tableChangePin = pin
+      s.tableChangePinExpiresAt = now() + (10 * 60 * 1000)
+      try { await saveSessionToRedis(s.id) } catch {}
+      json(res, 200, { ok: true, pin })
+      return
+    }
     if (pathname === '/api/user/change-table' && req.method === 'POST') {
       const body = await parseBody(req)
       const u = state.users.get(body.userId)
       if (!u) { json(res, 404, { error: 'no_user' }); return }
+      const s = ensureSession(u.sessionId)
+      if (!s) { json(res, 404, { error: 'no_session' }); return }
+      const sessionPin = String(s.tableChangePin || '').trim()
+      const pin = String(body.pin || '').trim()
+      if (!sessionPin) { json(res, 403, { error: 'pin_required' }); return }
+      if (s.tableChangePinExpiresAt && Number(s.tableChangePinExpiresAt) <= now()) { json(res, 403, { error: 'pin_expired' }); return }
+      if (!pin || pin !== sessionPin) { json(res, 403, { error: 'bad_pin' }); return }
       const hourKey = u.id
       const bucket = state.rate.tableChangesByUserHour.get(hourKey) || []
       const fresh = bucket.filter(ts => within(60*60*1000, ts))

@@ -2393,6 +2393,7 @@ function bind() {
       setTimeout(() => showError(''), 1000)
     } catch (e) { showError('No se pudo copiar') }
   }
+  const genTablePinBtn = q('btn-generate-table-pin'); if (genTablePinBtn) genTablePinBtn.onclick = generateTableChangePin
   const catalogSearch = q('catalog-search'); if (catalogSearch) catalogSearch.oninput = () => scheduleLater('catalog_search', applyCatalogSearch, 320)
   const btnWelcomeVenuePinSend = q('btn-welcome-venue-pin-send'); if (btnWelcomeVenuePinSend) btnWelcomeVenuePinSend.onclick = sendVenuePinAdminWelcome
   const savePB = q('btn-save-public-base')
@@ -2796,6 +2797,15 @@ function openCallWaiter() {
   show('screen-call-waiter')
 }
 
+async function generateTableChangePin() {
+  try {
+    const r = await api('/api/staff/table-change-pin', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, staffId: S.user.id }) })
+    const out = q('staff-table-change-pin'); if (out) out.value = r.pin || ''
+    showError('PIN generado')
+    setTimeout(() => showError(''), 1000)
+  } catch (e) { showError('No se pudo generar PIN'); setTimeout(() => showError(''), 1200) }
+}
+
 async function sendWaiterCall() {
   let reason = ''
   if (S.waiterReason === 'hielo') reason = 'Me puedes traer hielo'
@@ -2805,6 +2815,7 @@ async function sendWaiterCall() {
   else if (S.waiterReason === 'agua') reason = 'Me puedes traer agua'
   else if (S.waiterReason === 'cubiertos') reason = 'Me puedes traer cubiertos'
   else if (S.waiterReason === 'servilletas') reason = 'Me puedes traer servilletas'
+  else if (S.waiterReason === 'pin_cambio_mesa') reason = 'Necesito PIN para cambio de mesa'
   else if (S.waiterReason === 'custom') reason = (S.waiterCustomReason || 'Atención')
   else { reason = 'Atención' }
   const phr = reason ? `Vas a llamar al mesero: ${reason}. ¿Confirmas?` : `Vas a llamar al mesero. ¿Confirmas?`
@@ -2867,6 +2878,7 @@ async function viewPromos() {
 function openSelectTable() {
   loadSelectTableList()
   q('select-table-manual').value = ''
+  q('select-table-pin').value = ''
   show('screen-select-table')
 }
 
@@ -2879,21 +2891,42 @@ async function loadSelectTableList() {
     div.className = 'item'
     div.textContent = `${m.tableId} • Personas ${m.people}`
     div.onclick = async () => {
-      await api('/api/user/change-table', { method: 'POST', body: JSON.stringify({ userId: S.user.id, newTable: m.tableId }) })
-      show('screen-user-home')
+      const ok = await changeTableWithPin(m.tableId)
+      if (ok) show('screen-user-home')
     }
     container.append(div)
   }
+}
+
+function handleChangeTableError(msg) {
+  if (msg === 'pin_required') showError('Solicita el PIN de cambio de mesa')
+  else if (msg === 'pin_expired') showError('PIN vencido, solicita uno nuevo')
+  else if (msg === 'bad_pin') showError('PIN incorrecto')
+  else if (msg === 'table_changes_limit') showError('Límite de cambios de mesa')
+  else showError('No se pudo cambiar la mesa')
+  setTimeout(() => showError(''), 1400)
+}
+
+async function changeTableWithPin(newTable) {
+  const pin = q('select-table-pin')?.value.trim()
+  if (!pin) { showError('Ingresa el PIN de cambio de mesa'); setTimeout(() => showError(''), 1400); return false }
+  try {
+    await api('/api/user/change-table', { method: 'POST', body: JSON.stringify({ userId: S.user.id, newTable, pin }) })
+  } catch (e) {
+    handleChangeTableError(String(e.message || 'error'))
+    return false
+  }
+  S.user.tableId = newTable
+  const ut = q('user-table'); if (ut) ut.textContent = S.user.tableId || '-'
+  return true
 }
 
 async function saveSelectTable() {
   const manualRaw = q('select-table-manual').value.trim()
   const manual = normalizeTableId(manualRaw)
   if (!manual) { show('screen-user-home'); return }
-  await api('/api/user/change-table', { method: 'POST', body: JSON.stringify({ userId: S.user.id, newTable: manual }) })
-  S.user.tableId = manual
-  const ut = q('user-table'); if (ut) ut.textContent = S.user.tableId || '-'
-  show('screen-user-home')
+  const ok = await changeTableWithPin(manual)
+  if (ok) show('screen-user-home')
 }
 
 async function loadUserOrders() {
@@ -3523,6 +3556,19 @@ async function saveStaffPromos() {
   showError('Promos guardadas')
   setTimeout(() => showError(''), 1000)
 }
+function setCatalogTip(mode) {
+  const tip = q('catalog-tip')
+  if (!tip) return
+  if (isRestaurantMode()) {
+    tip.textContent = mode === 'invite'
+      ? 'Guía rápida para invitar: abre un plato, elige cantidad y agrégalo al carrito'
+      : 'Guía rápida para pedir: abre un plato, elige cantidad y agrégalo al carrito'
+    return
+  }
+  tip.textContent = mode === 'invite'
+    ? 'Guía rápida para invitar: toca un producto, ajusta cantidad y agrega al carrito'
+    : 'Guía rápida para pedir: toca un producto, ajusta cantidad y agrega al carrito'
+}
 async function openConsumption() {
   await loadCatalog()
   const target = q('consumption-target'), sendBtn = q('btn-consumption-send')
@@ -3542,6 +3588,7 @@ async function openConsumption() {
   if (cats) cats.style.display = ''
   if (grid) grid.style.display = 'none'
   if (back) back.style.display = 'none'
+  setCatalogTip('invite')
   showCatalogTop()
   show('screen-consumption')
 }
@@ -3564,6 +3611,7 @@ async function openMenu() {
   if (cats) cats.style.display = ''
   if (grid) grid.style.display = 'none'
   if (back) back.style.display = 'none'
+  setCatalogTip('menu')
   showCatalogTop()
   show('screen-consumption')
 }
