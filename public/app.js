@@ -858,6 +858,8 @@ async function join(role, codeOverride = '', pinOverride = '') {
       try {
         const u = new URL(location.href)
         if (u.searchParams.get('dj') === '1') { showError('Acceso DJ solo staff'); return }
+        const vid = u.searchParams.get('venueId') || ''
+        if (vid) S.venueId = vid
       } catch {}
       const venueKey = makeLocalKey(S.venueId || 'default', getCurrentModeKey())
       let local = null
@@ -1265,7 +1267,9 @@ async function ensurePushSubscription() {
   if (!S.user || S.role !== 'user') return
   let perm = Notification.permission
   if (perm === 'default') {
-    try { perm = await Notification.requestPermission() } catch { return }
+    const ok = await requestNotificationPermission()
+    if (!ok) return
+    perm = Notification.permission
   }
   if (perm !== 'granted') return
   let keyResp = null
@@ -3296,7 +3300,7 @@ async function startScanQR() {
             if (data.startsWith('sess_')) {
               const base = location.origin
               const modeQuery = isRestaurantMode() ? '&mode=restaurant' : ''
-              const url = `${base}/?venueId=${encodeURIComponent(S.venueId || 'default')}&sessionId=${encodeURIComponent(data)}&aj=1${modeQuery}`
+              const url = `${base}/?sessionId=${encodeURIComponent(data)}&aj=1${modeQuery}`
               const tracks = stream.getTracks(); tracks.forEach(t => t.stop())
               location.href = url
               return
