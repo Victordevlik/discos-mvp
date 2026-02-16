@@ -1730,13 +1730,13 @@ const server = http.createServer(async (req, res) => {
       json(res, 200, { enabled: true, publicKey: VAPID_PUBLIC_KEY })
       return
     }
-    if (pathname === '/api/push/test' && req.method === 'POST') {
+    if (pathname === '/api/push/test' && (req.method === 'POST' || req.method === 'GET')) {
       if (!PUSH_ENABLED) { json(res, 503, { error: 'push_disabled' }); return }
       if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
       if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
-      const body = await parseBody(req)
-      const venueId = String(body.venueId || '').trim()
-      const mode = normalizeMode(body.mode || '')
+      const body = req.method === 'POST' ? (await parseBody(req)) : {}
+      const venueId = String((req.method === 'GET' ? query.venueId : body.venueId) || '').trim()
+      const mode = normalizeMode((req.method === 'GET' ? (query.mode || '') : (body.mode || '')))
       if (!venueId) { json(res, 400, { error: 'bad_input' }); return }
       const ok = await loadSessionFromRedisByIndex(venueId, mode)
       if (!ok) { json(res, 404, { error: 'no_session' }); return }
