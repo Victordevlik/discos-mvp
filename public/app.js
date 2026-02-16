@@ -1471,6 +1471,13 @@ function updateTipSticker() {
     const m = q('modal'); if (m) m.classList.remove('show')
     if (document.hidden) { S.missed.push(msg) } else { showError(msg); setTimeout(() => showError(''), 1500) }
   })
+  S.sse.addEventListener('consumption_status_updated', e => {
+    const data = JSON.parse(e.data)
+    // Remove the accepted consumption invite from the queue
+    if (data.requestId) {
+      S.invitesQueue = S.invitesQueue.filter(x => !(x.type === 'consumption' && x.data && x.data.requestId === data.requestId))
+    }
+  })
   S.sse.addEventListener('dj_update', e => {
     const data = JSON.parse(e.data)
     const r = data.request || {}
