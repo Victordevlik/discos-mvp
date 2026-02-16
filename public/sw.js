@@ -11,7 +11,7 @@ self.addEventListener('push', e => {
     body,
     icon: '/favicon.ico',
     badge: '/favicon.ico',
-    data: { url, type: data.type || '', inviteId: data.inviteId || '' }
+    data: { url, type: data.type || '', inviteId: data.inviteId || data.requestId || '' }
   }
   e.waitUntil(self.registration.showNotification(title, options))
 })

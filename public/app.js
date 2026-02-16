@@ -155,7 +155,7 @@ function show(id) {
 }
 function maybeAutoCancelMeetingOnLeave(nextId) {
   try {
-    if (S.nav && S.nav.current === 'screen-meeting' && nextId !== 'screen-meeting' && S.meeting && S.isMeetingReceiver && String(S.user?.danceState || '') === 'waiting') {
+    if (S.nav && S.nav.current === 'screen-meeting' && nextId !== 'screen-meeting' && S.meeting && S.isMeetingReceiver && String(S.user?.danceState || '') === 'waiting' && !S.meetingConfirming) {
       const meetingId = S.meeting.id
       S.meeting = null
       S.meetingPlan = ''
@@ -1248,6 +1248,18 @@ async function ensurePushSubscription() {
   }
   try { await api('/api/push/subscribe', { method: 'POST', body: JSON.stringify({ userId: S.user.id, subscription: sub }) }) } catch {}
 }
+async function showSystemNotification(title, body, data) {
+  if (!('Notification' in window)) return
+  if (Notification.permission !== 'granted') return
+  const options = { body: body || '', icon: '/favicon.ico', badge: '/favicon.ico', data: data || {} }
+  try {
+    if ('serviceWorker' in navigator) {
+      const reg = await navigator.serviceWorker.getRegistration()
+      if (reg) { await reg.showNotification(title || 'Discos', options); return }
+    }
+  } catch {}
+  try { new Notification(title || 'Discos', options) } catch {}
+}
 
 function startEvents() {
   if (!S.user) return
@@ -1266,6 +1278,7 @@ function startEvents() {
     if (document.hidden) {
       const msg = `Invitación de baile de ${data.invite.from.alias}`
       S.missed.push(msg)
+      showSystemNotification('Invitación de baile', msg, { url: '/', type: 'dance_invite', inviteId: data.invite.id })
     }
     if (!S.inInviteFlow) { showNextInvite() }
   })
@@ -1357,6 +1370,7 @@ function startEvents() {
       const gTxt = g ? ` • ${g}` : ''
       const msg = `Invitación de consumo de ${data.from.alias}${gTxt}: ${data.product}`
       S.missed.push(msg)
+      showSystemNotification('Invitación de consumo', msg, { url: '/', type: 'consumption_invite', requestId: data.requestId || '' })
     }
     if (!S.inInviteFlow) { showNextInvite() }
   })
@@ -1374,6 +1388,7 @@ function startEvents() {
       const gTxt = g ? ` • ${g}` : ''
       const msg = `Invitación de consumo de ${data.from.alias}${gTxt}: ${listTxt}`
       S.missed.push(msg)
+      showSystemNotification('Invitación de consumo', msg, { url: '/', type: 'consumption_invite', requestId: data.requestId || '' })
     }
     if (!S.inInviteFlow) { showNextInvite() }
   })
@@ -1473,7 +1488,6 @@ function updateTipSticker() {
   })
   S.sse.addEventListener('consumption_status_updated', e => {
     const data = JSON.parse(e.data)
-    // Remove the accepted consumption invite from the queue
     if (data.requestId) {
       S.invitesQueue = S.invitesQueue.filter(x => !(x.type === 'consumption' && x.data && x.data.requestId === data.requestId))
     }
@@ -1679,9 +1693,14 @@ async function confirmMeeting() {
   const phr = planTxt ? `Vas a confirmar el encuentro: ${planTxt}. ¿Confirmas?` : 'Vas a confirmar el encuentro. ¿Confirmas?'
   const ok = await confirmAction(phr)
   if (!ok) return
-  showConfetti()
-  await api('/api/meeting/confirm', { method: 'POST', body: JSON.stringify({ meetingId: S.meeting.id, plan }) })
-  show('screen-user-home')
+  S.meetingConfirming = true
+  try {
+    showConfetti()
+    await api('/api/meeting/confirm', { method: 'POST', body: JSON.stringify({ meetingId: S.meeting.id, plan }) })
+    show('screen-user-home')
+  } finally {
+    S.meetingConfirming = false
+  }
 }
 function setMeetingPlan(plan) {
   S.meetingPlan = plan

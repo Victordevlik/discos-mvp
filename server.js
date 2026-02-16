@@ -2111,7 +2111,6 @@ const server = http.createServer(async (req, res) => {
         await dbInsertEvent({ sessionId: order.sessionId, entityType: 'order', entityId: order.id, eventType: 'created', payload: { product: order.product, quantity: order.quantity, price: order.price, total: order.total, emitterId: order.emitterId, receiverId: order.receiverId }, ts: createdAt }, client)
       })
       state.orders.set(orderId, order)
-      // Update consumption invite status to 'aceptado'
       const ci = Array.from(state.consumptionInvites.values()).find(ci => ci.fromId === fromId && ci.toId === toId && ci.product === itemName)
       if (ci) {
         ci.status = 'aceptado'
@@ -2168,7 +2167,6 @@ const server = http.createServer(async (req, res) => {
       })
       for (const order of orders) {
         state.orders.set(order.id, order)
-        // Update consumption invite status to 'aceptado' for each product
         const ci = Array.from(state.consumptionInvites.values()).find(ci => ci.fromId === fromId && ci.toId === toId && ci.product === order.product)
         if (ci) {
           ci.status = 'aceptado'
