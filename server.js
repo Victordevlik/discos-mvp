@@ -66,6 +66,11 @@ const GMAIL_SMTP_HOST = String(process.env.GMAIL_SMTP_HOST || 'smtp.gmail.com')
 const GMAIL_SMTP_PORT = Number(process.env.GMAIL_SMTP_PORT || 465)
 const GMAIL_SMTP_SECURE = String(process.env.GMAIL_SMTP_SECURE || 'true') === 'true'
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000
+const CLOUDINARY_CLOUD_NAME = String(process.env.CLOUDINARY_CLOUD_NAME || '')
+const CLOUDINARY_API_KEY = String(process.env.CLOUDINARY_API_KEY || '')
+const CLOUDINARY_API_SECRET = String(process.env.CLOUDINARY_API_SECRET || '')
+const CLOUDINARY_FOLDER = String(process.env.CLOUDINARY_FOLDER || 'discos')
+const REDIS_URL = String(process.env.REDIS_URL || process.env.RAILWAY_REDIS_URL || '')
 
 const DB_REQUIRED = String(process.env.DB_REQUIRED || 'false') === 'true'
 const DB_FAILFAST = String(process.env.DB_FAILFAST || 'false') === 'true'
@@ -75,6 +80,43 @@ let dbConn = ''
 let lastDbError = ''
 let dbTriedNoSsl = false
 let dbSslMode = 'auto'
+let cloudinary = null
+try {
+  if (CLOUDINARY_CLOUD_NAME && CLOUDINARY_API_KEY && CLOUDINARY_API_SECRET) {
+    const { v2 } = require('cloudinary')
+    cloudinary = v2
+    cloudinary.config({
+      cloud_name: CLOUDINARY_CLOUD_NAME,
+      api_key: CLOUDINARY_API_KEY,
+      api_secret: CLOUDINARY_API_SECRET
+    })
+  }
+} catch (e) {
+  log('error', 'cloudinary_init_failed', { error: String(e && (e.stack || e.message) || e) })
+}
+let redisClient = null
+let redisReady = false
+let redisInitError = ''
+async function initRedis() {
+  if (!REDIS_URL) return false
+  if (redisReady && redisClient) return true
+  try {
+    const { createClient } = require('redis')
+    redisClient = createClient({ url: REDIS_URL })
+    redisClient.on('error', (err) => {
+      redisInitError = String(err && (err.stack || err.message) || err)
+      log('error', 'redis_error', { error: redisInitError })
+    })
+    await redisClient.connect()
+    redisReady = true
+    redisInitError = ''
+    return true
+  } catch (e) {
+    redisInitError = String(e && (e.stack || e.message) || e)
+    log('error', 'redis_init_failed', { error: redisInitError })
+    return false
+  }
+}
 async function bootstrapDB() {
   try {
     await initDB()
@@ -763,6 +805,156 @@ function isSessionExpired(s) {
   ensureSessionExpiry(s)
   return Number(s.expiresAt || 0) <= now()
 }
+function sessionRedisKey(sessionId) { return `discos:session:${sessionId}` }
+function sessionIndexRedisKey(venueId, mode) { return `discos:session_index:${venueId}:${mode}` }
+function clearSessionData(sessionId) {
+  for (const [uid, u] of state.users.entries()) if (u.sessionId === sessionId) state.users.delete(uid)
+  for (const [k, v] of state.invites.entries()) if (v.sessionId === sessionId) state.invites.delete(k)
+  for (const [k, v] of state.meetings.entries()) if (v.sessionId === sessionId) state.meetings.delete(k)
+  for (const [k, v] of state.orders.entries()) if (v.sessionId === sessionId) state.orders.delete(k)
+  for (const [k, v] of state.consumptionInvites.entries()) if (v.sessionId === sessionId) state.consumptionInvites.delete(k)
+  for (const [k, v] of state.waiterCalls.entries()) if (v.sessionId === sessionId) state.waiterCalls.delete(k)
+  for (const [k, v] of state.djRequests.entries()) if (v.sessionId === sessionId) state.djRequests.delete(k)
+  state.reports = state.reports.filter(r => String(r.sessionId || '') !== String(sessionId))
+}
+function serializeUser(u) {
+  return {
+    ...u,
+    allowedSenders: Array.from(u.allowedSenders || []),
+  }
+}
+function serializeSessionState(sessionId) {
+  const s = state.sessions.get(sessionId)
+  if (!s) return null
+  ensureSessionExpiry(s)
+  const users = []
+  for (const u of state.users.values()) if (u.sessionId === sessionId) users.push(serializeUser(u))
+  const invites = []
+  for (const v of state.invites.values()) if (v.sessionId === sessionId) invites.push(v)
+  const meetings = []
+  for (const v of state.meetings.values()) if (v.sessionId === sessionId) meetings.push(v)
+  const orders = []
+  for (const v of state.orders.values()) if (v.sessionId === sessionId) orders.push(v)
+  const consumptionInvites = []
+  for (const v of state.consumptionInvites.values()) if (v.sessionId === sessionId) consumptionInvites.push(v)
+  const waiterCalls = []
+  for (const v of state.waiterCalls.values()) if (v.sessionId === sessionId) waiterCalls.push(v)
+  const djRequests = []
+  for (const v of state.djRequests.values()) if (v.sessionId === sessionId) djRequests.push(v)
+  const reports = state.reports.filter(r => String(r.sessionId || '') === String(sessionId))
+  return {
+    session: { ...s, closedTables: Array.from(s.closedTables || []) },
+    users,
+    invites,
+    meetings,
+    orders,
+    consumptionInvites,
+    waiterCalls,
+    djRequests,
+    reports,
+    blocks: Array.from(state.blocks || [])
+  }
+}
+function hydrateSessionState(payload) {
+  if (!payload || !payload.session || !payload.session.id) return false
+  const s = payload.session
+  s.closedTables = new Set(s.closedTables || [])
+  state.sessions.set(s.id, s)
+  clearSessionData(s.id)
+  if (Array.isArray(payload.users)) {
+    for (const u of payload.users) {
+      const next = { ...u, allowedSenders: new Set(u.allowedSenders || []) }
+      state.users.set(next.id, next)
+    }
+  }
+  if (Array.isArray(payload.invites)) {
+    for (const inv of payload.invites) state.invites.set(inv.id, inv)
+  }
+  if (Array.isArray(payload.meetings)) {
+    for (const m of payload.meetings) state.meetings.set(m.id, m)
+  }
+  if (Array.isArray(payload.orders)) {
+    for (const o of payload.orders) state.orders.set(o.id, o)
+  }
+  if (Array.isArray(payload.consumptionInvites)) {
+    for (const c of payload.consumptionInvites) state.consumptionInvites.set(c.id, c)
+  }
+  if (Array.isArray(payload.waiterCalls)) {
+    for (const w of payload.waiterCalls) state.waiterCalls.set(w.id, w)
+  }
+  if (Array.isArray(payload.djRequests)) {
+    for (const d of payload.djRequests) state.djRequests.set(d.id, d)
+  }
+  if (Array.isArray(payload.reports)) {
+    state.reports = state.reports.concat(payload.reports)
+  }
+  if (Array.isArray(payload.blocks)) {
+    state.blocks = new Set(payload.blocks)
+  }
+  return true
+}
+async function saveSessionToRedis(sessionId) {
+  const ok = await initRedis()
+  if (!ok || !redisClient) return false
+  const payload = serializeSessionState(sessionId)
+  if (!payload) return false
+  const ttlMs = Math.max(1000, Number(payload.session.expiresAt || 0) - now())
+  const key = sessionRedisKey(sessionId)
+  const idxKey = sessionIndexRedisKey(payload.session.venueId || 'default', getSessionMode(payload.session) || 'disco')
+  await redisClient.set(key, JSON.stringify(payload), { PX: ttlMs })
+  await redisClient.set(idxKey, sessionId, { PX: ttlMs })
+  return true
+}
+async function loadSessionFromRedis(sessionId) {
+  const ok = await initRedis()
+  if (!ok || !redisClient) return false
+  const key = sessionRedisKey(sessionId)
+  const raw = await redisClient.get(key)
+  if (!raw) return false
+  try {
+    const payload = JSON.parse(raw)
+    return hydrateSessionState(payload)
+  } catch {
+    return false
+  }
+}
+async function loadSessionFromRedisByIndex(venueId, mode) {
+  const ok = await initRedis()
+  if (!ok || !redisClient) return false
+  const idxKey = sessionIndexRedisKey(venueId || 'default', normalizeMode(mode || ''))
+  const sessionId = await redisClient.get(idxKey)
+  if (!sessionId) return false
+  if (state.sessions.has(sessionId)) return true
+  return await loadSessionFromRedis(sessionId)
+}
+async function purgeSessionFromRedis(sessionId) {
+  const ok = await initRedis()
+  if (!ok || !redisClient) return false
+  const s = state.sessions.get(sessionId)
+  const key = sessionRedisKey(sessionId)
+  if (s) {
+    const idxKey = sessionIndexRedisKey(s.venueId || 'default', getSessionMode(s) || 'disco')
+    await redisClient.del(idxKey)
+  }
+  await redisClient.del(key)
+  return true
+}
+async function uploadSelfieToCloudinary(selfieStr, user) {
+  if (!cloudinary) throw new Error('cloudinary_not_configured')
+  const folder = CLOUDINARY_FOLDER || 'discos'
+  const publicId = `${String(user.sessionId || 'sess')}_${String(user.id || 'user')}_${now()}`
+  const res = await cloudinary.uploader.upload(selfieStr, { folder, public_id: publicId, overwrite: true, resource_type: 'image' })
+  return { url: res.secure_url || res.url || '', publicId: res.public_id || publicId }
+}
+async function cleanupSessionSelfies(sessionId) {
+  if (!cloudinary) return
+  const targets = []
+  for (const u of state.users.values()) if (u.sessionId === sessionId && u.selfiePublicId) targets.push(u.selfiePublicId)
+  if (!targets.length) return
+  for (const pid of targets) {
+    try { await cloudinary.uploader.destroy(pid) } catch {}
+  }
+}
 
 function sendToUser(userId, event, data) {
   const clients = state.sseUsers.get(userId)
@@ -934,8 +1126,10 @@ function archiveSession(sessionId) {
     fs.writeFileSync(path.join(dataDir, `archive_${sessionId}_reports.csv`), reportsLines.join('\n'))
   } catch {}
 }
-function endAndArchive(sessionId) {
+async function endAndArchive(sessionId) {
   archiveSession(sessionId)
+  try { await cleanupSessionSelfies(sessionId) } catch {}
+  try { await purgeSessionFromRedis(sessionId) } catch {}
   state.sessions.delete(sessionId)
   // Cerrar SSE staff de la sesión
   const staffConns = state.sseStaff.get(sessionId) || []
@@ -994,7 +1188,7 @@ async function expireOldSessions() {
     if (isSessionExpired(s)) {
       sendToStaff(s.id, 'session_expired', { sessionId: s.id, venueId: s.venueId || '', expiredAt: now() })
       await closeAllTablesForSession(s.id)
-      endAndArchive(s.id)
+      await endAndArchive(s.id)
     }
   }
 }
@@ -1004,6 +1198,8 @@ function deactivateSession(sessionId) {
   ensureSessionExpiry(s)
   s.active = false
   s.endedAt = now()
+  try { cleanupSessionSelfies(sessionId) } catch {}
+  try { purgeSessionFromRedis(sessionId) } catch {}
   const staffConns = state.sseStaff.get(sessionId) || []
   for (const res of staffConns) { try { res.end() } catch {} state.sseStaffMeta.delete(res) }
   state.sseStaff.delete(sessionId)
@@ -1048,10 +1244,12 @@ const server = http.createServer(async (req, res) => {
         const body = await parseBody(req)
         const venueId = String(body.venueId || 'default')
         const mode = normalizeMode(body.mode || '')
+        try { await loadSessionFromRedisByIndex(venueId, mode) } catch {}
         for (const s of state.sessions.values()) {
           ensureSessionExpiry(s)
           if (!isSessionExpired(s) && s.venueId === venueId && getSessionMode(s) === mode) {
             s.active = true
+            try { await saveSessionToRedis(s.id) } catch {}
             json(res, 200, { sessionId: s.id, pin: s.pin, venueId, reused: true, mode: s.mode || mode })
             return
           }
@@ -1067,6 +1265,7 @@ const server = http.createServer(async (req, res) => {
         const pin = String(Math.floor(1000 + Math.random() * 9000))
         const startedAt = now()
         state.sessions.set(sessionId, { id: sessionId, venueId, venue: body.venue || 'Venue', startedAt, expiresAt: startedAt + SESSION_TTL_MS, active: true, pin, publicBaseUrl: '', closedTables: new Set(), mode })
+        try { await saveSessionToRedis(sessionId) } catch {}
         json(res, 200, { sessionId, pin, venueId, mode })
         return
       } catch (e) {
@@ -1077,6 +1276,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/session/active' && req.method === 'GET') {
       const venueId = String(query.venueId || '')
       const mode = normalizeMode(query.mode || '')
+      try { await loadSessionFromRedisByIndex(venueId, mode) } catch {}
       for (const s of state.sessions.values()) {
         ensureSessionExpiry(s)
         if (isSessionExpired(s)) continue
@@ -1096,14 +1296,16 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/api/session/info' && req.method === 'GET') {
       const sessionId = String(query.sessionId || '')
-      const s = ensureSession(sessionId)
+      let s = ensureSession(sessionId)
+      if (!s && sessionId) { try { await loadSessionFromRedis(sessionId) } catch {} s = ensureSession(sessionId) }
       if (!s) { json(res, 404, { error: 'no_session' }); return }
       json(res, 200, { sessionId: s.id, venueId: s.venueId, mode: s.mode || 'disco' })
       return
     }
     if (pathname === '/api/session/end' && req.method === 'POST') {
       const body = await parseBody(req)
-      const s = ensureSession(body.sessionId)
+      let s = ensureSession(body.sessionId)
+      if (!s && body.sessionId) { try { await loadSessionFromRedis(body.sessionId) } catch {} s = ensureSession(body.sessionId) }
       if (!s) { json(res, 404, { error: 'no_session' }); return }
       const pinStr = String(body.pin || '')
       const adminSecret = String(req.headers['x-admin-secret'] || query.admin_secret || '')
@@ -1123,7 +1325,8 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/api/session/public-base' && req.method === 'POST') {
       const body = await parseBody(req)
-      const s = ensureSession(body.sessionId)
+      let s = ensureSession(body.sessionId)
+      if (!s && body.sessionId) { try { await loadSessionFromRedis(body.sessionId) } catch {} s = ensureSession(body.sessionId) }
       if (!s) { json(res, 404, { error: 'no_session' }); return }
       const pinStr = String(body.pin || '')
       const adminSecret = String(req.headers['x-admin-secret'] || query.admin_secret || '')
@@ -1143,7 +1346,8 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/api/session/mode' && req.method === 'POST') {
       const body = await parseBody(req)
-      const s = ensureSession(body.sessionId)
+      let s = ensureSession(body.sessionId)
+      if (!s && body.sessionId) { try { await loadSessionFromRedis(body.sessionId) } catch {} s = ensureSession(body.sessionId) }
       if (!s) { json(res, 404, { error: 'no_session' }); return }
       const pinStr = String(body.pin || '')
       const adminSecret = String(req.headers['x-admin-secret'] || query.admin_secret || '')
@@ -1162,14 +1366,16 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/api/session/public-base' && req.method === 'GET') {
       const sessionId = query.sessionId
-      const s = ensureSession(sessionId)
+      let s = ensureSession(sessionId)
+      if (!s && sessionId) { try { await loadSessionFromRedis(sessionId) } catch {} s = ensureSession(sessionId) }
       if (!s) { json(res, 404, { error: 'no_session' }); return }
       json(res, 200, { publicBaseUrl: s.publicBaseUrl || '' })
       return
     }
     if (pathname === '/api/join' && req.method === 'POST') {
       const body = await parseBody(req)
-      const s = ensureSession(body.sessionId)
+      let s = ensureSession(body.sessionId)
+      if (!s && body.sessionId) { try { await loadSessionFromRedis(body.sessionId) } catch {} s = ensureSession(body.sessionId) }
       if (!s) { json(res, 404, { error: 'no_session' }); return }
       const role = body.role === 'staff' ? 'staff' : 'user'
       if (role === 'staff') {
@@ -1234,10 +1440,19 @@ const server = http.createServer(async (req, res) => {
         err = 'bad_format'
       }
       if (!okImage) { json(res, 400, { error: 'bad_image', reason: err }); return }
-      u.selfie = selfieStr
+      let upload = null
+      try {
+        upload = await uploadSelfieToCloudinary(selfieStr, u)
+      } catch (e) {
+        json(res, 500, { error: 'selfie_upload_failed' })
+        return
+      }
+      if (!upload || !upload.url) { json(res, 500, { error: 'selfie_upload_failed' }); return }
+      u.selfie = upload.url
+      u.selfiePublicId = upload.publicId || ''
       u.selfieApproved = true
       try { await dbUpsertUser(u) } catch {}
-      json(res, 200, { ok: true })
+      json(res, 200, { ok: true, selfie: u.selfie })
       return
     }
     // Admin: listar venues
@@ -1344,7 +1559,7 @@ const server = http.createServer(async (req, res) => {
       const venueId = String(body.venueId || '').trim()
       if (!venueId) { json(res, 400, { error: 'bad_input' }); return }
       for (const s of state.sessions.values()) {
-        if (s.venueId === venueId) endAndArchive(s.id)
+        if (s.venueId === venueId) await endAndArchive(s.id)
       }
       if (db) {
         try {
@@ -2688,7 +2903,8 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/api/catalog' && req.method === 'GET') {
       const sessionId = query.sessionId
-      const s = sessionId ? ensureSession(sessionId) : null
+      let s = sessionId ? ensureSession(sessionId) : null
+      if (!s && sessionId) { try { await loadSessionFromRedis(sessionId) } catch {} s = ensureSession(sessionId) }
       const mode = s && s.mode ? s.mode : query.mode
       const venueId = (s && s.venueId) ? s.venueId : String(query.venueId || '')
       if (db) {
@@ -2848,6 +3064,12 @@ server.on('request', (req, res) => {
     res.end('')
   }
 })
+
+setInterval(async () => {
+  if (!REDIS_URL) return
+  const sessions = Array.from(state.sessions.keys())
+  for (const sid of sessions) { try { await saveSessionToRedis(sid) } catch {} }
+}, 10000)
 
 setInterval(async () => {
   const nowTs = now()

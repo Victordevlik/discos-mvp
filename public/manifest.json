@@ -3,7 +3,7 @@
   "short_name": "Discos",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0f0f12",
-  "theme_color": "#4b6aff",
+  "background_color": "#120829",
+  "theme_color": "#2c6bff",
   "icons": []
 }
