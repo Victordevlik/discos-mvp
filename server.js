@@ -4,6 +4,8 @@ const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
 const os = require('os')
+let webpush = null
+try { webpush = require('web-push') } catch {}
 
 const SERVICE_NAME = String(process.env.SERVICE_NAME || 'discos')
 const LOG_LEVEL = String(process.env.LOG_LEVEL || 'info')
@@ -65,6 +67,13 @@ const GMAIL_SMTP_PASS = String(process.env.GMAIL_SMTP_PASS || '')
 const GMAIL_SMTP_HOST = String(process.env.GMAIL_SMTP_HOST || 'smtp.gmail.com')
 const GMAIL_SMTP_PORT = Number(process.env.GMAIL_SMTP_PORT || 465)
 const GMAIL_SMTP_SECURE = String(process.env.GMAIL_SMTP_SECURE || 'true') === 'true'
+const VAPID_PUBLIC_KEY = String(process.env.VAPID_PUBLIC_KEY || '')
+const VAPID_PRIVATE_KEY = String(process.env.VAPID_PRIVATE_KEY || '')
+const VAPID_SUBJECT = String(process.env.VAPID_SUBJECT || 'mailto:admin@example.com')
+const PUSH_ENABLED = !!(webpush && VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY)
+if (PUSH_ENABLED) {
+  try { webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY) } catch {}
+}
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000
 const CLOUDINARY_CLOUD_NAME = String(process.env.CLOUDINARY_CLOUD_NAME || '')
 const CLOUDINARY_API_KEY = String(process.env.CLOUDINARY_API_KEY || '')
@@ -997,6 +1006,45 @@ function sendToAllUsersInSession(sessionId, event, data) {
   }
 }
 
+function getPushSubs(u) {
+  const list = u && u.prefs && Array.isArray(u.prefs.pushSubs) ? u.prefs.pushSubs : []
+  return list.filter(s => s && s.endpoint)
+}
+function setPushSubs(u, list) {
+  u.prefs = u.prefs || {}
+  u.prefs.pushSubs = list
+}
+function upsertPushSub(u, sub) {
+  const endpoint = String(sub && sub.endpoint || '')
+  if (!endpoint) return getPushSubs(u)
+  const list = getPushSubs(u).filter(s => String(s.endpoint || '') !== endpoint)
+  list.unshift(sub)
+  const trimmed = list.slice(0, 5)
+  setPushSubs(u, trimmed)
+  return trimmed
+}
+async function sendPushToUser(userId, payload) {
+  if (!PUSH_ENABLED) return
+  const u = state.users.get(userId)
+  if (!u) return
+  const subs = getPushSubs(u)
+  if (!subs.length) return
+  const kept = []
+  for (const sub of subs) {
+    try {
+      await webpush.sendNotification(sub, payload)
+      kept.push(sub)
+    } catch (e) {
+      const code = Number(e && e.statusCode || 0)
+      if (code && code !== 404 && code !== 410) kept.push(sub)
+    }
+  }
+  if (kept.length !== subs.length) {
+    setPushSubs(u, kept)
+    try { await dbUpsertUser(u) } catch {}
+  }
+}
+
 function within(ms, ts) { return now() - ts < ms }
 
 function rateCanInvite(fromId, toId) {
@@ -1639,6 +1687,23 @@ const server = http.createServer(async (req, res) => {
       json(res, 200, { ok: true })
       return
     }
+    if (pathname === '/api/push/key' && req.method === 'GET') {
+      if (!PUSH_ENABLED) { json(res, 200, { enabled: false }); return }
+      json(res, 200, { enabled: true, publicKey: VAPID_PUBLIC_KEY })
+      return
+    }
+    if (pathname === '/api/push/subscribe' && req.method === 'POST') {
+      if (!PUSH_ENABLED) { json(res, 503, { error: 'push_disabled' }); return }
+      const body = await parseBody(req)
+      const u = state.users.get(body.userId)
+      if (!u) { json(res, 404, { error: 'no_user' }); return }
+      const sub = body.subscription || {}
+      if (!sub || !sub.endpoint) { json(res, 400, { error: 'bad_subscription' }); return }
+      upsertPushSub(u, sub)
+      try { await dbUpsertUser(u) } catch {}
+      json(res, 200, { ok: true })
+      return
+    }
     if (pathname === '/api/staff/table-change-pin' && req.method === 'POST') {
       const body = await parseBody(req)
       const staff = state.users.get(body.staffId)
@@ -1805,6 +1870,8 @@ const server = http.createServer(async (req, res) => {
       state.invites.set(invId, inv)
       const fromSelfie = from.selfie || ''
       sendToUser(to.id, 'dance_invite', { invite: { id: invId, from: { id: from.id, alias: from.alias, selfie: fromSelfie, tableId: from.tableId || '', zone: from.zone || '', gender: (from.prefs && from.prefs.gender) ? from.prefs.gender : '' } , msg, expiresAt: inv.expiresAt } })
+      const pushPayload = JSON.stringify({ title: 'Invitación de baile', body: `${from.alias || 'Alguien'} te invitó a bailar`, url: '/', type: 'dance_invite', inviteId: invId })
+      try { await sendPushToUser(to.id, pushPayload) } catch {}
       json(res, 200, { inviteId: invId, expiresAt: inv.expiresAt })
       return
     }

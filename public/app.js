@@ -1219,6 +1219,36 @@ async function sendInviteQuick(u) {
   }
 }
 
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const rawData = atob(base64)
+  const outputArray = new Uint8Array(rawData.length)
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i)
+  return outputArray
+}
+async function ensurePushSubscription() {
+  if (!('serviceWorker' in navigator)) return
+  if (!('PushManager' in window)) return
+  if (!('Notification' in window)) return
+  if (!S.user || S.role !== 'user') return
+  let perm = Notification.permission
+  if (perm === 'default') {
+    try { perm = await Notification.requestPermission() } catch { return }
+  }
+  if (perm !== 'granted') return
+  let keyResp = null
+  try { keyResp = await api('/api/push/key') } catch { return }
+  if (!keyResp || !keyResp.enabled || !keyResp.publicKey) return
+  const reg = await navigator.serviceWorker.ready
+  let sub = await reg.pushManager.getSubscription()
+  if (!sub) {
+    const appKey = urlBase64ToUint8Array(keyResp.publicKey)
+    sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: appKey })
+  }
+  try { await api('/api/push/subscribe', { method: 'POST', body: JSON.stringify({ userId: S.user.id, subscription: sub }) }) } catch {}
+}
+
 function startEvents() {
   if (!S.user) return
   if (S.sse) S.sse.close()
@@ -1239,6 +1269,7 @@ function startEvents() {
     }
     if (!S.inInviteFlow) { showNextInvite() }
   })
+  try { ensurePushSubscription() } catch {}
   S.sse.addEventListener('dance_status', e => {
     const data = JSON.parse(e.data)
     S.user = S.user || {}
