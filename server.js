@@ -2024,6 +2024,8 @@ const server = http.createServer(async (req, res) => {
       const ttlMs = computeInviteTTL(to)
       state.consumptionInvites.set(reqId, { id: reqId, sessionId: from.sessionId, fromId: from.id, toId: to.id, createdAt: now(), expiresAt: now() + ttlMs, seenAt: 0, notSeenNotified: false })
       sendToUser(to.id, 'consumption_invite', { requestId: reqId, from: { id: from.id, alias: from.alias, tableId: from.tableId || '', gender: (from.prefs && from.prefs.gender) ? from.prefs.gender : '' }, product, quantity: qty, note, expiresAt: now() + ttlMs })
+      const pushPayload = JSON.stringify({ title: 'Invitación de consumo', body: `${from.alias || 'Alguien'} te invitó ${qty} x ${product}`, url: '/', type: 'consumption_invite', requestId: reqId })
+      try { await sendPushToUser(to.id, pushPayload) } catch {}
       if (idemKey) await dbSetIdempotent(idemKey, pathname, 200, { requestId: reqId })
       json(res, 200, { requestId: reqId })
       return
@@ -2054,6 +2056,10 @@ const server = http.createServer(async (req, res) => {
       const ttlMsBulk = computeInviteTTL(to)
       state.consumptionInvites.set(reqId, { id: reqId, sessionId: from.sessionId, fromId: from.id, toId: to.id, createdAt: now(), expiresAt: now() + ttlMsBulk, seenAt: 0, notSeenNotified: false })
       sendToUser(to.id, 'consumption_invite_bulk', { requestId: reqId, from: { id: from.id, alias: from.alias, tableId: from.tableId || '', gender: (from.prefs && from.prefs.gender) ? from.prefs.gender : '' }, items: filtered, note, expiresAt: now() + ttlMsBulk })
+      const listTxt = filtered.slice(0, 2).map(it => `${it.quantity} x ${it.product}`).join(', ')
+      const moreTxt = filtered.length > 2 ? ` y ${filtered.length - 2} más` : ''
+      const pushPayload = JSON.stringify({ title: 'Invitación de consumo', body: `${from.alias || 'Alguien'} te invitó ${listTxt}${moreTxt}`, url: '/', type: 'consumption_invite', requestId: reqId })
+      try { await sendPushToUser(to.id, pushPayload) } catch {}
       if (idemKey) await dbSetIdempotent(idemKey, pathname, 200, { requestId: reqId })
       json(res, 200, { requestId: reqId })
       return
