@@ -880,6 +880,9 @@ async function join(role, codeOverride = '', pinOverride = '') {
           return
         }
       }
+      // Request notification permission before asking for alias
+      await requestNotificationPermission()
+      
       alias = (q('alias') ? q('alias').value.trim() : '')
       if (!alias) {
         alias = await promptInput('Ingresa tu alias', 'Tu alias')
@@ -1237,6 +1240,24 @@ function urlBase64ToUint8Array(base64String) {
   for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i)
   return outputArray
 }
+async function requestNotificationPermission() {
+  if (!('Notification' in window)) return false
+  if (Notification.permission === 'granted') return true
+  if (Notification.permission === 'denied') return false
+  
+  const message = 'Para recibir invitaciones de baile y consumo de otros usuarios, necesitamos tu permiso para enviarte notificaciones. Esto te permitirá enterarte cuando alguien te invite a bailar o compartir una copa.'
+  
+  const accepted = await confirmAction(message)
+  if (!accepted) return false
+  
+  try {
+    const perm = await Notification.requestPermission()
+    return perm === 'granted'
+  } catch {
+    return false
+  }
+}
+
 async function ensurePushSubscription() {
   if (!('serviceWorker' in navigator)) return
   if (!('PushManager' in window)) return
