@@ -1661,14 +1661,18 @@ const server = http.createServer(async (req, res) => {
       if (!s) { json(res, 404, { error: 'no_session' }); return }
       const sessionPin = String(s.tableChangePin || '').trim()
       const pin = String(body.pin || '').trim()
-      if (!sessionPin) { json(res, 403, { error: 'pin_required' }); return }
-      if (s.tableChangePinExpiresAt && Number(s.tableChangePinExpiresAt) <= now()) { json(res, 403, { error: 'pin_expired' }); return }
-      if (!pin || pin !== sessionPin) { json(res, 403, { error: 'bad_pin' }); return }
+      const newTable = String(body.newTable || '').slice(0,32)
+      const hasCurrent = String(u.tableId || '').trim()
+      if (hasCurrent && newTable && newTable !== hasCurrent) {
+        if (!sessionPin) { json(res, 403, { error: 'pin_required' }); return }
+        if (s.tableChangePinExpiresAt && Number(s.tableChangePinExpiresAt) <= now()) { json(res, 403, { error: 'pin_expired' }); return }
+        if (!pin || pin !== sessionPin) { json(res, 403, { error: 'bad_pin' }); return }
+      }
       const hourKey = u.id
       const bucket = state.rate.tableChangesByUserHour.get(hourKey) || []
       const fresh = bucket.filter(ts => within(60*60*1000, ts))
       if (fresh.length >= 2) { json(res, 429, { error: 'table_changes_limit' }); return }
-      u.tableId = String(body.newTable || '').slice(0,32)
+      u.tableId = newTable
       state.rate.tableChangesByUserHour.set(hourKey, [...fresh, now()])
       try { await dbUpsertUser(u) } catch {}
       json(res, 200, { ok: true })
