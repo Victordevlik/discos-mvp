@@ -1012,7 +1012,7 @@ function getPushSubs(u) {
 }
 function setPushSubs(u, list) {
   u.prefs = u.prefs || {}
-  u.prefs.pushSubs = list
+  u.prefs.pushSubs = Array.isArray(list) ? list : []
 }
 function upsertPushSub(u, sub) {
   const endpoint = String(sub && sub.endpoint || '')
@@ -1023,9 +1023,46 @@ function upsertPushSub(u, sub) {
   setPushSubs(u, trimmed)
   return trimmed
 }
+async function readSessionPayloadFromRedis(sessionId) {
+  const ok = await initRedis()
+  if (!ok || !redisClient) return null
+  const key = sessionRedisKey(sessionId)
+  const raw = await redisClient.get(key)
+  if (!raw) return null
+  try { return JSON.parse(raw) } catch { return null }
+}
+async function writeSessionPayloadToRedis(payload) {
+  if (!payload || !payload.session || !payload.session.id) return false
+  const ok = await initRedis()
+  if (!ok || !redisClient) return false
+  const ttlMs = Math.max(1000, Number(payload.session.expiresAt || 0) - now())
+  const key = sessionRedisKey(payload.session.id)
+  const idxKey = sessionIndexRedisKey(payload.session.venueId || 'default', getSessionMode(payload.session) || 'disco')
+  await redisClient.set(key, JSON.stringify(payload), { PX: ttlMs })
+  await redisClient.set(idxKey, payload.session.id, { PX: ttlMs })
+  return true
+}
+async function updatePushSubsInRedis(userId, sessionId, subs) {
+  if (!sessionId) return false
+  const payload = await readSessionPayloadFromRedis(sessionId)
+  if (!payload || !Array.isArray(payload.users)) return false
+  const idx = payload.users.findIndex(u => String(u.id || '') === String(userId))
+  if (idx < 0) return false
+  payload.users[idx].prefs = payload.users[idx].prefs || {}
+  payload.users[idx].prefs.pushSubs = Array.isArray(subs) ? subs : []
+  return await writeSessionPayloadToRedis(payload)
+}
 async function sendPushToUser(userId, payload) {
   if (!PUSH_ENABLED) return
-  const u = state.users.get(userId)
+  const stateUser = state.users.get(userId)
+  let sessionId = stateUser ? String(stateUser.sessionId || '') : ''
+  if (!sessionId && db) {
+    try { const u = await dbGetUser(userId); sessionId = u ? String(u.sessionId || '') : '' } catch {}
+  }
+  if (!sessionId) return
+  const sessionPayload = await readSessionPayloadFromRedis(sessionId)
+  if (!sessionPayload || !Array.isArray(sessionPayload.users)) return
+  const u = sessionPayload.users.find(u => String(u.id || '') === String(userId))
   if (!u) return
   const subs = getPushSubs(u)
   if (!subs.length) return
@@ -1041,6 +1078,7 @@ async function sendPushToUser(userId, payload) {
   }
   if (kept.length !== subs.length) {
     setPushSubs(u, kept)
+    try { await writeSessionPayloadToRedis(sessionPayload) } catch {}
     try { await dbUpsertUser(u) } catch {}
   }
 }
@@ -1701,6 +1739,7 @@ const server = http.createServer(async (req, res) => {
       if (!sub || !sub.endpoint) { json(res, 400, { error: 'bad_subscription' }); return }
       upsertPushSub(u, sub)
       try { await dbUpsertUser(u) } catch {}
+      try { await updatePushSubsInRedis(u.id, u.sessionId, getPushSubs(u)) } catch {}
       json(res, 200, { ok: true })
       return
     }
