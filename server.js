@@ -1730,6 +1730,30 @@ const server = http.createServer(async (req, res) => {
       json(res, 200, { enabled: true, publicKey: VAPID_PUBLIC_KEY })
       return
     }
+    if (pathname === '/api/push/test' && req.method === 'POST') {
+      if (!PUSH_ENABLED) { json(res, 503, { error: 'push_disabled' }); return }
+      if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const body = await parseBody(req)
+      const venueId = String(body.venueId || '').trim()
+      const mode = normalizeMode(body.mode || '')
+      if (!venueId) { json(res, 400, { error: 'bad_input' }); return }
+      const ok = await loadSessionFromRedisByIndex(venueId, mode)
+      if (!ok) { json(res, 404, { error: 'no_session' }); return }
+      let sessionId = ''
+      for (const s of state.sessions.values()) {
+        if (String(s.venueId || '') === venueId && normalizeMode(s.mode || '') === mode) { sessionId = s.id; break }
+      }
+      if (!sessionId) { json(res, 404, { error: 'no_session' }); return }
+      const payload = JSON.stringify({ title: 'Prueba push', body: 'Prueba de notificaciones', url: '/', type: 'test' })
+      let sent = 0
+      for (const u of state.users.values()) {
+        if (u.sessionId !== sessionId || u.role !== 'user') continue
+        try { await sendPushToUser(u.id, payload); sent++ } catch {}
+      }
+      json(res, 200, { ok: true, sent })
+      return
+    }
     if (pathname === '/api/push/subscribe' && req.method === 'POST') {
       if (!PUSH_ENABLED) { json(res, 503, { error: 'push_disabled' }); return }
       const body = await parseBody(req)
