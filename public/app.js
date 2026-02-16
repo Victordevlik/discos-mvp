@@ -945,13 +945,23 @@ async function saveProfile() {
   if (!isRestaurant && !gender) { showError(t('gender_required')); setTimeout(() => showError(''), 1200); return }
   if (!tableId) { showError('Ingresa tu mesa'); setTimeout(() => showError(''), 1200); return }
   if (!isRestaurant && !file) { showError('Debes subir tu selfie'); setTimeout(() => showError(''), 1400); return }
-  if (isRestaurant) {
-    await api('/api/user/update', { method: 'POST', body: JSON.stringify({ userId: S.user.id, alias, tableId }) })
-  } else {
-    const resp = await api('/api/user/profile', { method: 'POST', body: JSON.stringify({ userId: S.user.id, alias, selfie, gender }) })
-    await api('/api/user/change-table', { method: 'POST', body: JSON.stringify({ userId: S.user.id, newTable: tableId }) })
-    if (resp && resp.selfie) selfie = resp.selfie
+  showModal('Preparando tu perfil', 'Estamos cargando tus datos. En segundos disfrutarás una nueva experiencia.', 'info')
+  try {
+    if (isRestaurant) {
+      await api('/api/user/update', { method: 'POST', body: JSON.stringify({ userId: S.user.id, alias, tableId }) })
+    } else {
+      const resp = await api('/api/user/profile', { method: 'POST', body: JSON.stringify({ userId: S.user.id, alias, selfie, gender }) })
+      await api('/api/user/change-table', { method: 'POST', body: JSON.stringify({ userId: S.user.id, newTable: tableId }) })
+      if (resp && resp.selfie) selfie = resp.selfie
+    }
+  } catch (e) {
+    const msg = String(e && e.message || '')
+    showError(msg === 'no_user' ? 'Usuario no disponible' : 'No se pudo guardar el perfil')
+    setTimeout(() => showError(''), 1400)
+    const m = q('modal'); if (m) m.classList.remove('show')
+    return
   }
+  const m = q('modal'); if (m) m.classList.remove('show')
   S.user.alias = alias
   if (selfie) S.user.selfie = selfie
   S.user.tableId = tableId
