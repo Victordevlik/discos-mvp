@@ -439,3 +439,46 @@ body[data-theme="light"] .modal-inner {
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3) !important;
     border: 1px solid var(--glass-border) !important;
 }
+
+/* Mobile Fixes for Navigation and Toolbars */
+.nav-item {
+    padding: 8px 4px !important;
+    /* Overrides the global button padding */
+    gap: 4px !important;
+}
+
+.fab {
+    padding: 0 !important;
+    /* Overrides the global button padding to keep it completely round */
+}
+
+@media (max-width: 480px) {
+    .navbar {
+        padding: 10px 6px 24px 6px !important;
+        gap: 2px !important;
+    }
+
+    .nav-item {
+        padding: 6px 2px !important;
+    }
+
+    .nav-item span {
+        font-size: 10px !important;
+        letter-spacing: -0.02em !important;
+    }
+}
+
+@media (max-width: 360px) {
+    .navbar {
+        padding: 8px 2px 20px 2px !important;
+        gap: 0px !important;
+    }
+
+    .nav-item {
+        padding: 6px 0px !important;
+    }
+
+    .nav-item span {
+        font-size: 9px !important;
+    }
+}

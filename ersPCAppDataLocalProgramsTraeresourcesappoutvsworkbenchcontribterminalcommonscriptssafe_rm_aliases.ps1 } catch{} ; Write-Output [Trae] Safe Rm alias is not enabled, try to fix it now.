@@ -66,3 +66,56 @@ warning: in the working copy of '.tools/mingit/mingw64/libexec/git-core/mergetoo
 warning: in the working copy of '.tools/mingit/mingw64/libexec/git-core/mergetools/codecompare', LF will be replaced by CRLF the next time Git touches it
 warning: in the working copy of '.tools/mingit/mingw64/libexec/git-core/mergetools/deltawalker', LF will be replaced by CRLF the next time Git touches it
 warning: in the working copy of '.tools/mingit/mingw64/libexec/git-core/mergetools/diffmerge', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/public/styles-premium.css b/public/styles-premium.css[m
+[1mindex f140e02..8b64b0d 100644[m
+[1m--- a/public/styles-premium.css[m
+[1m+++ b/public/styles-premium.css[m
+[36m@@ -438,4 +438,47 @@[m [mbody[data-theme="light"] .modal-inner {[m
+     border-radius: 20px !important;[m
+     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3) !important;[m
+     border: 1px solid var(--glass-border) !important;[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m/* Mobile Fixes for Navigation and Toolbars */[m
+[32m+[m[32m.nav-item {[m
+[32m+[m[32m    padding: 8px 4px !important;[m
+[32m+[m[32m    /* Overrides the global button padding */[m
+[32m+[m[32m    gap: 4px !important;[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m.fab {[m
+[32m+[m[32m    padding: 0 !important;[m
+[32m+[m[32m    /* Overrides the global button padding to keep it completely round */[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m@media (max-width: 480px) {[m
+[32m+[m[32m    .navbar {[m
+[32m+[m[32m        padding: 10px 6px 24px 6px !important;[m
+[32m+[m[32m        gap: 2px !important;[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    .nav-item {[m
+[32m+[m[32m        padding: 6px 2px !important;[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    .nav-item span {[m
+[32m+[m[32m        font-size: 10px !important;[m
+[32m+[m[32m        letter-spacing: -0.02em !important;[m
+[32m+[m[32m    }[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m@media (max-width: 360px) {[m
+[32m+[m[32m    .navbar {[m
+[32m+[m[32m        padding: 8px 2px 20px 2px !important;[m
+[32m+[m[32m        gap: 0px !important;[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    .nav-item {[m
+[32m+[m[32m        padding: 6px 0px !important;[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    .nav-item span {[m
+[32m+[m[32m        font-size: 9px !important;[m
+[32m+[m[32m    }[m
+ }[m
+\ No newline at end of file[m
