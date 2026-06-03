@@ -4,6 +4,7 @@ const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
 const os = require('os')
+const zlib = require('zlib')
 let webpush = null
 try { webpush = require('web-push') } catch {}
 
@@ -58,7 +59,7 @@ if (!fs.existsSync(dataDir)) { try { fs.mkdirSync(dataDir) } catch {} }
 const GLOBAL_STAFF_PIN = String(process.env.STAFF_PIN || '')
 const ALLOW_GLOBAL_STAFF_PIN = String(process.env.ALLOW_GLOBAL_STAFF_PIN || 'false') === 'true'
 const ADMIN_SECRET = String(process.env.ADMIN_SECRET || '')
-const ADMIN_STAFF_SECRET = String(process.env.ADMIN_STAFF_SECRET || '2207')
+const ADMIN_STAFF_SECRET = String(process.env.ADMIN_STAFF_SECRET || '')
 const RESEND_API_KEY = String(process.env.RESEND_API_KEY || '')
 const SENDGRID_API_KEY = String(process.env.SENDGRID_API_KEY || '')
 const EMAIL_FROM = String(process.env.EMAIL_FROM || '')
@@ -565,15 +566,13 @@ async function dbInsertEvent(evt, client = null) {
 // Autorización admin: requiere ADMIN_SECRET por header o query
 function isAdminAuthorized(req, query) {
   const headerSecret = String(req.headers['x-admin-secret'] || '')
-  const querySecret = String(query.admin_secret || '')
   if (!ADMIN_SECRET) return false
-  return headerSecret === ADMIN_SECRET || querySecret === ADMIN_SECRET
+  return headerSecret === ADMIN_SECRET
 }
 function isStaffAuthorized(req, query) {
   const headerSecret = String(req.headers['x-staff-secret'] || '')
-  const querySecret = String(query.staff_secret || '')
   if (!ADMIN_STAFF_SECRET) return false
-  return headerSecret === ADMIN_STAFF_SECRET || querySecret === ADMIN_STAFF_SECRET
+  return headerSecret === ADMIN_STAFF_SECRET
 }
 function normalizeMode(mode) {
   const v = String(mode || '').toLowerCase()
@@ -757,14 +756,49 @@ function json(res, code, obj) {
   res.end(JSON.stringify(obj))
 }
 
+const BODY_SIZE_LIMIT = 2 * 1024 * 1024
+class BodyTooLargeError extends Error { constructor() { super('body_too_large'); this.code = 'BODY_TOO_LARGE' } }
+
+const _ipBuckets = new Map()
+function getClientIp(req) {
+  const xff = String(req.headers['x-forwarded-for'] || '')
+  if (xff) return xff.split(',')[0].trim()
+  return (req.socket && req.socket.remoteAddress) || ''
+}
+function ipRateLimited(ip, limit, windowMs) {
+  if (!ip) return false
+  const nowTs = Date.now()
+  const key = `${ip}:${windowMs}`
+  const bucket = _ipBuckets.get(key) || []
+  const fresh = bucket.filter(t => nowTs - t < windowMs)
+  if (fresh.length >= limit) return true
+  fresh.push(nowTs)
+  _ipBuckets.set(key, fresh)
+  return false
+}
+setInterval(() => {
+  const nowTs = Date.now()
+  for (const [k, times] of _ipBuckets.entries()) {
+    const windowMs = Number(k.split(':').pop()) || 60000
+    const fresh = times.filter(t => nowTs - t < windowMs)
+    if (!fresh.length) _ipBuckets.delete(k)
+    else _ipBuckets.set(k, fresh)
+  }
+}, 5 * 60 * 1000)
 function parseBody(req) {
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     const chunks = []
-    req.on('data', c => chunks.push(c))
+    let size = 0
+    req.on('data', c => {
+      size += c.length
+      if (size > BODY_SIZE_LIMIT) { reject(new BodyTooLargeError()); return }
+      chunks.push(c)
+    })
     req.on('end', () => {
       const raw = Buffer.concat(chunks).toString()
       try { resolve(JSON.parse(raw || '{}')) } catch { resolve({}) }
     })
+    req.on('error', reject)
   })
 }
 function getIdempotencyKey(req) {
@@ -817,13 +851,18 @@ function isSessionExpired(s) {
 function sessionRedisKey(sessionId) { return `discos:session:${sessionId}` }
 function sessionIndexRedisKey(venueId, mode) { return `discos:session_index:${venueId}:${mode}` }
 function clearSessionData(sessionId) {
-  for (const [uid, u] of state.users.entries()) if (u.sessionId === sessionId) state.users.delete(uid)
-  for (const [k, v] of state.invites.entries()) if (v.sessionId === sessionId) state.invites.delete(k)
-  for (const [k, v] of state.meetings.entries()) if (v.sessionId === sessionId) state.meetings.delete(k)
-  for (const [k, v] of state.orders.entries()) if (v.sessionId === sessionId) state.orders.delete(k)
-  for (const [k, v] of state.consumptionInvites.entries()) if (v.sessionId === sessionId) state.consumptionInvites.delete(k)
-  for (const [k, v] of state.waiterCalls.entries()) if (v.sessionId === sessionId) state.waiterCalls.delete(k)
-  for (const [k, v] of state.djRequests.entries()) if (v.sessionId === sessionId) state.djRequests.delete(k)
+  const toDelete = (map, sid) => { const keys = []; for (const [k, v] of map.entries()) if (v.sessionId === sid) keys.push(k); for (const k of keys) map.delete(k) }
+  const userIds = []; for (const [uid, u] of state.users.entries()) if (u.sessionId === sessionId) userIds.push(uid)
+  for (const uid of userIds) {
+    for (const bk of state.blocks) { if (bk.startsWith(uid + ':') || bk.endsWith(':' + uid)) state.blocks.delete(bk) }
+    state.users.delete(uid)
+  }
+  toDelete(state.invites, sessionId)
+  toDelete(state.meetings, sessionId)
+  toDelete(state.orders, sessionId)
+  toDelete(state.consumptionInvites, sessionId)
+  toDelete(state.waiterCalls, sessionId)
+  toDelete(state.djRequests, sessionId)
   state.reports = state.reports.filter(r => String(r.sessionId || '') !== String(sessionId))
 }
 function serializeUser(u) {
@@ -1230,11 +1269,16 @@ async function endAndArchive(sessionId) {
     const list = state.sseUsers.get(uid) || []
     for (const res of list) { try { res.end() } catch {} state.sseUserMeta.delete(res) }
     state.sseUsers.delete(uid)
+    for (const bk of state.blocks) { if (bk.startsWith(uid + ':') || bk.endsWith(':' + uid)) state.blocks.delete(bk) }
     state.users.delete(uid)
   }
-  for (const [k, v] of state.invites) if (v.sessionId === sessionId) state.invites.delete(k)
-  for (const [k, v] of state.meetings) if (v.sessionId === sessionId) state.meetings.delete(k)
-  for (const [k, v] of state.orders) if (v.sessionId === sessionId) state.orders.delete(k)
+  const cleanMap = (map) => { const keys = []; for (const [k, v] of map.entries()) if (v.sessionId === sessionId) keys.push(k); for (const k of keys) map.delete(k) }
+  cleanMap(state.invites)
+  cleanMap(state.meetings)
+  cleanMap(state.orders)
+  cleanMap(state.consumptionInvites)
+  cleanMap(state.waiterCalls)
+  cleanMap(state.djRequests)
 }
 async function closeAllTablesForSession(sessionId) {
   const s = ensureSession(sessionId)
@@ -1291,14 +1335,33 @@ function deactivateSession(sessionId) {
   state.sseStaff.delete(sessionId)
 }
 
+const STATIC_MIME = { '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.ico': 'image/x-icon', '.png': 'image/png', '.svg': 'image/svg+xml', '.webp': 'image/webp' }
+const STATIC_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'"
 function serveStatic(req, res, pathname) {
-  const filePath = path.join(__dirname, 'public', pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, ''))
+  const safeName = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '')
+  const filePath = path.join(__dirname, 'public', safeName)
+  if (!filePath.startsWith(path.join(__dirname, 'public'))) { res.writeHead(403); res.end('Forbidden'); return }
   fs.readFile(filePath, (err, data) => {
     if (err) { res.writeHead(404); res.end('Not found'); return }
-    const ext = path.extname(filePath)
-    const type = ext === '.html' ? 'text/html' : ext === '.js' ? 'application/javascript' : ext === '.css' ? 'text/css' : ext === '.json' ? 'application/json' : 'application/octet-stream'
-    res.writeHead(200, { 'Content-Type': type })
-    res.end(data)
+    const ext = path.extname(filePath).toLowerCase()
+    const type = STATIC_MIME[ext] || 'application/octet-stream'
+    const etag = `"${crypto.createHash('sha1').update(data).digest('hex').slice(0, 12)}"`
+    if (req.headers['if-none-match'] === etag) { res.writeHead(304); res.end(); return }
+    const canGzip = ['.js', '.css', '.json', '.html'].includes(ext)
+    const wantsGzip = (req.headers['accept-encoding'] || '').includes('gzip')
+    const cacheControl = ext === '.html' ? 'no-cache' : 'public, max-age=3600'
+    const headers = { 'Content-Type': type, 'ETag': etag, 'Cache-Control': cacheControl }
+    if (ext === '.html') headers['Content-Security-Policy'] = STATIC_CSP
+    if (canGzip && wantsGzip) {
+      zlib.gzip(data, (gzErr, compressed) => {
+        if (gzErr) { res.writeHead(200, headers); res.end(data); return }
+        res.writeHead(200, { ...headers, 'Content-Encoding': 'gzip', 'Vary': 'Accept-Encoding' })
+        res.end(compressed)
+      })
+    } else {
+      res.writeHead(200, headers)
+      res.end(data)
+    }
   })
 }
 
@@ -1325,7 +1388,9 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname.startsWith('/api/')) {
       await expireOldSessions()
+      const clientIp = getClientIp(req)
       if (pathname === '/api/session/start' && req.method === 'POST') {
+      if (ipRateLimited(clientIp, 10, 10 * 60 * 1000)) { json(res, 429, { error: 'rate_limit' }); return }
       try {
         const body = await parseBody(req)
         const venueId = String(body.venueId || 'default')
@@ -1373,7 +1438,7 @@ const server = http.createServer(async (req, res) => {
             const v = venues[s.venueId]
             venueName = (v && v.name) ? v.name : (venueName || s.venueId)
           } catch {}
-          json(res, 200, { active: true, sessionId: s.id, pin: s.pin, venueId: s.venueId, venueName, mode: s.mode || 'disco' })
+          json(res, 200, { active: true, sessionId: s.id, pin: s.pin, venueId: s.venueId, venueName, mode: s.mode || 'disco', expiresAt: s.expiresAt || 0 })
           return
         }
       }
@@ -1385,7 +1450,7 @@ const server = http.createServer(async (req, res) => {
       let s = ensureSession(sessionId)
       if (!s && sessionId) { try { await loadSessionFromRedis(sessionId) } catch {} s = ensureSession(sessionId) }
       if (!s) { json(res, 404, { error: 'no_session' }); return }
-      json(res, 200, { sessionId: s.id, venueId: s.venueId, mode: s.mode || 'disco' })
+      json(res, 200, { sessionId: s.id, venueId: s.venueId, mode: s.mode || 'disco', expiresAt: s.expiresAt || 0 })
       return
     }
     if (pathname === '/api/session/end' && req.method === 'POST') {
@@ -1459,6 +1524,7 @@ const server = http.createServer(async (req, res) => {
       return
     }
     if (pathname === '/api/join' && req.method === 'POST') {
+      if (ipRateLimited(clientIp, 30, 60 * 1000)) { json(res, 429, { error: 'rate_limit' }); return }
       const body = await parseBody(req)
       let s = ensureSession(body.sessionId)
       if (!s && body.sessionId) { try { await loadSessionFromRedis(body.sessionId) } catch {} s = ensureSession(body.sessionId) }
@@ -1499,6 +1565,7 @@ const server = http.createServer(async (req, res) => {
       return
     }
     if (pathname === '/api/user/profile' && req.method === 'POST') {
+      if (ipRateLimited(clientIp, 5, 60 * 1000)) { json(res, 429, { error: 'rate_limit' }); return }
       const body = await parseBody(req)
       const u = state.users.get(body.userId)
       if (!u) { json(res, 404, { error: 'no_user' }); return }
@@ -1517,7 +1584,7 @@ const server = http.createServer(async (req, res) => {
           const b64 = m[2]
           const buf = Buffer.from(b64, 'base64')
           const size = buf.length
-          const allowed = mime === 'image/jpeg' || mime === 'image/webp'
+          const allowed = mime === 'image/jpeg' || mime === 'image/webp' || mime === 'image/png'
           if (!allowed) { err = 'bad_mime' }
           else if (size > 500 * 1024) { err = 'too_big' }
           else okImage = true
@@ -2707,14 +2774,15 @@ const server = http.createServer(async (req, res) => {
       const u = state.users.get(body.userId)
       if (!u) { json(res, 404, { error: 'no_user' }); return }
       const partnerId = u.dancePartnerId || ''
+      const prevMeetingId = u.meetingId || ''
       const p = partnerId ? state.users.get(partnerId) : null
       u.danceState = 'idle'; u.dancePartnerId = ''; u.meetingId = ''
       if (p) { p.danceState = 'idle'; p.dancePartnerId = ''; p.meetingId = '' }
       try {
         sendToUser(u.id, 'dance_status', { state: 'idle' })
         if (p) sendToUser(p.id, 'dance_status', { state: 'idle' })
-        if (u.meetingId) {
-          const m = state.meetings.get(u.meetingId)
+        if (prevMeetingId) {
+          const m = state.meetings.get(prevMeetingId)
           if (m) {
             m.cancelled = true
             sendToStaff(m.sessionId, 'meeting_cancel', { meetingId: m.id })
@@ -2738,10 +2806,12 @@ const server = http.createServer(async (req, res) => {
       const reason = reqString(body.reason, 0, 140)
       const ts = now()
       const call = { id: callId, sessionId: u.sessionId, userId: u.id, tableId: u.tableId || '', reason, status: 'pendiente', ts }
-      await withDbTx(async (client) => {
-        await dbInsertWaiterCall(call, client)
-        await dbInsertEvent({ sessionId: call.sessionId, entityType: 'waiter_call', entityId: call.id, eventType: 'created', payload: { userId: call.userId, tableId: call.tableId, reason: call.reason }, ts }, client)
-      })
+      try {
+        await withDbTx(async (client) => {
+          await dbInsertWaiterCall(call, client)
+          await dbInsertEvent({ sessionId: call.sessionId, entityType: 'waiter_call', entityId: call.id, eventType: 'created', payload: { userId: call.userId, tableId: call.tableId, reason: call.reason }, ts }, client)
+        })
+      } catch {}
       state.waiterCalls.set(callId, call)
       sendToStaff(call.sessionId, 'waiter_call', { call })
       sendToUser(call.userId, 'waiter_update', { call })
@@ -2796,8 +2866,8 @@ const server = http.createServer(async (req, res) => {
       const ttlMin = Math.max(0, Number(body.ttlMinutes || 0))
       s.djEnabled = enabled
       s.djEnabledUntil = enabled ? (ttlMin ? (now() + ttlMin * 60 * 1000) : 0) : 0
-      sendToStaff(s.sessionId, 'dj_toggle', { enabled: s.djEnabled, until: s.djEnabledUntil })
-      sendToAllUsersInSession(s.sessionId, 'dj_toggle', { enabled: s.djEnabled, until: s.djEnabledUntil })
+      sendToStaff(s.id, 'dj_toggle', { enabled: s.djEnabled, until: s.djEnabledUntil })
+      sendToAllUsersInSession(s.id, 'dj_toggle', { enabled: s.djEnabled, until: s.djEnabledUntil })
       json(res, 200, { ok: true, enabled: s.djEnabled, until: s.djEnabledUntil })
       return
     }
@@ -3224,6 +3294,10 @@ const server = http.createServer(async (req, res) => {
     }
     serveStatic(req, res, pathname)
   } catch (e) {
+    if (e && e.code === 'BODY_TOO_LARGE') {
+      try { json(res, 413, { error: 'body_too_large' }) } catch {}
+      return
+    }
     log('error', 'http_error', { requestId: rid, method: req.method, path: req.url, error: String(e && (e.stack || e.message) || e) })
     try { json(res, 500, { error: 'server_error', requestId: rid }) } catch {}
   }

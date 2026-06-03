@@ -28,6 +28,7 @@ async function syncSessionMode(sessionId) {
   if (!sessionId) return ''
   try {
     const r = await api(`/api/session/info?sessionId=${encodeURIComponent(sessionId)}`)
+    if (r.expiresAt) startSessionCountdown(r.expiresAt)
     return applyMode(r.mode || '')
   } catch {}
   return ''
@@ -162,8 +163,7 @@ function maybeAutoCancelMeetingOnLeave(nextId) {
       S.isMeetingReceiver = false
       S.inInviteFlow = false
       if (S.user) { S.user.danceState = 'idle'; S.user.dancePartnerId = ''; S.user.meetingId = '' }
-      showError('Encuentro cancelado')
-      setTimeout(() => showError(''), 1200)
+      toast('Encuentro cancelado', 'info', 2000)
       api('/api/meeting/cancel', { method: 'POST', body: JSON.stringify({ meetingId }) }).catch(() => {})
       scheduleRefreshDanceList()
     }
@@ -315,6 +315,7 @@ async function loadSessionInfo() {
       const r = await api(`/api/session/active?${qv}mode=${encodeURIComponent(mode)}`)
       pin = r.pin || ''
       if (r.mode) applyMode(r.mode)
+      if (r.expiresAt) startSessionCountdown(r.expiresAt)
     } catch {}
     let baseCandidate = ''
     try {
@@ -393,8 +394,7 @@ async function sendVenuePinAdminWelcome() {
       if (v) venueId = v
     } catch {}
     await apiStaff('/api/admin/venues/pin/send', secret, { method: 'POST', body: JSON.stringify({ venueId }) })
-    showError('PIN enviado al email')
-    setTimeout(() => showError(''), 1000)
+    toast('PIN enviado al email', 'success')
   } catch (e) { showError(String(e.message)) }
 }
 
@@ -472,6 +472,44 @@ function showError(msg) {
 }
 function showInfo(msg) { showModal('Info', msg || '', 'info') }
 function showSuccess(msg) { showModal('Listo', msg || '', 'success') }
+
+function toast(msg, type = 'info', duration = 3000) {
+  const container = document.getElementById('toast-container')
+  if (!container || !msg) return
+  const el = document.createElement('div')
+  el.className = `toast toast-${type}`
+  el.textContent = msg
+  container.appendChild(el)
+  requestAnimationFrame(() => { requestAnimationFrame(() => { el.classList.add('show') }) })
+  setTimeout(() => {
+    el.classList.remove('show')
+    setTimeout(() => { try { container.removeChild(el) } catch {} }, 280)
+  }, duration)
+}
+
+let _sessionCountdownInterval = 0
+function startSessionCountdown(expiresAt) {
+  stopSessionCountdown()
+  const chip = document.getElementById('session-ttl-chip')
+  if (!chip || !expiresAt) return
+  function update() {
+    const left = Math.max(0, expiresAt - Date.now())
+    if (!left) { chip.style.display = 'none'; stopSessionCountdown(); return }
+    const h = Math.floor(left / 3600000)
+    const m = Math.floor((left % 3600000) / 60000)
+    chip.textContent = h > 0 ? `${h}h ${m}m restantes` : `${m}m restantes`
+    chip.classList.toggle('ttl-warn', left < 30 * 60 * 1000)
+    chip.style.display = ''
+  }
+  update()
+  _sessionCountdownInterval = setInterval(update, 60000)
+}
+function stopSessionCountdown() {
+  if (_sessionCountdownInterval) { clearInterval(_sessionCountdownInterval); _sessionCountdownInterval = 0 }
+  const chip = document.getElementById('session-ttl-chip')
+  if (chip) chip.style.display = 'none'
+}
+
 function showImageModal(url) {
   showModal('', '', 'info')
   const t = q('modal-text')
@@ -1621,6 +1659,7 @@ function updateTipSticker() {
     try { if (S.sse) S.sse.close() } catch {}
     showModalAction('Sesión finalizada', 'La sesión de esta noche ha terminado', 'Aceptar', () => {
       try { removeLocalUser(S.venueId) } catch {}
+      stopSessionCountdown()
       S.sessionId = ''; S.user = null; S.role = ''; S.sse = null
       show('screen-welcome')
     }, 'info')
@@ -1819,7 +1858,7 @@ async function orderTable() {
   const inp = q('product'); if (inp) inp.value = ''
   const qn = q('quantity'); if (qn) qn.value = '1'
   showConfetti()
-  showError('Pedido para mesa creado')
+  toast('Pedido para mesa creado', 'success')
   setTimeout(() => showError(''), 1000)
 }
 
@@ -1892,13 +1931,14 @@ async function endStaffSession() {
   await api('/api/session/end', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, pin }) })
   try { if (S.sse) S.sse.close() } catch {}
   try { if (S.staffSSE) S.staffSSE.close() } catch {}
+  stopSessionCountdown()
   S.sessionId = ''; S.user = null; S.role = ''; S.sse = null; S.staffSSE = null
   try { removeLocalUser(S.venueId) } catch {}
   S.appMode = ''
   applyDiscoMode()
   setModeInUrl('')
   show('screen-venue-type')
-  showError('Sesión destruida')
+  toast('Sesión destruida', 'info')
   setTimeout(() => showError(''), 1200)
 }
 async function restartStaffSession() {
@@ -2449,9 +2489,8 @@ function bind() {
       const modeQuery = isRestaurantMode() ? '&mode=restaurant' : ''
       const href = `${base}/?venueId=${encodeURIComponent(S.venueId || 'default')}&aj=1${modeQuery}`
       await navigator.clipboard.writeText(href)
-      showError('Link copiado')
-      setTimeout(() => showError(''), 1000)
-    } catch (e) { showError('No se pudo copiar') }
+      toast('Link copiado', 'success', 2000)
+    } catch (e) { toast('No se pudo copiar', 'error') }
   }
   const copyStaffBtn = q('btn-copy-link-staff')
   if (copyStaffBtn) copyStaffBtn.onclick = async () => {
@@ -2465,9 +2504,8 @@ function bind() {
       const modeQuery = isRestaurantMode() ? '&mode=restaurant' : ''
       const href = `${base}/?venueId=${encodeURIComponent(S.venueId || 'default')}&staff=1${modeQuery}`
       await navigator.clipboard.writeText(href)
-      showError('Link Staff copiado')
-      setTimeout(() => showError(''), 1000)
-    } catch (e) { showError('No se pudo copiar') }
+      toast('Link Staff copiado', 'success', 2000)
+    } catch (e) { toast('No se pudo copiar', 'error') }
   }
   const copyDJBtn = q('btn-copy-link-dj')
   if (copyDJBtn) copyDJBtn.onclick = async () => {
@@ -2481,9 +2519,8 @@ function bind() {
       const modeQuery = isRestaurantMode() ? '&mode=restaurant' : ''
       const href = `${base}/?venueId=${encodeURIComponent(S.venueId || 'default')}&dj=1${modeQuery}`
       await navigator.clipboard.writeText(href)
-      showError('Link DJ copiado')
-      setTimeout(() => showError(''), 1000)
-    } catch (e) { showError('No se pudo copiar') }
+      toast('Link DJ copiado', 'success', 2000)
+    } catch (e) { toast('No se pudo copiar', 'error') }
   }
   const genTablePinBtn = q('btn-generate-table-pin'); if (genTablePinBtn) genTablePinBtn.onclick = generateTableChangePin
   const catalogSearch = q('catalog-search'); if (catalogSearch) catalogSearch.oninput = () => scheduleLater('catalog_search', applyCatalogSearch, 320)
@@ -3582,13 +3619,37 @@ async function loadAnalytics() {
   const orders = q('an-orders')
   if (orders) {
     orders.innerHTML = ''
-    for (const key of Object.keys(r.orders || {})) {
-      const chip = document.createElement('span')
-      chip.className = 'chip ' + (key === 'pendiente_cobro' ? 'pending' : key)
-      chip.textContent = `${key}: ${r.orders[key]}`
-      chip.onclick = () => { showStaffTab('orders'); loadOrders(key) }
-      orders.append(chip)
+    const orderData = r.orders || {}
+    const statusColors = { pendiente_cobro: '#ffb84b', cobrado: '#38d49c', en_preparacion: '#6a5cff', entregado: '#18d3ff', cancelado: '#888', expirado: '#ff4b6b' }
+    const statusLabels = { pendiente_cobro: 'Pendiente cobro', cobrado: 'Cobrado', en_preparacion: 'En preparación', entregado: 'Entregado', cancelado: 'Cancelado', expirado: 'Expirado' }
+    const maxVal = Math.max(1, ...Object.values(orderData).map(Number))
+    const bars = document.createElement('div')
+    bars.className = 'analytics-bars'
+    for (const key of Object.keys(orderData)) {
+      const val = Number(orderData[key] || 0)
+      if (!val) continue
+      const row = document.createElement('div')
+      row.className = 'analytics-bar-row'
+      row.style.cursor = 'pointer'
+      row.title = `Ver órdenes: ${statusLabels[key] || key}`
+      row.onclick = () => { showStaffTab('orders'); loadOrders(key) }
+      const lbl = document.createElement('div')
+      lbl.className = 'analytics-bar-label'
+      lbl.textContent = statusLabels[key] || key
+      const track = document.createElement('div')
+      track.className = 'analytics-bar-track'
+      const fill = document.createElement('div')
+      fill.className = 'analytics-bar-fill'
+      fill.style.width = `${Math.round((val / maxVal) * 100)}%`
+      fill.style.background = statusColors[key] || '#6a5cff'
+      track.appendChild(fill)
+      const num = document.createElement('div')
+      num.className = 'analytics-bar-val'
+      num.textContent = String(val)
+      row.append(lbl, track, num)
+      bars.append(row)
     }
+    orders.append(bars)
   }
   const bOrders = q('badge-tab-orders')
   if (bOrders) {
@@ -4251,7 +4312,7 @@ async function closeStaffTable() {
   const t = normalizeTableId(raw)
   if (!t) return
   await api('/api/staff/table/close', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, tableId: t, closed: true }) })
-  showError('Mesa cerrada (historial oculto)')
+  toast('Mesa cerrada', 'info')
   setTimeout(() => showError(''), 1000)
   viewStaffTableHistory()
 }
@@ -4260,7 +4321,7 @@ async function closeStaffTable2() {
   const t = normalizeTableId(raw)
   if (!t) return
   await api('/api/staff/table/close', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, tableId: t, closed: true }) })
-  showError('Mesa cerrada (historial oculto)')
+  toast('Mesa cerrada', 'info')
   setTimeout(() => showError(''), 1000)
   viewStaffTableHistory2()
 }
