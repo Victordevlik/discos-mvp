@@ -1336,7 +1336,6 @@ function deactivateSession(sessionId) {
 }
 
 const STATIC_MIME = { '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.ico': 'image/x-icon', '.png': 'image/png', '.svg': 'image/svg+xml', '.webp': 'image/webp' }
-const STATIC_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'"
 function serveStatic(req, res, pathname) {
   const safeName = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '')
   const filePath = path.join(__dirname, 'public', safeName)
@@ -1351,7 +1350,6 @@ function serveStatic(req, res, pathname) {
     const wantsGzip = (req.headers['accept-encoding'] || '').includes('gzip')
     const cacheControl = ext === '.html' ? 'no-cache' : 'public, max-age=3600'
     const headers = { 'Content-Type': type, 'ETag': etag, 'Cache-Control': cacheControl }
-    if (safeName === 'index.html') headers['Content-Security-Policy'] = STATIC_CSP
     if (canGzip && wantsGzip) {
       zlib.gzip(data, (gzErr, compressed) => {
         if (gzErr) { res.writeHead(200, headers); res.end(data); return }
