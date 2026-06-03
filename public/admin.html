@@ -264,7 +264,7 @@
       const secret = document.getElementById('admin-secret').value.trim()
       if (!secret) { showError('Ingresa clave admin'); return }
       try {
-        const st = await api('/api/admin/db-status?admin_secret=' + encodeURIComponent(secret))
+        const st = await api('/api/admin/db-status', { headers: { 'X-Admin-Secret': secret } })
         const el = document.getElementById('db-status')
         if (el) {
           let msg = st.connected ? 'DB conectada: los cambios persisten entre reinicios y deploys' : 'Sin DB: los cambios se guardan en archivo y pueden perderse en reinicios/deploys'
@@ -279,7 +279,7 @@
           el.className = 'info warn'
         }
       }
-      const r = await api('/api/admin/venues?admin_secret=' + encodeURIComponent(secret))
+      const r = await api('/api/admin/venues', { headers: { 'X-Admin-Secret': secret } })
       VENUES_CACHE = r.venues || []
       renderSummary(VENUES_CACHE)
       const f = document.getElementById('filter-text')
