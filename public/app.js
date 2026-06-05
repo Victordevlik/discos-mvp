@@ -977,7 +977,11 @@ async function join(role, codeOverride = '', pinOverride = '') {
     }
     startEvents()
   } catch (e) {
+    S.sessionId = ''
+    S.user = null
+    S.role = ''
     showError(String(e.message))
+    setTimeout(() => showError(''), 3000)
   }
 }
 

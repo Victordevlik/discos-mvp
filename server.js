@@ -1371,7 +1371,7 @@ function serveStatic(req, res, pathname) {
     if (req.headers['if-none-match'] === etag) { res.writeHead(304); res.end(); return }
     const canGzip = ['.js', '.css', '.json', '.html'].includes(ext)
     const wantsGzip = (req.headers['accept-encoding'] || '').includes('gzip')
-    const cacheControl = ext === '.html' ? 'no-cache' : 'public, max-age=3600'
+    const cacheControl = ['.html', '.js', '.css'].includes(ext) ? 'no-cache' : 'public, max-age=3600'
     const headers = { 'Content-Type': type, 'ETag': etag, 'Cache-Control': cacheControl }
     if (canGzip && wantsGzip) {
       zlib.gzip(data, (gzErr, compressed) => {
