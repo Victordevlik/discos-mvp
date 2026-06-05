@@ -933,7 +933,9 @@ async function join(role, codeOverride = '', pinOverride = '') {
     S.sessionId = code
     let r = null
     try {
-      r = await api('/api/join', { method: 'POST', body: JSON.stringify({ sessionId: code, role, pin, alias }) })
+      const joinPayload = { sessionId: code, role, pin, alias }
+      if (role === 'user' && _subscriber) joinPayload.subscriberId = _subscriber.id
+      r = await api('/api/join', { method: 'POST', body: JSON.stringify(joinPayload) })
     } catch (e) {
       if (role === 'user' && String(e.message) === 'no_session') {
         let active = null
@@ -942,7 +944,8 @@ async function join(role, codeOverride = '', pinOverride = '') {
         try { active = await api(`/api/session/active?${qv}mode=${encodeURIComponent(activeMode === 'restaurant' ? 'restaurant' : 'disco')}`) } catch {}
         if (active && active.sessionId) {
           S.sessionId = active.sessionId
-          r = await api('/api/join', { method: 'POST', body: JSON.stringify({ sessionId: active.sessionId, role, pin: '', alias }) })
+          const fp = { sessionId: active.sessionId, role, pin: '', alias }; if (role === 'user' && _subscriber) fp.subscriberId = _subscriber.id
+          r = await api('/api/join', { method: 'POST', body: JSON.stringify(fp) })
         } else {
           showError('Sin sesión activa para este local'); return
         }
@@ -1026,8 +1029,11 @@ async function saveProfile() {
   const subCode = subCodeInput ? subCodeInput.value.trim().toUpperCase() : ''
   if (subCode && S.user) {
     const tier = await redeemSubCode(S.user.id, subCode)
-    if (tier && tier !== 'free') { S.user.subscriptionTier = tier; toast(`Plan ${(TIER_LABELS||{})[tier]||tier} activado`, 'success') }
-    else if (subCode) toast('Código inválido o agotado', 'info')
+    if (tier && tier !== 'free') {
+      S.user.subscriptionTier = tier
+      toast(`Plan ${(TIER_LABELS||{})[tier]||tier} activado`, 'success')
+      await linkSubscriberTier(tier).catch(() => {})
+    } else if (subCode) toast('Código inválido o agotado', 'info')
   }
   try { saveLocalUser() } catch {}
   const selfieNote = q('selfie-note'); if (selfieNote) selfieNote.textContent = selfie ? 'Selfie cargada' : ''
@@ -2442,6 +2448,19 @@ function bind() {
   const btnPayCover = q('btn-pay-cover'); if (btnPayCover) btnPayCover.onclick = payCover
   const btnSaveEventInfo = q('btn-save-event-info'); if (btnSaveEventInfo) btnSaveEventInfo.onclick = saveEventInfo
   const subCodeInp = q('subscription-code'); if (subCodeInp) subCodeInp.oninput = validateSubCodeInput
+  const btnOpenSub = q('btn-open-subscription'); if (btnOpenSub) btnOpenSub.onclick = showSubscriberHome
+  const btnGoDirec = q('btn-go-directory'); if (btnGoDirec) btnGoDirec.onclick = openVenueDirectory
+  const btnViewSubHome = q('btn-view-sub-home'); if (btnViewSubHome) btnViewSubHome.onclick = showSubscriberHome
+  const navVenues = q('nav-venues'); if (navVenues) navVenues.onclick = openVenueDirectory
+  const btnSubReview = q('btn-submit-review'); if (btnSubReview) btnSubReview.onclick = submitVenueReview
+  const starRow = q('vp-star-row')
+  if (starRow) { starRow.querySelectorAll('.star').forEach(s => { s.onclick = () => renderStars(Number(s.dataset.v)) }) }
+  const dirSearch = q('dir-search')
+  if (dirSearch) dirSearch.oninput = () => {
+    const val = dirSearch.value.trim().toLowerCase()
+    if (!val) { renderVenueDirectory(_allVenues); return }
+    renderVenueDirectory(_allVenues.filter(v => (v.name + v.musicGenre + v.location).toLowerCase().includes(val)))
+  }
   const btnExploreMesas = q('btn-explore-mesas'); if (btnExploreMesas) btnExploreMesas.onclick = exploreMesas
   q('btn-edit-profile').onclick = openEditProfile
   q('btn-edit-save').onclick = saveEditProfile
@@ -3465,6 +3484,7 @@ function init() {
     setTheme('dark')
     try { localStorage.setItem('discos_theme', 'dark') } catch {}
   } catch { setTheme('dark') }
+  initSubscriber().catch(() => {})
 }
 
 init()
@@ -4509,6 +4529,373 @@ async function saveEventInfo() {
 function renderDiscountBadgeOnOrder(order) {
   if (!order || !order.discountPct || order.discountPct <= 0) return ''
   return ` 🏷️ -${order.discountPct}%`
+}
+
+// ─── SUSCRIPTOR PERSISTENTE ──────────────────────────────────────────────────
+
+const SUB_STORAGE_KEY = 'discos_subscriber_id'
+let _subscriber = null
+
+function getSubscriberId() {
+  try { return localStorage.getItem(SUB_STORAGE_KEY) || '' } catch { return '' }
+}
+function saveSubscriberId(id) {
+  try { localStorage.setItem(SUB_STORAGE_KEY, id) } catch {}
+}
+
+async function initSubscriber() {
+  const existingId = getSubscriberId()
+  if (!existingId) return
+  try {
+    const r = await api(`/api/subscriber/profile?subscriberId=${encodeURIComponent(existingId)}`)
+    _subscriber = r.subscriber
+    renderSubscriberStatus()
+  } catch {}
+}
+
+async function registerOrGetSubscriber(tier) {
+  const existingId = getSubscriberId()
+  try {
+    const r = await api('/api/subscriber/register', { method: 'POST', body: JSON.stringify({ subscriberId: existingId || undefined, tier: tier || 'free' }) })
+    _subscriber = r.subscriber
+    saveSubscriberId(r.subscriberId)
+    renderSubscriberStatus()
+    return r.subscriber
+  } catch { return null }
+}
+
+async function linkSubscriberTier(tier) {
+  let sub = _subscriber
+  if (!sub) sub = await registerOrGetSubscriber(tier)
+  if (!sub) return
+  try {
+    await api('/api/subscriber/set-tier', { method: 'POST', body: JSON.stringify({ subscriberId: sub.id, tier }) })
+    _subscriber = { ..._subscriber, tier }
+    renderSubscriberStatus()
+  } catch {}
+}
+
+function renderSubscriberStatus() {
+  const sub = _subscriber
+  const row = q('sub-profile-row')
+  const badge = q('sub-profile-badge')
+  const preview = q('sub-profile-benefits-preview')
+  const homeBadge = q('sub-home-badge')
+  if (!sub) {
+    if (row) row.style.display = 'none'
+    return
+  }
+  if (row) row.style.display = ''
+  const tierLabel = TIER_LABELS[sub.tier] || sub.tier
+  const color = TIER_COLORS[sub.tier] || '#aaa'
+  if (badge) { badge.textContent = `Plan ${tierLabel}`; badge.style.cssText = `background:#1a1a2e;color:${color};font-weight:600` }
+  if (preview) preview.textContent = `Siguiendo ${(sub.following || []).length} venues • ${(sub.visitHistory || []).length} noches`
+  if (homeBadge) { homeBadge.textContent = `Plan ${tierLabel}`; homeBadge.style.cssText = `background:#1a1a2e;color:${color};font-weight:600` }
+}
+
+// ─── SUBSCRIBER HOME ─────────────────────────────────────────────────────────
+
+async function showSubscriberHome() {
+  if (!_subscriber) {
+    const subId = getSubscriberId()
+    if (subId) await initSubscriber()
+    if (!_subscriber) {
+      const sub = await registerOrGetSubscriber('free')
+      if (!sub) { toast('No se pudo cargar el perfil de suscripción', 'info'); return }
+    }
+  }
+  show('screen-subscriber-home')
+  renderSubscriberStatus()
+  loadSubscriberActiveSessions()
+  loadSubscriberBenefits()
+  loadSubscriberFollowing()
+  loadSubscriberHistory()
+}
+
+async function loadSubscriberActiveSessions() {
+  const sub = _subscriber
+  if (!sub) return
+  const card = q('sub-active-sessions-card')
+  const list = q('sub-active-sessions-list')
+  if (!card || !list) return
+  try {
+    const r = await api(`/api/subscriber/active-sessions?subscriberId=${encodeURIComponent(sub.id)}`)
+    const sessions = r.sessions || []
+    if (!sessions.length) { card.style.display = 'none'; return }
+    card.style.display = ''
+    list.innerHTML = ''
+    for (const s of sessions) {
+      const el = document.createElement('div')
+      el.style.cssText = 'padding:10px 0;border-bottom:1px solid #222;display:flex;align-items:center;justify-content:space-between'
+      const info = document.createElement('div')
+      const parts = []
+      if (s.eventName) parts.push(s.eventName)
+      if (s.djName) parts.push('DJ: ' + s.djName)
+      parts.push(`${s.userCount} personas`)
+      info.innerHTML = `<div style="font-weight:600">${s.venueName}</div><div style="font-size:12px;color:#aaa">${parts.join(' • ')}</div>`
+      const btn = document.createElement('button')
+      btn.className = 'success'
+      btn.textContent = 'Unirme'
+      btn.style.cssText = 'font-size:12px;padding:6px 14px'
+      btn.onclick = () => joinFromSubscriber(s.sessionId, s.venueId)
+      el.appendChild(info); el.appendChild(btn)
+      list.appendChild(el)
+    }
+  } catch { card.style.display = 'none' }
+}
+
+async function loadSubscriberBenefits() {
+  const sub = _subscriber
+  if (!sub) return
+  const card = q('sub-benefits-card')
+  const list = q('sub-benefits-list')
+  if (!card || !list) return
+  try {
+    const r = await api(`/api/subscriber/benefits?subscriberId=${encodeURIComponent(sub.id)}`)
+    const benefits = (r.benefits || []).filter(b => b.hasDiscount && b.activeSession)
+    if (!benefits.length) { card.style.display = 'none'; return }
+    card.style.display = ''
+    list.innerHTML = ''
+    for (const b of benefits) {
+      const el = document.createElement('div')
+      el.style.cssText = 'padding:8px 0;border-bottom:1px solid #222;display:flex;align-items:center;justify-content:space-between'
+      const color = TIER_COLORS[b.tier] || '#aaa'
+      el.innerHTML = `<div><div style="font-weight:600">${b.venueName}</div><div style="font-size:12px;color:${color}">${b.discountPct}% OFF en consumos</div></div>`
+      list.appendChild(el)
+    }
+  } catch { card.style.display = 'none' }
+}
+
+async function loadSubscriberFollowing() {
+  const sub = _subscriber
+  if (!sub) return
+  const list = q('sub-following-list')
+  if (!list) return
+  if (!(sub.following || []).length) {
+    list.innerHTML = '<div style="color:#666;font-size:13px">No seguís ningún venue. Explorá el directorio.</div>'
+    return
+  }
+  try {
+    const r = await api('/api/venues/directory')
+    const myVenues = (r.venues || []).filter(v => (sub.following || []).includes(v.venueId))
+    if (!myVenues.length) { list.innerHTML = '<div style="color:#666;font-size:13px">No seguís ningún venue.</div>'; return }
+    list.innerHTML = ''
+    for (const v of myVenues) {
+      const el = document.createElement('div')
+      el.style.cssText = 'padding:8px 0;border-bottom:1px solid #222;display:flex;align-items:center;justify-content:space-between;cursor:pointer'
+      const dot = v.hasActiveSession ? '<span style="width:8px;height:8px;background:#4ade80;border-radius:50%;display:inline-block;margin-right:6px"></span>' : ''
+      el.innerHTML = `<div>${dot}<strong>${v.name}</strong><div style="font-size:12px;color:#aaa">${v.musicGenre || ''}</div></div><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 18l6-6-6-6" stroke="#aaa" stroke-width="2"/></svg>`
+      el.onclick = () => openVenueProfile(v.venueId)
+      list.appendChild(el)
+    }
+  } catch {}
+}
+
+async function loadSubscriberHistory() {
+  const sub = _subscriber
+  if (!sub || !(sub.visitHistory || []).length) return
+  const card = q('sub-history-card')
+  const list = q('sub-history-list')
+  if (!card || !list) return
+  card.style.display = ''
+  list.innerHTML = ''
+  for (const visit of (sub.visitHistory || []).slice(0, 10)) {
+    const el = document.createElement('div')
+    el.style.cssText = 'padding:8px 0;border-bottom:1px solid #222;display:flex;align-items:center;justify-content:space-between'
+    const d = new Date(visit.date)
+    const dateStr = `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`
+    el.innerHTML = `<div><strong>${visit.venueName || visit.venueId}</strong></div><span style="font-size:12px;color:#aaa">${dateStr}</span>`
+    list.appendChild(el)
+  }
+}
+
+async function joinFromSubscriber(sessionId, venueId) {
+  S.venueId = venueId || S.venueId
+  await join('user', sessionId)
+}
+
+// ─── VENUE DIRECTORY ─────────────────────────────────────────────────────────
+
+let _allVenues = []
+
+async function openVenueDirectory() {
+  show('screen-venue-directory')
+  const list = q('venue-directory-list')
+  if (list) list.innerHTML = '<div style="padding:20px;text-align:center;color:#aaa">Cargando...</div>'
+  try {
+    const r = await api('/api/venues/directory')
+    _allVenues = r.venues || []
+    renderVenueDirectory(_allVenues)
+  } catch { if (list) list.innerHTML = '<div style="padding:20px;color:#888">No se pudo cargar</div>' }
+}
+
+function renderVenueDirectory(venues) {
+  const list = q('venue-directory-list')
+  if (!list) return
+  if (!venues.length) { list.innerHTML = '<div style="padding:20px;color:#888;text-align:center">No hay venues disponibles</div>'; return }
+  list.innerHTML = ''
+  for (const v of venues) {
+    const card = document.createElement('div')
+    card.className = 'card'
+    card.style.cursor = 'pointer'
+    const isFollowing = _subscriber && ((_subscriber.following || []).includes(v.venueId))
+    const liveDot = v.hasActiveSession ? '<span style="width:8px;height:8px;background:#4ade80;border-radius:50%;display:inline-block;margin-right:6px;vertical-align:middle"></span>' : ''
+    const tierBadges = []
+    if (Number((v.discounts || {}).nocturno) > 0) tierBadges.push(`<span style="font-size:11px;color:${TIER_COLORS.nocturno};background:#0d1230;padding:2px 7px;border-radius:10px">Nocturno ${v.discounts.nocturno}% off</span>`)
+    if (Number((v.discounts || {}).premium) > 0) tierBadges.push(`<span style="font-size:11px;color:${TIER_COLORS.premium};background:#1a0d30;padding:2px 7px;border-radius:10px">Premium ${v.discounts.premium}% off</span>`)
+    const ratingStr = v.avgRating > 0 ? `<span style="color:#fbbf24">★ ${v.avgRating}</span> <span style="color:#666">(${v.reviewCount})</span>` : ''
+    card.innerHTML = `
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:15px">${liveDot}${v.name}</div>
+          ${v.musicGenre ? `<div style="font-size:12px;color:#aaa;margin-top:2px">${v.musicGenre}</div>` : ''}
+          ${v.location ? `<div style="font-size:12px;color:#666">${v.location}</div>` : ''}
+          ${ratingStr ? `<div style="font-size:12px;margin-top:4px">${ratingStr} • ${v.followerCount} seguidores</div>` : `<div style="font-size:12px;color:#555;margin-top:4px">${v.followerCount} seguidores</div>`}
+          ${tierBadges.length ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">${tierBadges.join('')}</div>` : ''}
+        </div>
+        <button class="${isFollowing ? 'secondary' : 'success'}" style="font-size:12px;padding:5px 12px;white-space:nowrap" data-venue="${v.venueId}">${isFollowing ? 'Siguiendo' : '+ Seguir'}</button>
+      </div>`
+    card.querySelector('button[data-venue]').onclick = (e) => { e.stopPropagation(); toggleFollowVenue(v.venueId, card.querySelector('button[data-venue]')) }
+    card.onclick = () => openVenueProfile(v.venueId)
+    list.appendChild(card)
+  }
+}
+
+async function toggleFollowVenue(venueId, btn) {
+  if (!_subscriber) {
+    const sub = await registerOrGetSubscriber('free')
+    if (!sub) { toast('Creá tu perfil primero', 'info'); return }
+  }
+  const isFollowing = (_subscriber.following || []).includes(venueId)
+  try {
+    const endpoint = isFollowing ? '/api/subscriber/unfollow' : '/api/subscriber/follow'
+    const r = await api(endpoint, { method: 'POST', body: JSON.stringify({ subscriberId: _subscriber.id, venueId }) })
+    _subscriber.following = r.following
+    if (btn) { btn.textContent = isFollowing ? '+ Seguir' : 'Siguiendo'; btn.className = isFollowing ? 'success' : 'secondary'; btn.style.cssText = 'font-size:12px;padding:5px 12px;white-space:nowrap' }
+    toast(isFollowing ? 'Dejaste de seguir el venue' : 'Seguís a este venue — te avisamos cuando abran', 'success')
+    renderSubscriberStatus()
+  } catch { toast('Error al actualizar', 'info') }
+}
+
+// ─── VENUE PROFILE ───────────────────────────────────────────────────────────
+
+let _currentVenueProfile = null
+let _selectedRating = 0
+
+async function openVenueProfile(venueId) {
+  show('screen-venue-profile')
+  _currentVenueProfile = null
+  _selectedRating = 0
+  const nameEl = q('vp-name')
+  if (nameEl) nameEl.textContent = 'Cargando...'
+  try {
+    const r = await api(`/api/venue/profile?venueId=${encodeURIComponent(venueId)}`)
+    _currentVenueProfile = r.venue
+    renderVenueProfile(r.venue)
+  } catch { toast('No se pudo cargar el venue', 'info') }
+}
+
+function renderVenueProfile(v) {
+  if (!v) return
+  const isFollowing = _subscriber && (_subscriber.following || []).includes(v.venueId)
+  const setEl = (id, val) => { const el = q(id); if (el) el.textContent = val || '' }
+  setEl('vp-name', v.name)
+  setEl('vp-genre', v.musicGenre ? `🎵 ${v.musicGenre}` : '')
+  setEl('vp-location', v.location ? `📍 ${v.location}` : '')
+  setEl('vp-description', v.description)
+  const followBtn = q('btn-venue-follow')
+  if (followBtn) {
+    followBtn.textContent = isFollowing ? 'Siguiendo' : '+ Seguir'
+    followBtn.className = isFollowing ? 'secondary' : 'success'
+    followBtn.onclick = () => toggleFollowFromProfile(v.venueId)
+  }
+  const liveCard = q('vp-live-card')
+  const liveInfo = q('vp-live-info')
+  const joinBtn = q('btn-venue-join')
+  if (v.hasActiveSession && v.activeSession) {
+    if (liveCard) liveCard.style.display = ''
+    const s = v.activeSession
+    const parts = []
+    if (s.eventName) parts.push(s.eventName)
+    if (s.djName) parts.push('DJ: ' + s.djName)
+    if (s.coverPrice > 0) parts.push('Cover: $' + s.coverPrice)
+    parts.push(`${s.userCount} personas`)
+    if (liveInfo) liveInfo.textContent = parts.join(' • ')
+    if (joinBtn) { joinBtn.style.display = ''; joinBtn.onclick = () => joinFromSubscriber(s.sessionId, v.venueId) }
+  } else {
+    if (liveCard) liveCard.style.display = 'none'
+  }
+  const discDiv = q('vp-discounts')
+  if (discDiv) {
+    discDiv.innerHTML = ''
+    const d = v.discounts || {}
+    if (Number(d.nocturno) > 0) { const b = document.createElement('span'); b.style.cssText = `font-size:12px;color:${TIER_COLORS.nocturno};background:#0d1230;padding:3px 10px;border-radius:12px`; b.textContent = `Nocturno ${d.nocturno}% off`; discDiv.appendChild(b) }
+    if (Number(d.premium) > 0) { const b = document.createElement('span'); b.style.cssText = `font-size:12px;color:${TIER_COLORS.premium};background:#1a0d30;padding:3px 10px;border-radius:12px`; b.textContent = `Premium ${d.premium}% off`; discDiv.appendChild(b) }
+  }
+  const eventsCard = q('vp-events-card')
+  const eventsList = q('vp-events-list')
+  if (v.upcomingEvents && v.upcomingEvents.length && eventsCard && eventsList) {
+    eventsCard.style.display = ''
+    eventsList.innerHTML = ''
+    for (const ev of v.upcomingEvents) {
+      const el = document.createElement('div')
+      el.style.cssText = 'padding:8px 0;border-bottom:1px solid #222'
+      const d = new Date(ev.date)
+      const dateStr = `${d.getDate()}/${d.getMonth() + 1} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
+      el.innerHTML = `<div style="font-weight:600">${ev.eventName || 'Evento'}</div><div style="font-size:12px;color:#aaa">${dateStr}${ev.djName ? ' • DJ: ' + ev.djName : ''}${ev.coverPrice > 0 ? ' • Cover: $' + ev.coverPrice : ''}</div>${ev.description ? `<div style="font-size:12px;color:#666;margin-top:2px">${ev.description}</div>` : ''}`
+      eventsList.appendChild(el)
+    }
+  } else if (eventsCard) { eventsCard.style.display = 'none' }
+  const avgEl = q('vp-avg-rating')
+  if (avgEl) avgEl.textContent = v.avgRating > 0 ? `★ ${v.avgRating} (${v.reviewCount})` : ''
+  const reviewsList = q('vp-reviews-list')
+  if (reviewsList) {
+    reviewsList.innerHTML = ''
+    for (const rev of (v.reviews || []).slice(0, 5)) {
+      const el = document.createElement('div')
+      el.style.cssText = 'padding:8px 0;border-bottom:1px solid #222'
+      const stars = '★'.repeat(rev.rating) + '☆'.repeat(5 - rev.rating)
+      const d = new Date(rev.date)
+      el.innerHTML = `<div style="color:#fbbf24;font-size:13px">${stars}</div>${rev.comment ? `<div style="font-size:13px;margin-top:2px">${rev.comment}</div>` : ''}<div style="font-size:11px;color:#555;margin-top:2px">${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()}</div>`
+      reviewsList.appendChild(el)
+    }
+  }
+  const reviewForm = q('vp-review-form')
+  const canReview = _subscriber && ((_subscriber.visitHistory || []).some(h => h.venueId === v.venueId))
+  if (reviewForm) reviewForm.style.display = canReview ? '' : 'none'
+  renderStars(0)
+}
+
+async function toggleFollowFromProfile(venueId) {
+  if (!_subscriber) {
+    const sub = await registerOrGetSubscriber('free')
+    if (!sub) return
+  }
+  const isFollowing = (_subscriber.following || []).includes(venueId)
+  const endpoint = isFollowing ? '/api/subscriber/unfollow' : '/api/subscriber/follow'
+  try {
+    const r = await api(endpoint, { method: 'POST', body: JSON.stringify({ subscriberId: _subscriber.id, venueId }) })
+    _subscriber.following = r.following
+    if (_currentVenueProfile) renderVenueProfile(_currentVenueProfile)
+    renderSubscriberStatus()
+    toast(isFollowing ? 'Dejaste de seguir' : 'Seguís este venue', 'success')
+  } catch {}
+}
+
+function renderStars(selected) {
+  _selectedRating = selected
+  const stars = document.querySelectorAll('#vp-star-row .star')
+  stars.forEach((s, i) => { s.style.color = i < selected ? '#fbbf24' : '#444' })
+}
+
+async function submitVenueReview() {
+  if (!_subscriber || !_currentVenueProfile || !_selectedRating) { toast('Seleccioná una calificación', 'info'); return }
+  const comment = q('vp-review-comment') ? q('vp-review-comment').value.trim() : ''
+  try {
+    await api('/api/subscriber/review', { method: 'POST', body: JSON.stringify({ subscriberId: _subscriber.id, venueId: _currentVenueProfile.venueId, rating: _selectedRating, comment }) })
+    toast('Reseña enviada', 'success')
+    await openVenueProfile(_currentVenueProfile.venueId)
+  } catch { toast('Error al enviar reseña', 'info') }
 }
 
 

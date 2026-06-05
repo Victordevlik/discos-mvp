@@ -95,6 +95,15 @@
     </div>
     <div id="sub-codes-list" style="margin-top:12px"></div>
   </div>
+
+  <div class="section">
+    <div class="row">
+      <h3>Perfil de venue &amp; Eventos</h3>
+      <button id="btn-load-venue-profiles" class="info">Cargar</button>
+    </div>
+    <p style="font-size:13px;color:#aaa">Configura la descripción, género musical y próximos eventos de cada venue. Los suscriptores lo ven en el directorio.</p>
+    <div id="venue-profiles-list"></div>
+  </div>
   <script>
     async function api(path, { method = 'GET', headers = {}, body } = {}) {
       const res = await fetch(path, {
@@ -479,6 +488,67 @@
       } catch (e) { showError(String(e.message)) }
     }
     document.getElementById('btn-load-codes').onclick = () => loadSubCodes().catch(e => showError(String(e.message)))
+
+    async function loadVenueProfiles() {
+      const container = document.getElementById('venue-profiles-list')
+      container.innerHTML = '<div style="color:#aaa;font-size:13px">Cargando...</div>'
+      const res = await api('/api/venues/directory', { headers: { 'X-Admin-Secret': secret } })
+      const venues = res.venues || []
+      container.innerHTML = ''
+      if (!venues.length) { container.innerHTML = '<div style="color:#666">No hay venues</div>'; return }
+      for (const v of venues) {
+        const card = document.createElement('div')
+        card.className = 'venue-card'
+        card.style.marginBottom = '12px'
+        card.innerHTML = `
+          <strong>${v.name}</strong> <span style="color:#aaa;font-size:12px">(${v.venueId})</span>
+          <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px">
+            <input id="vp-desc-${v.venueId}" placeholder="Descripción (ej. Club underground con música house)" value="${v.description || ''}" style="width:100%">
+            <div class="row" style="gap:6px">
+              <input id="vp-genre-${v.venueId}" placeholder="Género musical (ej. Techno, House)" value="${v.musicGenre || ''}" style="flex:1">
+              <input id="vp-loc-${v.venueId}" placeholder="Ubicación (ej. Palermo, CABA)" value="${v.location || ''}" style="flex:1">
+            </div>
+            <button id="btn-save-vp-${v.venueId}" class="success" style="align-self:flex-start">Guardar perfil</button>
+          </div>
+          <div style="margin-top:12px;border-top:1px solid #333;padding-top:10px">
+            <strong style="font-size:13px">Próximos eventos</strong>
+            <div id="evt-list-${v.venueId}" style="margin:8px 0"></div>
+            <div class="row" style="gap:6px;flex-wrap:wrap;margin-top:6px">
+              <input id="evt-name-${v.venueId}" placeholder="Nombre del evento" style="flex:2;min-width:120px">
+              <input id="evt-dj-${v.venueId}" placeholder="DJ" style="flex:1;min-width:80px">
+              <input id="evt-date-${v.venueId}" type="datetime-local" style="flex:1;min-width:140px">
+              <input id="evt-cover-${v.venueId}" type="number" placeholder="Cover $" style="width:80px">
+              <button id="btn-add-evt-${v.venueId}" class="info" style="white-space:nowrap">+ Agregar</button>
+            </div>
+          </div>`
+        container.appendChild(card)
+        document.getElementById(`btn-save-vp-${v.venueId}`).onclick = async () => {
+          await api('/api/admin/venue/profile', { method: 'POST', headers: { 'X-Admin-Secret': secret }, body: JSON.stringify({ venueId: v.venueId, description: document.getElementById(`vp-desc-${v.venueId}`).value, musicGenre: document.getElementById(`vp-genre-${v.venueId}`).value, location: document.getElementById(`vp-loc-${v.venueId}`).value }) })
+          showSuccess('Perfil guardado')
+        }
+        const renderEvents = (events) => {
+          const evList = document.getElementById(`evt-list-${v.venueId}`)
+          evList.innerHTML = ''
+          if (!events || !events.length) { evList.innerHTML = '<div style="color:#666;font-size:12px">Sin eventos cargados</div>'; return }
+          for (const ev of events) {
+            const row = document.createElement('div')
+            row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #222'
+            const d = new Date(ev.date); const ds = `${d.getDate()}/${d.getMonth()+1} ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`
+            row.innerHTML = `<span style="flex:1;font-size:13px">${ev.eventName || 'Evento'} — ${ds}${ev.djName ? ' / DJ: '+ev.djName : ''}</span><button class="warning" style="font-size:11px;padding:3px 8px">Eliminar</button>`
+            row.querySelector('button').onclick = async () => { await api('/api/admin/venue/event', { method: 'DELETE', headers: { 'X-Admin-Secret': secret }, body: JSON.stringify({ venueId: v.venueId, eventId: ev.id }) }); await loadVenueProfiles() }
+            evList.appendChild(row)
+          }
+        }
+        renderEvents(v.upcomingEvents || [])
+        document.getElementById(`btn-add-evt-${v.venueId}`).onclick = async () => {
+          const dateVal = document.getElementById(`evt-date-${v.venueId}`).value
+          if (!dateVal) { alert('Ingresa fecha y hora'); return }
+          const r = await api('/api/admin/venue/event', { method: 'POST', headers: { 'X-Admin-Secret': secret }, body: JSON.stringify({ venueId: v.venueId, eventName: document.getElementById(`evt-name-${v.venueId}`).value, djName: document.getElementById(`evt-dj-${v.venueId}`).value, date: new Date(dateVal).getTime(), coverPrice: Number(document.getElementById(`evt-cover-${v.venueId}`).value || 0) }) })
+          renderEvents(r.events || [])
+        }
+      }
+    }
+    document.getElementById('btn-load-venue-profiles').onclick = () => loadVenueProfiles().catch(e => showError(String(e.message)))
   </script>
 </body>
 </html>

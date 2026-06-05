@@ -41,6 +41,7 @@ const state = {
   behaviorScore: new Map(),
   scoreLastDecay: 0,
   subscriptionCodes: new Map(),
+  subscribers: new Map(),
   rate: {
     invitesByUserHour: new Map(),
     lastInvitePair: new Map(),
@@ -68,6 +69,30 @@ function writeSubscriptionCodes(obj) {
 ;(function loadSubCodes() {
   try { const d = readSubscriptionCodes(); for (const [k, v] of Object.entries(d)) state.subscriptionCodes.set(k, v) } catch {}
 })()
+
+const subscribersPath = path.join(dataDir, 'subscribers.json')
+function readSubscribersFile() {
+  try { const raw = fs.readFileSync(subscribersPath, 'utf8'); const d = JSON.parse(raw || '{}'); return d && typeof d === 'object' ? d : {} } catch { return {} }
+}
+function writeSubscribersFile() {
+  try {
+    const obj = {}
+    for (const [k, v] of state.subscribers) obj[k] = v
+    fs.writeFileSync(subscribersPath, JSON.stringify(obj))
+  } catch {}
+}
+;(function loadSubscribers() {
+  try { const d = readSubscribersFile(); for (const [k, v] of Object.entries(d)) state.subscribers.set(k, v) } catch {}
+})()
+
+const venueProfilesPath = path.join(dataDir, 'venue_profiles.json')
+function readVenueProfiles() {
+  try { const raw = fs.readFileSync(venueProfilesPath, 'utf8'); const d = JSON.parse(raw || '{}'); return d && typeof d === 'object' ? d : {} } catch { return {} }
+}
+function writeVenueProfiles(obj) {
+  try { fs.writeFileSync(venueProfilesPath, JSON.stringify(obj)) } catch {}
+}
+let _venueProfiles = readVenueProfiles()
 const GLOBAL_STAFF_PIN = String(process.env.STAFF_PIN || '')
 const ALLOW_GLOBAL_STAFF_PIN = String(process.env.ALLOW_GLOBAL_STAFF_PIN || 'false') === 'true'
 const ADMIN_SECRET = String(process.env.ADMIN_SECRET || '')
@@ -1145,6 +1170,30 @@ async function sendPushToUser(userId, payload) {
   }
 }
 
+async function sendPushToSubscriber(subscriberId, payload) {
+  if (!PUSH_ENABLED) return
+  const sub = state.subscribers.get(subscriberId)
+  if (!sub || !Array.isArray(sub.pushSubs) || !sub.pushSubs.length) return
+  const kept = []
+  for (const pushSub of sub.pushSubs) {
+    try { await webpush.sendNotification(pushSub, typeof payload === 'string' ? payload : JSON.stringify(payload)); kept.push(pushSub) }
+    catch (e) { const code = Number(e && e.statusCode || 0); if (code && code !== 404 && code !== 410) kept.push(pushSub) }
+  }
+  if (kept.length !== sub.pushSubs.length) { sub.pushSubs = kept; writeSubscribersFile() }
+}
+
+async function notifyVenueFollowers(venueId, sessionData) {
+  for (const [subId, sub] of state.subscribers) {
+    if (!Array.isArray(sub.following) || !sub.following.includes(venueId)) continue
+    const bodyParts = []
+    if (sessionData.eventName) bodyParts.push(sessionData.eventName)
+    if (sessionData.djName) bodyParts.push('DJ: ' + sessionData.djName)
+    bodyParts.push(sessionData.coverPrice > 0 ? 'Cover: $' + sessionData.coverPrice : 'Sin cover')
+    const payload = JSON.stringify({ title: `${sessionData.venueName || venueId} está live 🎵`, body: bodyParts.join(' • '), url: `/?venueId=${encodeURIComponent(venueId)}&aj=1`, type: 'venue_live', sessionId: sessionData.sessionId })
+    try { await sendPushToSubscriber(subId, payload) } catch {}
+  }
+}
+
 function within(ms, ts) { return now() - ts < ms }
 
 function rateCanInvite(fromId, toId) {
@@ -1438,8 +1487,10 @@ const server = http.createServer(async (req, res) => {
         const startedAt = now()
         const coverPrice = Math.max(0, Number(body.coverPrice || 0))
         const coverEnabled = coverPrice > 0 || !!body.coverEnabled
-        state.sessions.set(sessionId, { id: sessionId, venueId, venue: body.venue || 'Venue', startedAt, expiresAt: startedAt + SESSION_TTL_MS, active: true, pin, publicBaseUrl: '', closedTables: new Set(), mode, eventName: String(body.eventName || '').slice(0, 80), djName: String(body.djName || '').slice(0, 60), coverPrice, coverEnabled })
+        const venueName = (venues[venueId] && venues[venueId].name) || body.venue || venueId
+        state.sessions.set(sessionId, { id: sessionId, venueId, venue: venueName, startedAt, expiresAt: startedAt + SESSION_TTL_MS, active: true, pin, publicBaseUrl: '', closedTables: new Set(), mode, eventName: String(body.eventName || '').slice(0, 80), djName: String(body.djName || '').slice(0, 60), coverPrice, coverEnabled })
         try { await saveSessionToRedis(sessionId) } catch {}
+        notifyVenueFollowers(venueId, { sessionId, venueName, eventName: body.eventName || '', djName: body.djName || '', coverPrice, mode }).catch(() => {})
         json(res, 200, { sessionId, pin, venueId, mode })
         return
       } catch (e) {
@@ -1585,6 +1636,19 @@ const server = http.createServer(async (req, res) => {
       const user = { id, sessionId: body.sessionId, role, alias: role === 'user' ? String(body.alias || '').trim().slice(0, 32) : '', selfie: '', selfieApproved: false, available: false, prefs: { tags: [], gender: '' }, zone: '', muted: false, receiveMode: 'all', allowedSenders: new Set(), tableId: '', visibility: 'visible', pausedUntil: 0, silenced: false, danceState: 'idle', dancePartnerId: '', meetingId: '', subscriptionTier, coverPaid: false }
       state.users.set(id, user)
       try { await dbUpsertUser(user) } catch {}
+      if (role === 'user' && body.subscriberId) {
+        const sub = state.subscribers.get(String(body.subscriberId))
+        if (sub) {
+          if (!Array.isArray(sub.visitHistory)) sub.visitHistory = []
+          const venues = await readVenues().catch(() => ({}))
+          const vn = (venues[s.venueId] && venues[s.venueId].name) || s.venueId
+          sub.visitHistory.unshift({ venueId: s.venueId, venueName: vn, sessionId: s.id, date: now() })
+          if (sub.visitHistory.length > 50) sub.visitHistory = sub.visitHistory.slice(0, 50)
+          if (sub.tier && sub.tier !== 'free' && subscriptionTier === 'free') subscriptionTier = sub.tier
+          user.subscriptionTier = subscriptionTier
+          writeSubscribersFile()
+        }
+      }
       json(res, 200, { user, coverPrice: s.coverPrice || 0, coverEnabled: !!s.coverEnabled })
       return
     }
@@ -3477,6 +3541,235 @@ const server = http.createServer(async (req, res) => {
       json(res, 200, { ips, port, urls })
       return
     }
+
+    // ─── SUBSCRIBER ENDPOINTS ────────────────────────────────────────────────
+
+    if (pathname === '/api/subscriber/register' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const existing = body.subscriberId ? state.subscribers.get(String(body.subscriberId)) : null
+      if (existing) { json(res, 200, { subscriberId: existing.id, subscriber: existing }); return }
+      const subscriberId = genId('sub')
+      const tier = SUBSCRIPTION_TIERS.includes(body.tier) ? body.tier : 'free'
+      const subscriber = { id: subscriberId, tier, following: [], visitHistory: [], pushSubs: [], createdAt: now() }
+      state.subscribers.set(subscriberId, subscriber)
+      writeSubscribersFile()
+      json(res, 200, { subscriberId, subscriber })
+      return
+    }
+
+    if (pathname === '/api/subscriber/profile' && req.method === 'GET') {
+      const subscriberId = String(query.subscriberId || '')
+      if (!subscriberId) { json(res, 400, { error: 'missing_subscriber_id' }); return }
+      const sub = state.subscribers.get(subscriberId)
+      if (!sub) { json(res, 404, { error: 'not_found' }); return }
+      json(res, 200, { subscriber: { id: sub.id, tier: sub.tier, following: sub.following || [], visitHistory: (sub.visitHistory || []).slice(0, 20), createdAt: sub.createdAt } })
+      return
+    }
+
+    if (pathname === '/api/subscriber/follow' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const sub = state.subscribers.get(String(body.subscriberId || ''))
+      if (!sub) { json(res, 404, { error: 'not_found' }); return }
+      const venueId = String(body.venueId || '')
+      if (!venueId) { json(res, 400, { error: 'missing_venue_id' }); return }
+      if (!Array.isArray(sub.following)) sub.following = []
+      if (!sub.following.includes(venueId)) { sub.following.push(venueId); writeSubscribersFile() }
+      json(res, 200, { ok: true, following: sub.following })
+      return
+    }
+
+    if (pathname === '/api/subscriber/unfollow' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const sub = state.subscribers.get(String(body.subscriberId || ''))
+      if (!sub) { json(res, 404, { error: 'not_found' }); return }
+      const venueId = String(body.venueId || '')
+      sub.following = (sub.following || []).filter(v => v !== venueId)
+      writeSubscribersFile()
+      json(res, 200, { ok: true, following: sub.following })
+      return
+    }
+
+    if (pathname === '/api/subscriber/push' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const sub = state.subscribers.get(String(body.subscriberId || ''))
+      if (!sub) { json(res, 404, { error: 'not_found' }); return }
+      if (body.pushSub && typeof body.pushSub === 'object') {
+        if (!Array.isArray(sub.pushSubs)) sub.pushSubs = []
+        const ep = String(body.pushSub.endpoint || '')
+        if (ep && !sub.pushSubs.find(s => s.endpoint === ep)) { sub.pushSubs.push(body.pushSub); writeSubscribersFile() }
+      }
+      json(res, 200, { ok: true })
+      return
+    }
+
+    if (pathname === '/api/subscriber/active-sessions' && req.method === 'GET') {
+      const subscriberId = String(query.subscriberId || '')
+      const sub = subscriberId ? state.subscribers.get(subscriberId) : null
+      const following = sub ? (sub.following || []) : []
+      const venues = await readVenues().catch(() => ({}))
+      const sessions = []
+      for (const s of state.sessions.values()) {
+        ensureSessionExpiry(s)
+        if (isSessionExpired(s)) continue
+        if (following.length && !following.includes(s.venueId)) continue
+        const venue = venues[s.venueId] || {}
+        const prof = _venueProfiles[s.venueId] || {}
+        let userCount = 0
+        for (const u of state.users.values()) if (u.sessionId === s.id && u.role === 'user') userCount++
+        sessions.push({ sessionId: s.id, venueId: s.venueId, venueName: venue.name || s.venueId, mode: s.mode || 'disco', eventName: s.eventName || '', djName: s.djName || '', coverPrice: s.coverPrice || 0, coverEnabled: !!s.coverEnabled, discounts: venue.discounts || { nocturno: 0, premium: 0 }, userCount, musicGenre: prof.musicGenre || '', location: prof.location || '' })
+      }
+      json(res, 200, { sessions })
+      return
+    }
+
+    if (pathname === '/api/subscriber/benefits' && req.method === 'GET') {
+      const subscriberId = String(query.subscriberId || '')
+      const sub = subscriberId ? state.subscribers.get(subscriberId) : null
+      if (!sub) { json(res, 404, { error: 'not_found' }); return }
+      const venues = await readVenues().catch(() => ({}))
+      const tier = sub.tier || 'free'
+      const benefits = []
+      for (const venueId of (sub.following || [])) {
+        const venue = venues[venueId]
+        if (!venue) continue
+        const discounts = venue.discounts || { nocturno: 0, premium: 0 }
+        const discPct = Number(discounts[tier] || 0)
+        let activeSession = null
+        for (const s of state.sessions.values()) {
+          ensureSessionExpiry(s)
+          if (!isSessionExpired(s) && s.venueId === venueId) { activeSession = { sessionId: s.id, eventName: s.eventName || '', djName: s.djName || '', coverPrice: s.coverPrice || 0 }; break }
+        }
+        benefits.push({ venueId, venueName: venue.name || venueId, tier, discountPct: discPct, activeSession, hasDiscount: discPct > 0 })
+      }
+      json(res, 200, { benefits, tier })
+      return
+    }
+
+    if (pathname === '/api/subscriber/review' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const subscriberId = String(body.subscriberId || '')
+      const venueId = String(body.venueId || '')
+      const rating = Math.min(5, Math.max(1, Number(body.rating || 0)))
+      if (!subscriberId || !venueId || !rating) { json(res, 400, { error: 'missing_fields' }); return }
+      const sub = state.subscribers.get(subscriberId)
+      if (!sub) { json(res, 404, { error: 'not_found' }); return }
+      if (!_venueProfiles[venueId]) _venueProfiles[venueId] = { description: '', musicGenre: '', location: '', photos: [], events: [], reviews: [] }
+      const prof = _venueProfiles[venueId]
+      if (!Array.isArray(prof.reviews)) prof.reviews = []
+      prof.reviews = prof.reviews.filter(r => r.subscriberId !== subscriberId)
+      prof.reviews.push({ subscriberId, rating, comment: String(body.comment || '').slice(0, 200), date: now() })
+      prof.avgRating = Math.round(prof.reviews.reduce((s, r) => s + r.rating, 0) / prof.reviews.length * 10) / 10
+      writeVenueProfiles(_venueProfiles)
+      json(res, 200, { ok: true, avgRating: prof.avgRating })
+      return
+    }
+
+    if (pathname === '/api/subscriber/set-tier' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const sub = state.subscribers.get(String(body.subscriberId || ''))
+      if (!sub) { json(res, 404, { error: 'not_found' }); return }
+      if (SUBSCRIPTION_TIERS.includes(body.tier)) { sub.tier = body.tier; writeSubscribersFile() }
+      json(res, 200, { ok: true, tier: sub.tier })
+      return
+    }
+
+    // ─── VENUE DIRECTORY / PROFILE ───────────────────────────────────────────
+
+    if (pathname === '/api/venues/directory' && req.method === 'GET') {
+      const venues = await readVenues().catch(() => ({}))
+      const result = []
+      for (const [venueId, venue] of Object.entries(venues)) {
+        if (venue.active === false) continue
+        const prof = _venueProfiles[venueId] || {}
+        let hasActiveSession = false
+        let followerCount = 0
+        for (const s of state.sessions.values()) { ensureSessionExpiry(s); if (!isSessionExpired(s) && s.venueId === venueId) { hasActiveSession = true; break } }
+        for (const sub of state.subscribers.values()) { if (Array.isArray(sub.following) && sub.following.includes(venueId)) followerCount++ }
+        result.push({ venueId, name: venue.name || venueId, description: prof.description || '', musicGenre: prof.musicGenre || '', location: prof.location || '', discounts: venue.discounts || { nocturno: 0, premium: 0 }, avgRating: prof.avgRating || 0, reviewCount: Array.isArray(prof.reviews) ? prof.reviews.length : 0, followerCount, hasActiveSession, upcomingEvents: (prof.events || []).filter(e => Number(e.date || 0) > now()).slice(0, 3) })
+      }
+      result.sort((a, b) => (b.hasActiveSession ? 1 : 0) - (a.hasActiveSession ? 1 : 0) || b.followerCount - a.followerCount)
+      json(res, 200, { venues: result })
+      return
+    }
+
+    if (pathname === '/api/venue/profile' && req.method === 'GET') {
+      const venueId = String(query.venueId || '')
+      if (!venueId) { json(res, 400, { error: 'missing_venue_id' }); return }
+      const venues = await readVenues().catch(() => ({}))
+      const venue = venues[venueId]
+      if (!venue) { json(res, 404, { error: 'not_found' }); return }
+      const prof = _venueProfiles[venueId] || {}
+      let hasActiveSession = false
+      let activeSession = null
+      let userCount = 0
+      for (const s of state.sessions.values()) {
+        ensureSessionExpiry(s)
+        if (!isSessionExpired(s) && s.venueId === venueId) {
+          hasActiveSession = true
+          for (const u of state.users.values()) if (u.sessionId === s.id && u.role === 'user') userCount++
+          activeSession = { sessionId: s.id, eventName: s.eventName || '', djName: s.djName || '', coverPrice: s.coverPrice || 0, coverEnabled: !!s.coverEnabled, userCount }
+          break
+        }
+      }
+      let followerCount = 0
+      for (const sub of state.subscribers.values()) { if (Array.isArray(sub.following) && sub.following.includes(venueId)) followerCount++ }
+      const upcomingEvents = (prof.events || []).filter(e => Number(e.date || 0) > now()).sort((a, b) => a.date - b.date)
+      json(res, 200, { venue: { venueId, name: venue.name || venueId, description: prof.description || '', musicGenre: prof.musicGenre || '', location: prof.location || '', photos: prof.photos || [], discounts: venue.discounts || { nocturno: 0, premium: 0 }, avgRating: prof.avgRating || 0, reviews: (prof.reviews || []).slice(0, 20), reviewCount: (prof.reviews || []).length, followerCount, hasActiveSession, activeSession, upcomingEvents } })
+      return
+    }
+
+    if (pathname === '/api/admin/venue/profile' && req.method === 'POST') {
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const body = await parseBody(req)
+      const venueId = String(body.venueId || '')
+      if (!venueId) { json(res, 400, { error: 'missing_venue_id' }); return }
+      if (!_venueProfiles[venueId]) _venueProfiles[venueId] = { description: '', musicGenre: '', location: '', photos: [], events: [], reviews: [] }
+      const prof = _venueProfiles[venueId]
+      if (body.description !== undefined) prof.description = String(body.description || '').slice(0, 500)
+      if (body.musicGenre !== undefined) prof.musicGenre = String(body.musicGenre || '').slice(0, 100)
+      if (body.location !== undefined) prof.location = String(body.location || '').slice(0, 200)
+      writeVenueProfiles(_venueProfiles)
+      json(res, 200, { ok: true })
+      return
+    }
+
+    if (pathname === '/api/admin/venue/event' && req.method === 'POST') {
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const body = await parseBody(req)
+      const venueId = String(body.venueId || '')
+      if (!venueId) { json(res, 400, { error: 'missing_venue_id' }); return }
+      if (!_venueProfiles[venueId]) _venueProfiles[venueId] = { description: '', musicGenre: '', location: '', photos: [], events: [], reviews: [] }
+      const prof = _venueProfiles[venueId]
+      if (!Array.isArray(prof.events)) prof.events = []
+      const eventId = genId('evt')
+      const event = { id: eventId, date: Number(body.date || 0), eventName: String(body.eventName || '').slice(0, 80), djName: String(body.djName || '').slice(0, 60), coverPrice: Math.max(0, Number(body.coverPrice || 0)), description: String(body.description || '').slice(0, 300) }
+      prof.events.push(event)
+      prof.events.sort((a, b) => a.date - b.date)
+      writeVenueProfiles(_venueProfiles)
+      json(res, 200, { ok: true, eventId, events: prof.events })
+      return
+    }
+
+    if (pathname === '/api/admin/venue/event' && req.method === 'DELETE') {
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const body = await parseBody(req)
+      const venueId = String(body.venueId || '')
+      const eventId = String(body.eventId || '')
+      if (!venueId || !eventId) { json(res, 400, { error: 'missing_fields' }); return }
+      const prof = _venueProfiles[venueId]
+      if (prof && Array.isArray(prof.events)) { prof.events = prof.events.filter(e => e.id !== eventId); writeVenueProfiles(_venueProfiles) }
+      json(res, 200, { ok: true })
+      return
+    }
+
+    if (pathname === '/api/venue/events' && req.method === 'GET') {
+      const venueId = String(query.venueId || '')
+      const prof = _venueProfiles[venueId] || {}
+      const upcoming = (prof.events || []).filter(e => Number(e.date || 0) > now()).sort((a, b) => a.date - b.date)
+      json(res, 200, { events: upcoming })
+      return
+    }
+
       res.writeHead(404); res.end('Not found')
       return
     }
