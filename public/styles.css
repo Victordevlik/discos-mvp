@@ -150,10 +150,10 @@ body[data-theme="light"] #cart-section { background: #fff; border-color: #dbe1f3
 #cart-list .row button { white-space: nowrap }
 .topbar { display:none; position: sticky; top:0; padding: 8px 16px; background: rgba(22,12,44,0.85); backdrop-filter: blur(12px); border-bottom:1px solid rgba(96,74,166,0.45); z-index: 10 }
 .topbar.show { display:flex; justify-content: space-between; align-items: center }
-.navbar { position: fixed; bottom: 0; left: 0; right: 0; display: grid; grid-template-columns: repeat(5,1fr); gap: 6px; padding: 8px 10px; background: rgba(22,12,44,0.85); backdrop-filter: blur(12px); border-top: 1px solid rgba(96,74,166,0.45) }
+.navbar { position: fixed; bottom: 0; left: 0; right: 0; display: grid; grid-template-columns: repeat(6,1fr); gap: 2px; padding: 8px 4px; background: rgba(22,12,44,0.85); backdrop-filter: blur(12px); border-top: 1px solid rgba(96,74,166,0.45) }
 body[data-theme="light"] .navbar { background: rgba(247,248,254,0.85); border-top-color: #dde2f0 }
-.nav-item { display:flex; flex-direction:column; align-items:center; gap:4px; padding: 8px 6px; border: 0; background: transparent; color: var(--muted) }
-.nav-item span { font-size: 12px }
+.nav-item { display:flex; flex-direction:column; align-items:center; gap:3px; padding: 7px 2px; border: 0; background: transparent; color: var(--muted) }
+.nav-item span { font-size: 10px; white-space:nowrap }
 .nav-item.active { color: var(--primary2) }
 .nav-item.active svg path, .nav-item.active svg rect, .nav-item.active svg circle { stroke: var(--primary2) }
 .nav-item { position: relative }
@@ -416,8 +416,8 @@ body[data-theme="light"] #user-header.party { background: linear-gradient(135deg
   .row { gap: 8px; margin: 8px 0 }
   input, select { min-width: 0; width: 100% }
   .cta button { width: 100% }
-  .navbar { gap: 6px; padding: 8px 10px }
-  .nav-item { padding: 8px 6px }
+  .navbar { gap: 2px; padding: 6px 4px }
+  .nav-item { padding: 7px 2px }
   .hero h1 { font-size: 22px }
   #available-list .item { grid-template-columns: 36px 1fr; gap: 10px; align-items: start }
   #available-list .item img { grid-row: 1 / span 4 }
@@ -438,9 +438,10 @@ body[data-theme="light"] #user-header.party { background: linear-gradient(135deg
 }
 @media (max-width: 360px) {
   .screen { padding: 14px; padding-bottom: 92px }
-  .navbar { gap: 4px; padding: 6px 8px }
-  .nav-item { padding: 6px 4px; gap: 4px }
-  .nav-item span { font-size: 11px }
+  .navbar { gap: 1px; padding: 5px 2px }
+  .nav-item { padding: 6px 1px; gap: 3px }
+  .nav-item span { font-size: 9px }
+  .nav-item svg { width: 19px; height: 19px }
   #available-list, #mesas-list, #mesa-people { grid-template-columns: 1fr }
   #available-list .row.compact button { font-size: 12px; padding: 6px 8px }
   #mesa-people .row.compact button { font-size: 12px; padding: 6px 8px }
