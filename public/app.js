@@ -4745,16 +4745,14 @@ function renderVenueDirectory(venues) {
     if (Number((v.discounts || {}).premium) > 0) tierBadges.push(`<span style="font-size:11px;color:${TIER_COLORS.premium};background:#1a0d30;padding:2px 7px;border-radius:10px">Premium ${v.discounts.premium}% off</span>`)
     const ratingStr = v.avgRating > 0 ? `<span style="color:#fbbf24">★ ${v.avgRating}</span> <span style="color:#666">(${v.reviewCount})</span>` : ''
     card.innerHTML = `
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
-        <div style="flex:1;min-width:0">
-          <div style="font-weight:700;font-size:15px">${liveDot}${v.name}</div>
-          ${v.musicGenre ? `<div style="font-size:12px;color:#aaa;margin-top:2px">${v.musicGenre}</div>` : ''}
-          ${v.location ? `<div style="font-size:12px;color:#666">${v.location}</div>` : ''}
-          ${ratingStr ? `<div style="font-size:12px;margin-top:4px">${ratingStr} • ${v.followerCount} seguidores</div>` : `<div style="font-size:12px;color:#555;margin-top:4px">${v.followerCount} seguidores</div>`}
-          ${tierBadges.length ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">${tierBadges.join('')}</div>` : ''}
-        </div>
-        <button class="${isFollowing ? 'secondary' : 'success'}" style="font-size:12px;padding:5px 12px;white-space:nowrap" data-venue="${v.venueId}">${isFollowing ? 'Siguiendo' : '+ Seguir'}</button>
-      </div>`
+      <div style="margin-bottom:10px">
+        <div style="font-weight:700;font-size:15px;margin-bottom:2px">${liveDot}${v.name}</div>
+        ${v.musicGenre ? `<div style="font-size:12px;color:#aaa">${v.musicGenre}</div>` : ''}
+        ${v.location ? `<div style="font-size:12px;color:#666">${v.location}</div>` : ''}
+        ${ratingStr ? `<div style="font-size:12px;margin-top:4px">${ratingStr} • ${v.followerCount} seguidores</div>` : `<div style="font-size:12px;color:#555;margin-top:4px">${v.followerCount} seguidores</div>`}
+        ${tierBadges.length ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">${tierBadges.join('')}</div>` : ''}
+      </div>
+      <button class="${isFollowing ? 'secondary' : 'success'}" style="font-size:13px;padding:7px 16px;width:100%" data-venue="${v.venueId}">${isFollowing ? '✓ Siguiendo' : '+ Seguir este venue'}</button>`
     card.querySelector('button[data-venue]').onclick = (e) => { e.stopPropagation(); toggleFollowVenue(v.venueId, card.querySelector('button[data-venue]')) }
     card.onclick = () => openVenueProfile(v.venueId)
     list.appendChild(card)
