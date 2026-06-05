@@ -153,6 +153,7 @@ function show(id) {
   if (id !== 'screen-dj-request') {
     try { if (S.timers.djUserCountdown) { clearInterval(S.timers.djUserCountdown); S.timers.djUserCountdown = 0 } } catch {}
   }
+  if (id === 'screen-welcome') { try { loadTonightFeed() } catch {} }
 }
 function maybeAutoCancelMeetingOnLeave(nextId) {
   try {
@@ -4506,10 +4507,4 @@ function renderDiscountBadgeOnOrder(order) {
   return ` 🏷️ -${order.discountPct}%`
 }
 
-// Sobrescribir show para cargar feed de "Esta noche" en welcome
-const _origShow = show
-function show(id) {
-  _origShow(id)
-  if (id === 'screen-welcome') loadTonightFeed().catch(() => {})
-}
 
