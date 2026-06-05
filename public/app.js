@@ -2453,6 +2453,12 @@ function bind() {
   const btnViewSubHome = q('btn-view-sub-home'); if (btnViewSubHome) btnViewSubHome.onclick = showSubscriberHome
   const navVenues = q('nav-venues'); if (navVenues) navVenues.onclick = openVenueDirectory
   const btnSubReview = q('btn-submit-review'); if (btnSubReview) btnSubReview.onclick = submitVenueReview
+  const btnSubscribeCta = q('btn-subscribe-cta'); if (btnSubscribeCta) btnSubscribeCta.onclick = openPaymentFlow
+  const btnSelectNocturno = q('btn-select-plan-nocturno'); if (btnSelectNocturno) btnSelectNocturno.onclick = () => selectPlan('nocturno')
+  const btnSelectPremium = q('btn-select-plan-premium'); if (btnSelectPremium) btnSelectPremium.onclick = () => selectPlan('premium')
+  const btnSubmitPayment = q('btn-submit-payment'); if (btnSubmitPayment) btnSubmitPayment.onclick = submitPaymentRequest
+  const btnCheckPayment = q('btn-check-payment'); if (btnCheckPayment) btnCheckPayment.onclick = checkPaymentStatus
+  const btnPaymentHome = q('btn-payment-home'); if (btnPaymentHome) btnPaymentHome.onclick = showSubscriberHome
   const starRow = q('vp-star-row')
   if (starRow) { starRow.querySelectorAll('.star').forEach(s => { s.onclick = () => renderStars(Number(s.dataset.v)) }) }
   const dirSearch = q('dir-search')
@@ -4591,6 +4597,8 @@ function renderSubscriberStatus() {
   if (badge) { badge.textContent = `Plan ${tierLabel}`; badge.style.cssText = `background:#1a1a2e;color:${color};font-weight:600` }
   if (preview) preview.textContent = `Siguiendo ${(sub.following || []).length} venues • ${(sub.visitHistory || []).length} noches`
   if (homeBadge) { homeBadge.textContent = `Plan ${tierLabel}`; homeBadge.style.cssText = `background:#1a1a2e;color:${color};font-weight:600` }
+  const upgradeCta = q('sub-upgrade-cta')
+  if (upgradeCta) upgradeCta.style.display = (sub.tier === 'free') ? '' : 'none'
 }
 
 // ─── SUBSCRIBER HOME ─────────────────────────────────────────────────────────
@@ -4894,6 +4902,117 @@ async function submitVenueReview() {
     toast('Reseña enviada', 'success')
     await openVenueProfile(_currentVenueProfile.venueId)
   } catch { toast('Error al enviar reseña', 'info') }
+}
+
+// ─── PAYMENT FLOW ─────────────────────────────────────────────────────────────
+
+let _selectedPlan = null
+let _currentPaymentId = null
+let _plansCache = null
+
+async function openPaymentFlow() {
+  show('screen-subscription-plans')
+  if (_plansCache) { _applyPlansUI(_plansCache); return }
+  try {
+    const r = await api('/api/subscription/plans')
+    _plansCache = r
+    _applyPlansUI(r)
+  } catch { toast('No se pudieron cargar los planes', 'info') }
+}
+
+function _applyPlansUI(r) {
+  const plans = r.plans || []
+  const methods = r.methods || []
+  for (const p of plans) {
+    const priceEl = q(`plan-${p.id}-price`)
+    const descEl = q(`plan-${p.id}-desc`)
+    if (priceEl) priceEl.textContent = '$' + Number(p.price).toLocaleString('es-CO')
+    if (descEl) descEl.textContent = p.description || ''
+  }
+  const nequi = methods.find(m => m.id === 'nequi')
+  const bank = methods.find(m => m.id === 'bancolombia')
+  if (nequi) {
+    const el = q('payment-nequi-num'); if (el) el.textContent = nequi.detail
+  }
+  if (bank) {
+    const el = q('payment-bank-num'); if (el) el.textContent = bank.detail.split(' ')[2] || bank.detail
+    const d = q('payment-bank-detail'); if (d) d.textContent = bank.detail
+  }
+}
+
+function selectPlan(planId) {
+  if (!_plansCache) return
+  const plan = (_plansCache.plans || []).find(p => p.id === planId)
+  if (!plan) return
+  _selectedPlan = plan
+  const nameEl = q('payment-plan-name'); if (nameEl) nameEl.textContent = plan.name
+  const amtEl = q('payment-plan-amount'); if (amtEl) amtEl.textContent = '$' + Number(plan.price).toLocaleString('es-CO')
+  const inp = q('payment-reference'); if (inp) inp.value = ''
+  const payerInp = q('payment-payer-name'); if (payerInp) payerInp.value = ''
+  show('screen-payment-instructions')
+}
+
+async function submitPaymentRequest() {
+  if (!_selectedPlan) { toast('Seleccioná un plan', 'info'); return }
+  if (!_subscriber) {
+    const sub = await registerOrGetSubscriber('free')
+    if (!sub) { toast('Error al identificar suscriptor', 'info'); return }
+  }
+  const reference = (q('payment-reference') ? q('payment-reference').value.trim() : '')
+  if (!reference) { toast('Ingresá el número de referencia del pago', 'info'); return }
+  const payerName = q('payment-payer-name') ? q('payment-payer-name').value.trim() : ''
+  const proofFile = q('payment-proof-file') ? q('payment-proof-file').files[0] : null
+  const btn = q('btn-submit-payment')
+  if (btn) { btn.disabled = true; btn.textContent = 'Enviando...' }
+  try {
+    let proofImage = ''
+    if (proofFile) {
+      proofImage = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = e => resolve(e.target.result)
+        reader.onerror = reject
+        reader.readAsDataURL(proofFile)
+      })
+    }
+    const r = await api('/api/subscription/request', {
+      method: 'POST',
+      body: JSON.stringify({ subscriberId: _subscriber.id, plan: _selectedPlan.id, method: 'nequi', reference, payerName, proofImage })
+    })
+    _currentPaymentId = r.paymentId
+    show('screen-payment-pending')
+    const badge = q('payment-status-badge'); if (badge) badge.textContent = 'Pendiente de revisión'
+    const detail = q('payment-status-detail'); if (detail) detail.textContent = ''
+  } catch (e) {
+    toast(e.message || 'Error al enviar comprobante', 'info')
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Enviar comprobante' }
+  }
+}
+
+async function checkPaymentStatus() {
+  if (!_subscriber) return
+  try {
+    const r = await api(`/api/subscription/payment-status?subscriberId=${encodeURIComponent(_subscriber.id)}`)
+    const payments = r.payments || []
+    const latest = payments[0]
+    if (!latest) { toast('No hay pagos registrados', 'info'); return }
+    const badge = q('payment-status-badge')
+    const detail = q('payment-status-detail')
+    if (latest.status === 'approved') {
+      if (badge) { badge.textContent = '✓ Aprobado'; badge.style.color = '#4ade80' }
+      if (detail) detail.textContent = `Plan ${latest.plan} activado`
+      await initSubscriber()
+      renderSubscriberStatus()
+      toast('¡Suscripción activada!', 'success')
+    } else if (latest.status === 'rejected') {
+      if (badge) { badge.textContent = 'Rechazado'; badge.style.color = '#f87171' }
+      if (detail) detail.textContent = 'Contacta al soporte para más información'
+    } else {
+      if (badge) { badge.textContent = 'Pendiente de revisión'; badge.style.color = '#fbbf24' }
+      if (detail) detail.textContent = 'El equipo lo revisará pronto'
+      toast('Aún pendiente, te avisamos cuando se apruebe', 'info')
+    }
+  } catch { toast('Error al verificar estado', 'info') }
 }
 
 

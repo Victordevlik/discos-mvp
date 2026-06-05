@@ -42,6 +42,7 @@ const state = {
   scoreLastDecay: 0,
   subscriptionCodes: new Map(),
   subscribers: new Map(),
+  pendingPayments: new Map(),
   rate: {
     invitesByUserHour: new Map(),
     lastInvitePair: new Map(),
@@ -93,6 +94,25 @@ function writeVenueProfiles(obj) {
   try { fs.writeFileSync(venueProfilesPath, JSON.stringify(obj)) } catch {}
 }
 let _venueProfiles = readVenueProfiles()
+
+const paymentsPath = path.join(dataDir, 'payments.json')
+function readPaymentsFile() {
+  try { const raw = fs.readFileSync(paymentsPath, 'utf8'); const d = JSON.parse(raw || '{}'); return d && typeof d === 'object' ? d : {} } catch { return {} }
+}
+function writePaymentsFile() {
+  try { const obj = {}; for (const [k, v] of state.pendingPayments) obj[k] = v; fs.writeFileSync(paymentsPath, JSON.stringify(obj)) } catch {}
+}
+;(function loadPayments() {
+  try { const d = readPaymentsFile(); for (const [k, v] of Object.entries(d)) state.pendingPayments.set(k, v) } catch {}
+})()
+
+const NEQUI_NUMBER     = String(process.env.NEQUI_NUMBER       || '3022765258')
+const BANK_ACCOUNT     = String(process.env.BANCOLOMBIA_ACCOUNT || '00812698117')
+const BANK_TYPE        = String(process.env.BANCOLOMBIA_TYPE   || 'ahorros')
+const BANK_OWNER       = String(process.env.BANCOLOMBIA_OWNER  || 'Discos')
+const PLAN_NOCTURNO_PRICE = Number(process.env.PLAN_NOCTURNO_PRICE || 15000)
+const PLAN_PREMIUM_PRICE  = Number(process.env.PLAN_PREMIUM_PRICE  || 25000)
+
 const GLOBAL_STAFF_PIN = String(process.env.STAFF_PIN || '')
 const ALLOW_GLOBAL_STAFF_PIN = String(process.env.ALLOW_GLOBAL_STAFF_PIN || 'false') === 'true'
 const ADMIN_SECRET = String(process.env.ADMIN_SECRET || '')
@@ -3767,6 +3787,112 @@ const server = http.createServer(async (req, res) => {
       const prof = _venueProfiles[venueId] || {}
       const upcoming = (prof.events || []).filter(e => Number(e.date || 0) > now()).sort((a, b) => a.date - b.date)
       json(res, 200, { events: upcoming })
+      return
+    }
+
+    // ─── PAYMENT ENDPOINTS ───────────────────────────────────────────────────
+
+    if (pathname === '/api/subscription/plans' && req.method === 'GET') {
+      json(res, 200, {
+        plans: [
+          { id: 'nocturno', name: 'Nocturno', price: PLAN_NOCTURNO_PRICE, description: 'Descuentos en consumos y cover en todos los venues partner' },
+          { id: 'premium',  name: 'Premium',  price: PLAN_PREMIUM_PRICE,  description: 'Máximos descuentos + acceso anticipado + beneficios exclusivos' }
+        ],
+        methods: [
+          { id: 'nequi',       label: 'Nequi',       detail: NEQUI_NUMBER },
+          { id: 'bancolombia', label: 'Bancolombia',  detail: `Cta ${BANK_TYPE} ${BANK_ACCOUNT} — ${BANK_OWNER}` }
+        ]
+      })
+      return
+    }
+
+    if (pathname === '/api/subscription/request' && req.method === 'POST') {
+      if (ipRateLimited(clientIp, 5, 60 * 1000)) { json(res, 429, { error: 'rate_limit' }); return }
+      const body = await parseBody(req)
+      const subscriberId = String(body.subscriberId || '')
+      const plan = String(body.plan || '')
+      const method = String(body.method || '')
+      const reference = String(body.reference || '').trim().slice(0, 100)
+      const payerName  = String(body.payerName  || '').trim().slice(0, 60)
+      const proofImage = String(body.proofImage || '').slice(0, 500000)
+      if (!subscriberId || !plan || !method || !reference) { json(res, 400, { error: 'missing_fields' }); return }
+      if (!['nocturno', 'premium'].includes(plan)) { json(res, 400, { error: 'invalid_plan' }); return }
+      const price = plan === 'premium' ? PLAN_PREMIUM_PRICE : PLAN_NOCTURNO_PRICE
+      const paymentId = genId('pay')
+      let proofUrl = ''
+      if (proofImage && cloudinary) {
+        try {
+          const r = await cloudinary.uploader.upload(proofImage, { folder: CLOUDINARY_FOLDER + '/payments', resource_type: 'image' })
+          proofUrl = r.secure_url || ''
+        } catch {}
+      }
+      const payment = { id: paymentId, subscriberId, plan, method, reference, payerName, price, proofUrl, status: 'pending', createdAt: now() }
+      state.pendingPayments.set(paymentId, payment)
+      writePaymentsFile()
+      json(res, 200, { ok: true, paymentId, status: 'pending' })
+      return
+    }
+
+    if (pathname === '/api/subscription/payment-status' && req.method === 'GET') {
+      const paymentId = String(query.paymentId || '')
+      const subscriberId = String(query.subscriberId || '')
+      if (!subscriberId) { json(res, 400, { error: 'missing' }); return }
+      const payments = []
+      for (const p of state.pendingPayments.values()) {
+        if (p.subscriberId === subscriberId) payments.push({ id: p.id, plan: p.plan, status: p.status, createdAt: p.createdAt, method: p.method })
+      }
+      payments.sort((a, b) => b.createdAt - a.createdAt)
+      json(res, 200, { payments })
+      return
+    }
+
+    if (pathname === '/api/admin/payments' && req.method === 'GET') {
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const list = []
+      for (const p of state.pendingPayments.values()) {
+        if (query.status && p.status !== query.status) continue
+        list.push(p)
+      }
+      list.sort((a, b) => b.createdAt - a.createdAt)
+      json(res, 200, { payments: list })
+      return
+    }
+
+    if (pathname === '/api/admin/payments/approve' && req.method === 'POST') {
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const body = await parseBody(req)
+      const paymentId = String(body.paymentId || '')
+      const payment = state.pendingPayments.get(paymentId)
+      if (!payment) { json(res, 404, { error: 'not_found' }); return }
+      payment.status = 'approved'
+      payment.approvedAt = now()
+      const sub = state.subscribers.get(payment.subscriberId)
+      if (sub) {
+        sub.tier = payment.plan
+        writeSubscribersFile()
+      } else {
+        const newSub = { id: payment.subscriberId, tier: payment.plan, following: [], visitHistory: [], pushSubs: [], createdAt: now() }
+        state.subscribers.set(payment.subscriberId, newSub)
+        writeSubscribersFile()
+      }
+      writePaymentsFile()
+      try { await sendPushToSubscriber(payment.subscriberId, JSON.stringify({ title: '¡Suscripción activada! 🎉', body: `Tu plan ${payment.plan === 'premium' ? 'Premium' : 'Nocturno'} ya está activo. Disfrutá tus beneficios.`, url: '/', type: 'subscription_approved' })) } catch {}
+      json(res, 200, { ok: true })
+      return
+    }
+
+    if (pathname === '/api/admin/payments/reject' && req.method === 'POST') {
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const body = await parseBody(req)
+      const paymentId = String(body.paymentId || '')
+      const payment = state.pendingPayments.get(paymentId)
+      if (!payment) { json(res, 404, { error: 'not_found' }); return }
+      payment.status = 'rejected'
+      payment.rejectedAt = now()
+      payment.rejectReason = String(body.reason || '').slice(0, 200)
+      writePaymentsFile()
+      try { await sendPushToSubscriber(payment.subscriberId, JSON.stringify({ title: 'Pago no confirmado', body: payment.rejectReason || 'No pudimos verificar tu pago. Contactanos para ayudarte.', url: '/', type: 'subscription_rejected' })) } catch {}
+      json(res, 200, { ok: true })
       return
     }
 

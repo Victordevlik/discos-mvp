@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="manifest" href="/manifest.json">
-<link rel="stylesheet" href="/styles.css?v=4">
-<link rel="stylesheet" href="/styles-premium.css?v=4">
+<link rel="stylesheet" href="/styles.css?v=5">
+<link rel="stylesheet" href="/styles-premium.css?v=5">
 <title>Discos</title>
 </head>
 <body>
@@ -112,6 +112,11 @@
       <h2 style="margin:0">Mi suscripción</h2>
       <div id="sub-home-badge" class="chip"></div>
     </div>
+    <div class="card" id="sub-upgrade-cta" style="display:none;border:1px solid #a855f7;text-align:center">
+      <div style="font-size:14px;font-weight:600;margin-bottom:6px">Mejora tu experiencia</div>
+      <div style="font-size:13px;color:#aaa;margin-bottom:12px">Accede a descuentos, sigue venues y recibe alertas cuando abren.</div>
+      <button id="btn-subscribe-cta" class="success" style="width:100%">Ver planes</button>
+    </div>
     <div class="card" id="sub-active-sessions-card" style="display:none">
       <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:#a6b0ff">🎉 Esta noche</div>
       <div id="sub-active-sessions-list"></div>
@@ -140,6 +145,94 @@
       <input id="dir-search" placeholder="Buscar venue…" style="width:100%" autocomplete="off">
     </div>
     <div id="venue-directory-list"></div>
+  </div>
+
+  <!-- ── SUBSCRIPTION PLANS ───────────────────────────────────── -->
+  <div id="screen-subscription-plans" class="screen">
+    <h2>Planes</h2>
+    <div class="card" style="border:1px solid #2c6bff">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div>
+          <div style="font-weight:700;font-size:16px;color:#a6b0ff">Nocturno</div>
+          <div style="font-size:13px;color:#aaa;margin-top:2px" id="plan-nocturno-desc">Descuentos en venues partner</div>
+        </div>
+        <div style="font-size:22px;font-weight:700" id="plan-nocturno-price">$15.000</div>
+      </div>
+      <ul style="font-size:13px;color:#aaa;margin:10px 0;padding-left:18px;line-height:1.9">
+        <li>Descuentos en consumos y cover</li>
+        <li>Sigue tus venues favoritos</li>
+        <li>Notificación cuando un venue abre</li>
+        <li>Acceso directo por QR desde tu perfil</li>
+      </ul>
+      <button id="btn-select-plan-nocturno" class="info" style="width:100%">Elegir Nocturno</button>
+    </div>
+    <div class="card" style="border:1px solid #a855f7;margin-top:8px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div>
+          <div style="font-weight:700;font-size:16px;color:#d8b4fe">Premium</div>
+          <div style="font-size:13px;color:#aaa;margin-top:2px" id="plan-premium-desc">Máximos descuentos + beneficios exclusivos</div>
+        </div>
+        <div style="font-size:22px;font-weight:700;color:#d8b4fe" id="plan-premium-price">$25.000</div>
+      </div>
+      <ul style="font-size:13px;color:#aaa;margin:10px 0;padding-left:18px;line-height:1.9">
+        <li>Todo lo del plan Nocturno</li>
+        <li>Descuentos premium exclusivos</li>
+        <li>Acceso prioritario a eventos especiales</li>
+        <li>Califica y deja reseñas en venues</li>
+      </ul>
+      <button id="btn-select-plan-premium" style="background:#a855f7;width:100%;color:#fff;padding:10px;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">Elegir Premium</button>
+    </div>
+  </div>
+
+  <!-- ── PAYMENT INSTRUCTIONS ──────────────────────────────────── -->
+  <div id="screen-payment-instructions" class="screen">
+    <h2>Pagar suscripción</h2>
+    <div class="card" id="payment-plan-summary" style="border:1px solid #333;padding:12px 14px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-weight:600" id="payment-plan-name">Plan</div>
+          <div style="font-size:12px;color:#aaa">Suscripción mensual</div>
+        </div>
+        <div style="font-size:20px;font-weight:700" id="payment-plan-amount">$0</div>
+      </div>
+    </div>
+    <div class="card">
+      <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:#aaa">Métodos de pago</div>
+      <div style="padding:12px;background:#0a0a1a;border-radius:8px;margin-bottom:8px">
+        <div style="font-size:12px;font-weight:600;color:#4ade80;margin-bottom:4px">Nequi</div>
+        <div style="font-size:16px;font-family:monospace;letter-spacing:1px;font-weight:700" id="payment-nequi-num">3022765258</div>
+        <div style="font-size:11px;color:#555;margin-top:2px">Nombre: Discos</div>
+      </div>
+      <div style="padding:12px;background:#0a0a1a;border-radius:8px;margin-bottom:12px">
+        <div style="font-size:12px;font-weight:600;color:#f59e0b;margin-bottom:4px">Bancolombia</div>
+        <div style="font-size:16px;font-family:monospace;letter-spacing:1px;font-weight:700" id="payment-bank-num">00812698117</div>
+        <div style="font-size:11px;color:#555;margin-top:2px" id="payment-bank-detail">Cuenta ahorros · Discos</div>
+      </div>
+      <div style="font-size:12px;color:#666;margin-bottom:10px">Realiza el pago e ingresa el número de referencia del comprobante.</div>
+      <label style="font-size:13px;color:#aaa;display:block;margin-bottom:4px">Referencia del pago *</label>
+      <input id="payment-reference" placeholder="Ej. 1234567890" style="width:100%;margin-bottom:10px">
+      <label style="font-size:13px;color:#aaa;display:block;margin-bottom:4px">Tu nombre (opcional)</label>
+      <input id="payment-payer-name" placeholder="Nombre del titular" style="width:100%;margin-bottom:10px">
+      <label style="font-size:13px;color:#aaa;display:block;margin-bottom:4px">Foto del comprobante (opcional)</label>
+      <input id="payment-proof-file" type="file" accept="image/*" style="width:100%;margin-bottom:14px">
+      <button id="btn-submit-payment" class="success" style="width:100%">Enviar comprobante</button>
+    </div>
+  </div>
+
+  <!-- ── PAYMENT PENDING ────────────────────────────────────────── -->
+  <div id="screen-payment-pending" class="screen">
+    <div style="text-align:center;padding:32px 0 16px">
+      <div style="font-size:52px;margin-bottom:12px">⏳</div>
+      <h2 style="margin:0 0 8px">Comprobante enviado</h2>
+      <p style="color:#aaa;font-size:14px;max-width:280px;margin:0 auto 0">El equipo de Discos revisará tu pago y activará tu suscripción pronto.</p>
+    </div>
+    <div class="card" style="text-align:center">
+      <div style="font-size:13px;color:#aaa;margin-bottom:8px">Estado</div>
+      <div id="payment-status-badge" style="font-size:15px;font-weight:600;color:#fbbf24">Pendiente de revisión</div>
+      <div id="payment-status-detail" style="font-size:12px;color:#666;margin-top:4px"></div>
+      <button id="btn-check-payment" class="secondary" style="width:100%;margin-top:12px">Verificar estado</button>
+    </div>
+    <button id="btn-payment-home" class="secondary" style="width:100%;margin-top:8px">Volver al inicio</button>
   </div>
 
   <!-- ── VENUE PROFILE ─────────────────────────────────────────── -->
@@ -748,6 +841,6 @@
 </div>
 <button id="fab-call" class="fab"><svg viewBox="0 0 24 24" fill="none"><path d="M12 4a8 8 0 100 16 8 8 0 000-16zM4 12h4M16 12h4M9 9l6 6M9 15l6-6" stroke="#fff" stroke-width="1.7"/></svg></button>
 <div id="fab-call-label" class="fab-label">🎵 Pedir canción</div>
-<script src="/app.js?v=4"></script>
+<script src="/app.js?v=5"></script>
 </body>
 </html>

@@ -96,6 +96,22 @@
     <div id="sub-codes-list" style="margin-top:12px"></div>
   </div>
 
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h3>Pagos de suscripción</h3>
+      <div style="display:flex;gap:8px">
+        <select id="payments-filter" style="font-size:13px">
+          <option value="pending">Pendientes</option>
+          <option value="">Todos</option>
+          <option value="approved">Aprobados</option>
+          <option value="rejected">Rechazados</option>
+        </select>
+        <button id="btn-load-payments" class="info">Cargar</button>
+      </div>
+    </div>
+    <div id="payments-list" style="margin-top:10px"></div>
+  </div>
+
   <div class="section">
     <div class="row">
       <h3>Perfil de venue &amp; Eventos</h3>
@@ -490,6 +506,8 @@
     document.getElementById('btn-load-codes').onclick = () => loadSubCodes().catch(e => showError(String(e.message)))
 
     async function loadVenueProfiles() {
+      const secret = document.getElementById('admin-secret').value.trim()
+      if (!secret) { showError('Ingresa clave admin'); return }
       const container = document.getElementById('venue-profiles-list')
       container.innerHTML = '<div style="color:#aaa;font-size:13px">Cargando...</div>'
       const res = await api('/api/venues/directory', { headers: { 'X-Admin-Secret': secret } })
@@ -549,6 +567,89 @@
       }
     }
     document.getElementById('btn-load-venue-profiles').onclick = () => loadVenueProfiles().catch(e => showError(String(e.message)))
+
+    // ─── Pagos de suscripción ───────────────────────────────────────────────
+    function showSuccess(msg) {
+      const m = document.getElementById('modal')
+      const t = document.getElementById('modal-text')
+      if (!m || !t) return
+      m.classList.remove('type-error','type-info','type-success')
+      m.classList.add('type-success')
+      t.textContent = msg
+      m.classList.add('show')
+    }
+
+    async function loadPayments() {
+      const secret = document.getElementById('admin-secret').value.trim()
+      if (!secret) { showError('Ingresa clave admin'); return }
+      const statusFilter = document.getElementById('payments-filter').value
+      const container = document.getElementById('payments-list')
+      container.innerHTML = '<div style="color:#aaa;font-size:13px">Cargando...</div>'
+      try {
+        const url = '/api/admin/payments' + (statusFilter ? `?status=${statusFilter}` : '')
+        const r = await api(url, { headers: { 'X-Admin-Secret': secret } })
+        const payments = r.payments || []
+        container.innerHTML = ''
+        if (!payments.length) { container.innerHTML = '<div style="color:#666;font-size:13px">Sin pagos encontrados</div>'; return }
+        const STATUS_LABELS = { pending: 'Pendiente', approved: 'Aprobado', rejected: 'Rechazado' }
+        const STATUS_COLORS = { pending: '#fbbf24', approved: '#4ade80', rejected: '#f87171' }
+        for (const p of payments) {
+          const card = document.createElement('div')
+          card.style.cssText = 'border:1px solid #333;border-radius:8px;padding:12px;margin-bottom:10px'
+          const d = new Date(p.createdAt)
+          const dateStr = `${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()} ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`
+          const tierColors = { nocturno: '#2c6bff', premium: '#a855f7' }
+          const color = STATUS_COLORS[p.status] || '#aaa'
+          const tierColor = tierColors[p.plan] || '#aaa'
+          card.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+              <div>
+                <span style="font-weight:700;color:${tierColor};font-size:14px">Plan ${p.plan}</span>
+                <span style="margin-left:8px;font-size:13px;color:#aaa">$${Number(p.price || 0).toLocaleString('es-CO')}</span>
+              </div>
+              <span style="font-size:12px;color:${color};font-weight:600">${STATUS_LABELS[p.status] || p.status}</span>
+            </div>
+            <div style="font-size:12px;color:#aaa;margin-bottom:4px">ID suscriptor: <code style="color:#ccc">${p.subscriberId}</code></div>
+            <div style="font-size:12px;color:#aaa;margin-bottom:4px">Método: ${p.method} · Ref: <code style="color:#ccc">${p.reference}</code></div>
+            ${p.payerName ? `<div style="font-size:12px;color:#aaa;margin-bottom:4px">Titular: ${p.payerName}</div>` : ''}
+            <div style="font-size:11px;color:#555;margin-bottom:8px">${dateStr} · ID pago: ${p.id}</div>
+            ${p.proofUrl ? `<div style="margin-bottom:8px"><img src="${p.proofUrl}" style="max-width:180px;max-height:120px;border-radius:6px;border:1px solid #333;cursor:pointer" onclick="window.open(this.src,'_blank')"></div>` : ''}
+            ${p.rejectReason ? `<div style="font-size:12px;color:#f87171;margin-bottom:8px">Motivo rechazo: ${p.rejectReason}</div>` : ''}
+          `
+          if (p.status === 'pending') {
+            const actRow = document.createElement('div')
+            actRow.style.cssText = 'display:flex;gap:8px;margin-top:4px'
+            const approveBtn = document.createElement('button')
+            approveBtn.className = 'success'; approveBtn.textContent = 'Aprobar'
+            approveBtn.style.cssText = 'flex:1;font-size:13px'
+            approveBtn.onclick = async () => {
+              try {
+                const s = document.getElementById('admin-secret').value.trim()
+                await api('/api/admin/payments/approve', { method: 'POST', headers: { 'X-Admin-Secret': s }, body: JSON.stringify({ paymentId: p.id }) })
+                showSuccess('Pago aprobado — suscripción activada')
+                await loadPayments()
+              } catch (e) { showError(String(e.message)) }
+            }
+            const rejectBtn = document.createElement('button')
+            rejectBtn.className = 'danger'; rejectBtn.textContent = 'Rechazar'
+            rejectBtn.style.cssText = 'flex:1;font-size:13px'
+            rejectBtn.onclick = async () => {
+              const reason = prompt('Motivo del rechazo (opcional):') || ''
+              try {
+                const s = document.getElementById('admin-secret').value.trim()
+                await api('/api/admin/payments/reject', { method: 'POST', headers: { 'X-Admin-Secret': s }, body: JSON.stringify({ paymentId: p.id, reason }) })
+                showSuccess('Pago rechazado')
+                await loadPayments()
+              } catch (e) { showError(String(e.message)) }
+            }
+            actRow.appendChild(approveBtn); actRow.appendChild(rejectBtn)
+            card.appendChild(actRow)
+          }
+          container.appendChild(card)
+        }
+      } catch (e) { showError(String(e.message)) }
+    }
+    document.getElementById('btn-load-payments').onclick = () => loadPayments().catch(e => showError(String(e.message)))
   </script>
 </body>
 </html>
