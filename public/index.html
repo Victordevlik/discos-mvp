@@ -34,6 +34,10 @@
     <div class="card">
       <div class="cta">
       </div>
+      <div id="tonight-feed" style="display:none;margin-bottom:12px">
+        <div style="font-size:13px;color:#aaa;margin-bottom:6px">Esta noche</div>
+        <div id="tonight-list"></div>
+      </div>
       <div class="row">
         <a id="link-staff" href="?staff=1">Soy staff</a>
       </div>
@@ -77,10 +81,27 @@
       <input id="profile-table" placeholder="Ej. Mesa 8" required>
       <label id="label-selfie">Selfie (obligatorio)</label>
       <input id="selfie" type="file" accept="image/*" capture="user" required>
+      <label id="label-sub-code" style="margin-top:8px">Código suscriptor (opcional)</label>
+      <input id="subscription-code" placeholder="Ej. NOCTURNO-XXXX" autocomplete="off" style="text-transform:uppercase">
+      <div id="sub-tier-badge" style="display:none;margin-top:4px"></div>
       <div class="row">
         <button id="btn-save-profile" class="success">Guardar</button>
       </div>
       <div id="selfie-note"></div>
+    </div>
+  </div>
+
+  <div id="screen-cover" class="screen">
+    <h2 id="cover-venue-name">Venue</h2>
+    <div class="card">
+      <div id="cover-event-info" style="margin-bottom:12px"></div>
+      <div class="hero" style="text-align:center;padding:16px 0">
+        <div style="font-size:2rem;font-weight:700" id="cover-price-display">$0</div>
+        <div style="color:#aaa;margin-top:4px">Cover de entrada</div>
+        <div id="cover-discount-note" style="color:#4ade80;font-size:13px;margin-top:6px;display:none"></div>
+      </div>
+      <button id="btn-pay-cover" class="success" style="width:100%">Pagar cover</button>
+      <div style="font-size:12px;color:#aaa;margin-top:8px;text-align:center">El pago se verifica en la puerta</div>
     </div>
   </div>
 
@@ -492,6 +513,18 @@
             <button id="btn-copy-link-staff" class="info">Copiar link Staff</button>
             <button id="btn-copy-link-dj" class="info">Copiar link DJ</button>
           </div>
+        </div>
+        <div class="card">
+          <h3>Info del evento</h3>
+          <div class="row" style="flex-wrap:wrap;gap:8px">
+            <input id="staff-event-name" placeholder="Nombre del evento (ej. Noche Electrónica)" style="flex:1;min-width:160px">
+            <input id="staff-dj-name-event" placeholder="DJ (ej. DJ Ramiro)" style="flex:1;min-width:120px">
+          </div>
+          <div class="row" style="flex-wrap:wrap;gap:8px;margin-top:6px">
+            <input id="staff-cover-price" type="number" min="0" placeholder="Cover ($0 = sin cover)" style="width:140px">
+            <button id="btn-save-event-info" class="success">Guardar info</button>
+          </div>
+          <div id="staff-event-info-status" style="font-size:12px;color:#4ade80;margin-top:4px;display:none">Guardado</div>
         </div>
         <div class="card">
           <h3>PIN cambio de mesa</h3>

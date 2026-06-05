@@ -951,7 +951,14 @@ async function join(role, codeOverride = '', pinOverride = '') {
     }
     S.user = r.user
     S.role = role
+    S.sessionCoverPrice = r.coverPrice || 0
+    S.sessionCoverEnabled = !!r.coverEnabled
     await syncSessionMode(S.sessionId)
+    try {
+      const sInfo = await api(`/api/session/info?sessionId=${encodeURIComponent(S.sessionId)}`)
+      S.sessionEventName = sInfo.eventName || ''
+      S.sessionDjName = sInfo.djName || ''
+    } catch {}
     try { saveLocalUser() } catch {}
     if (role === 'user') {
       const aliasInput = q('alias'); if (aliasInput) aliasInput.value = S.user.alias || alias
@@ -1010,10 +1017,26 @@ async function saveProfile() {
   S.user.tableId = tableId
   if (!S.user.prefs) S.user.prefs = {}
   if (!isRestaurant) S.user.prefs.gender = gender
+  const subCodeInput = q('subscription-code')
+  const subCode = subCodeInput ? subCodeInput.value.trim().toUpperCase() : ''
+  if (subCode && S.user) {
+    const tier = await redeemSubCode(S.user.id, subCode)
+    if (tier && tier !== 'free') { S.user.subscriptionTier = tier; toast(`Plan ${(TIER_LABELS||{})[tier]||tier} activado`, 'success') }
+    else if (subCode) toast('Código inválido o agotado', 'info')
+  }
   try { saveLocalUser() } catch {}
   const selfieNote = q('selfie-note'); if (selfieNote) selfieNote.textContent = selfie ? 'Selfie cargada' : ''
   const ua = q('user-alias'), us = q('user-selfie'); if (ua) ua.textContent = S.user.alias || S.user.id; if (us) us.src = S.user.selfie || ''
   const ut = q('user-table'); if (ut) ut.textContent = S.user.tableId || '-'
+  if (S.sessionCoverEnabled && S.user && !S.user.coverPaid) {
+    let discPct = 0
+    try {
+      const tier = (S.user && S.user.subscriptionTier) || 'free'
+      if (tier !== 'free') { const info = await api(`/api/session/info?sessionId=${encodeURIComponent(S.sessionId)}`); discPct = Math.max(0, Number((info.discounts||{})[tier]||0)) }
+    } catch {}
+    showCoverScreen(S.sessionCoverPrice||0, S.sessionEventName||'', S.sessionDjName||'', discPct)
+    return
+  }
   show('screen-user-home')
 }
 
@@ -2411,6 +2434,9 @@ function bind() {
   q('btn-start-session-welcome').onclick = startStaffSession
   const btnScan = q('btn-scan-qr'); if (btnScan) btnScan.onclick = startScanQR
   q('btn-end-session').onclick = endStaffSession
+  const btnPayCover = q('btn-pay-cover'); if (btnPayCover) btnPayCover.onclick = payCover
+  const btnSaveEventInfo = q('btn-save-event-info'); if (btnSaveEventInfo) btnSaveEventInfo.onclick = saveEventInfo
+  const subCodeInp = q('subscription-code'); if (subCodeInp) subCodeInp.oninput = validateSubCodeInput
   const btnExploreMesas = q('btn-explore-mesas'); if (btnExploreMesas) btnExploreMesas.onclick = exploreMesas
   q('btn-edit-profile').onclick = openEditProfile
   q('btn-edit-save').onclick = saveEditProfile
@@ -4325,3 +4351,165 @@ async function closeStaffTable2() {
   setTimeout(() => showError(''), 1000)
   viewStaffTableHistory2()
 }
+
+// ─── SUSCRIPCIÓN, COVER Y ESTA NOCHE ─────────────────────────────────────────
+
+const TIER_LABELS = { free: 'Free', nocturno: 'Nocturno', premium: 'Premium' }
+const TIER_COLORS = { free: '#aaa', nocturno: '#2c6bff', premium: '#a855f7' }
+
+function formatPrice(n) {
+  return '$' + Number(n || 0).toLocaleString('es-CO')
+}
+
+async function loadTonightFeed() {
+  try {
+    const r = await api('/api/venues/tonight')
+    const feed = q('tonight-feed')
+    const list = q('tonight-list')
+    if (!feed || !list) return
+    const tonight = (r.tonight || []).filter(v => v.userCount >= 0)
+    if (!tonight.length) { feed.style.display = 'none'; return }
+    feed.style.display = ''
+    list.innerHTML = ''
+    for (const v of tonight) {
+      const card = document.createElement('div')
+      card.style.cssText = 'padding:10px;border:1px solid #333;border-radius:8px;margin-bottom:8px;cursor:pointer'
+      const header = document.createElement('div')
+      header.style.cssText = 'display:flex;justify-content:space-between;align-items:center'
+      const name = document.createElement('strong')
+      name.textContent = v.venueName || v.venueId
+      const mode = document.createElement('span')
+      mode.className = 'chip'
+      mode.textContent = v.mode === 'restaurant' ? 'Restaurante' : 'Discoteca'
+      header.appendChild(name); header.appendChild(mode)
+      const sub = document.createElement('div')
+      sub.style.cssText = 'font-size:12px;color:#aaa;margin-top:4px'
+      const parts = []
+      if (v.eventName) parts.push(v.eventName)
+      if (v.djName) parts.push('DJ: ' + v.djName)
+      if (v.coverEnabled && v.coverPrice > 0) parts.push('Cover: ' + formatPrice(v.coverPrice))
+      else if (!v.coverEnabled || !v.coverPrice) parts.push('Sin cover')
+      parts.push(v.userCount + ' personas')
+      sub.textContent = parts.join(' • ')
+      const discRow = document.createElement('div')
+      discRow.style.cssText = 'font-size:11px;margin-top:4px;display:flex;gap:6px'
+      const d = v.discounts || {}
+      if (Number(d.nocturno || 0) > 0) {
+        const b = document.createElement('span')
+        b.style.cssText = `color:${TIER_COLORS.nocturno};background:#1a2040;padding:2px 6px;border-radius:10px`
+        b.textContent = `Nocturno ${d.nocturno}% off`
+        discRow.appendChild(b)
+      }
+      if (Number(d.premium || 0) > 0) {
+        const b = document.createElement('span')
+        b.style.cssText = `color:${TIER_COLORS.premium};background:#2a1040;padding:2px 6px;border-radius:10px`
+        b.textContent = `Premium ${d.premium}% off`
+        discRow.appendChild(b)
+      }
+      card.appendChild(header); card.appendChild(sub)
+      if (discRow.children.length) card.appendChild(discRow)
+      list.appendChild(card)
+    }
+  } catch {}
+}
+
+function validateSubCodeInput() {
+  const inp = q('subscription-code')
+  const badge = q('sub-tier-badge')
+  if (!inp || !badge) return
+  const val = inp.value.trim().toUpperCase()
+  inp.value = val
+  if (!val) { badge.style.display = 'none'; return }
+  badge.style.display = ''
+  badge.textContent = 'Código ingresado — se validará al guardar el perfil'
+  badge.style.color = '#aaa'
+  badge.style.fontSize = '12px'
+}
+
+async function redeemSubCode(userId, code) {
+  if (!code || !userId) return null
+  try {
+    const r = await api('/api/user/subscription/redeem', { method: 'POST', body: JSON.stringify({ userId, code }) })
+    if (r && r.ok) return r.tier
+  } catch {}
+  return null
+}
+
+function showCoverScreen(coverPrice, eventName, djName, discountPct) {
+  const el = q('cover-price-display')
+  const note = q('cover-discount-note')
+  const evInfo = q('cover-event-info')
+  if (el) {
+    if (discountPct > 0) {
+      const original = coverPrice
+      const discounted = Math.round(original * (1 - discountPct / 100))
+      el.innerHTML = `<span style="text-decoration:line-through;color:#aaa;font-size:1.2rem">${formatPrice(original)}</span> <span style="color:#4ade80">${formatPrice(discounted)}</span>`
+    } else {
+      el.textContent = formatPrice(coverPrice)
+    }
+  }
+  if (note) {
+    if (discountPct > 0) { note.textContent = `Descuento suscriptor: ${discountPct}% aplicado`; note.style.display = '' }
+    else { note.style.display = 'none' }
+  }
+  if (evInfo) {
+    const parts = []
+    if (eventName) parts.push(eventName)
+    if (djName) parts.push('DJ: ' + djName)
+    evInfo.textContent = parts.join(' • ')
+    evInfo.style.cssText = 'font-size:13px;color:#aaa;text-align:center'
+  }
+  show('screen-cover')
+}
+
+async function payCover() {
+  if (!S.user || !S.sessionId) return
+  const btn = q('btn-pay-cover')
+  if (btn) { btn.disabled = true; btn.textContent = 'Procesando...' }
+  try {
+    await api('/api/user/cover/pay', { method: 'POST', body: JSON.stringify({ userId: S.user.id }) })
+    S.user.coverPaid = true
+    toast('Cover pagado', 'success')
+    show('screen-user-home')
+  } catch (e) {
+    showError(String(e.message || 'Error al pagar cover'))
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Pagar cover' }
+  }
+}
+
+function renderSubscriptionBadge(tier) {
+  if (!tier || tier === 'free') return
+  const badge = q('sub-tier-badge')
+  if (!badge) return
+  badge.style.display = ''
+  badge.textContent = `Plan ${TIER_LABELS[tier] || tier} activado`
+  badge.style.cssText = `display:inline-block;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600;color:${TIER_COLORS[tier] || '#aaa'};background:#1a1a2e`
+}
+
+async function saveEventInfo() {
+  const eventName = (q('staff-event-name')?.value || '').trim()
+  const djName = (q('staff-dj-name-event')?.value || '').trim()
+  const coverPrice = Math.max(0, Number(q('staff-cover-price')?.value || 0))
+  const statusEl = q('staff-event-info-status')
+  try {
+    await api('/api/session/event-info', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, pin: S.sessionPin || '', eventName, djName, coverPrice }) })
+    if (statusEl) { statusEl.style.display = ''; setTimeout(() => { if (statusEl) statusEl.style.display = 'none' }, 2000) }
+    toast('Info del evento guardada', 'success')
+  } catch (e) {
+    showError(String(e.message || 'Error al guardar'))
+  }
+}
+
+function renderDiscountBadgeOnOrder(order) {
+  if (!order || !order.discountPct || order.discountPct <= 0) return ''
+  return ` 🏷️ -${order.discountPct}%`
+}
+
+// Sobrescribir show para cargar feed de "Esta noche" en welcome
+const _origShow = show
+function show(id) {
+  _origShow(id)
+  if (id === 'screen-welcome') loadTonightFeed().catch(() => {})
+}
+

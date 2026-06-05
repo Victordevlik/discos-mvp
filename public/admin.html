@@ -78,6 +78,23 @@
       <button id="btn-reset-credit" class="warning">Reset créditos</button>
     </div>
   </div>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h3>Códigos de suscripción</h3>
+      <button id="btn-load-codes" class="info">Cargar</button>
+    </div>
+    <p style="font-size:13px;color:#aaa">Los usuarios ingresan el código al crear su perfil para activar su plan Nocturno o Premium. El venue decide el % de descuento que aplica a cada plan.</p>
+    <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:6px">
+      <select id="new-code-tier" style="min-width:120px">
+        <option value="nocturno">Nocturno</option>
+        <option value="premium">Premium</option>
+      </select>
+      <input id="new-code-uses" type="number" min="1" value="100" placeholder="Usos máx." style="width:90px">
+      <input id="new-code-custom" type="text" placeholder="Código personalizado (opcional)" style="min-width:180px">
+      <button id="btn-create-code" class="success">Crear código</button>
+    </div>
+    <div id="sub-codes-list" style="margin-top:12px"></div>
+  </div>
   <script>
     async function api(path, { method = 'GET', headers = {}, body } = {}) {
       const res = await fetch(path, {
@@ -130,7 +147,8 @@
         head.appendChild(badge)
         const info = document.createElement('div')
         const url = `${location.origin}/?venueId=${encodeURIComponent(v.venueId)}`
-        info.textContent = `Créditos: ${v.credits} • PIN: ${v.pin ? v.pin : '-'} • Email: ${v.email ? v.email : '-'}`
+        const d = v.discounts || { nocturno: 0, premium: 0 }
+        info.textContent = `Créditos: ${v.credits} • PIN: ${v.pin ? v.pin : '-'} • Email: ${v.email ? v.email : '-'} • Desc. Nocturno: ${d.nocturno || 0}% • Desc. Premium: ${d.premium || 0}%`
         const link = document.createElement('a')
         link.href = url; link.target = '_blank'; link.rel = 'noopener'; link.textContent = 'Abrir'
         const inputs = document.createElement('div')
@@ -186,6 +204,31 @@
         inputs.appendChild(emailBtn)
         inputs.appendChild(nameInput)
         inputs.appendChild(nameBtn)
+        // Descuentos por tier
+        const discRow = document.createElement('div')
+        discRow.className = 'row compact'
+        discRow.style.marginTop = '8px'
+        const discLabel = document.createElement('div')
+        discLabel.textContent = 'Descuentos suscriptores:'
+        discLabel.style.width = '100%'
+        const noctInput = document.createElement('input')
+        noctInput.type = 'number'; noctInput.min = '0'; noctInput.max = '100'; noctInput.placeholder = 'Nocturno %'
+        noctInput.value = String(d.nocturno || 0); noctInput.style.width = '90px'
+        const premInput = document.createElement('input')
+        premInput.type = 'number'; premInput.min = '0'; premInput.max = '100'; premInput.placeholder = 'Premium %'
+        premInput.value = String(d.premium || 0); premInput.style.width = '90px'
+        const discBtn = document.createElement('button')
+        discBtn.className = 'info'; discBtn.textContent = 'Guardar descuentos'
+        discBtn.onclick = async () => {
+          try {
+            const secret = document.getElementById('admin-secret').value.trim()
+            if (!secret) { showError('Ingresa clave admin'); return }
+            await api('/api/admin/venues/discounts', { method: 'POST', headers: { 'X-Admin-Secret': secret }, body: JSON.stringify({ venueId: v.venueId, nocturno: Number(noctInput.value || 0), premium: Number(premInput.value || 0) }) })
+            await loadVenues()
+          } catch (e) { showError(String(e.message)) }
+        }
+        discRow.appendChild(discLabel); discRow.appendChild(noctInput); discRow.appendChild(premInput); discRow.appendChild(discBtn)
+        inputs.appendChild(discRow)
         const actions = document.createElement('div')
         actions.className = 'actions'
         const addBtn = document.createElement('button')
@@ -388,6 +431,54 @@
     }
     const cf = document.getElementById('btn-clear-filter')
     if (cf) cf.onclick = () => { const f = document.getElementById('filter-text'); if (f) f.value = ''; renderVenues(VENUES_CACHE) }
+
+    // Códigos de suscripción
+    async function loadSubCodes() {
+      const secret = document.getElementById('admin-secret').value.trim()
+      if (!secret) { showError('Ingresa clave admin'); return }
+      try {
+        const r = await api('/api/admin/subscription/codes', { headers: { 'X-Admin-Secret': secret } })
+        const container = document.getElementById('sub-codes-list')
+        if (!container) return
+        container.innerHTML = ''
+        if (!(r.codes || []).length) { container.textContent = 'Sin códigos'; return }
+        for (const c of r.codes) {
+          const row = document.createElement('div')
+          row.className = 'row compact'
+          row.style.marginTop = '4px'
+          const lbl = document.createElement('span')
+          const tierColors = { nocturno: '#2c6bff', premium: '#a855f7' }
+          lbl.innerHTML = `<strong>${c.code}</strong> — <span style="color:${tierColors[c.tier]||'#ccc'}">${c.tier}</span> — Usos: ${c.usedCount}/${c.maxUses}`
+          lbl.style.flex = '1'
+          const delBtn = document.createElement('button')
+          delBtn.className = 'danger'; delBtn.textContent = 'Eliminar'
+          delBtn.onclick = async () => {
+            try {
+              const s = document.getElementById('admin-secret').value.trim()
+              await api('/api/admin/subscription/codes/delete', { method: 'POST', headers: { 'X-Admin-Secret': s }, body: JSON.stringify({ code: c.code }) })
+              await loadSubCodes()
+            } catch (e) { showError(String(e.message)) }
+          }
+          row.appendChild(lbl); row.appendChild(delBtn)
+          container.appendChild(row)
+        }
+      } catch (e) { showError(String(e.message)) }
+    }
+    document.getElementById('btn-create-code').onclick = async () => {
+      const secret = document.getElementById('admin-secret').value.trim()
+      const tier = document.getElementById('new-code-tier').value
+      const maxUses = Number(document.getElementById('new-code-uses').value || 100)
+      const customCode = document.getElementById('new-code-custom').value.trim()
+      if (!secret) { showError('Ingresa clave admin'); return }
+      try {
+        const body = { tier, maxUses }
+        if (customCode) body.code = customCode
+        await api('/api/admin/subscription/codes', { method: 'POST', headers: { 'X-Admin-Secret': secret }, body: JSON.stringify(body) })
+        document.getElementById('new-code-custom').value = ''
+        await loadSubCodes()
+      } catch (e) { showError(String(e.message)) }
+    }
+    document.getElementById('btn-load-codes').onclick = () => loadSubCodes().catch(e => showError(String(e.message)))
   </script>
 </body>
 </html>

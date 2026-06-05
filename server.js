@@ -36,11 +36,11 @@ const state = {
   reports: [],
   sseUsers: new Map(),
   sseStaff: new Map(),
-  // Meta para SSE: trackear actividad para cerrar conexiones inactivas
-  sseUserMeta: new Map(),   // key: res, value: { startedAt, lastWrite }
-  sseStaffMeta: new Map(),  // key: res, value: { startedAt, lastWrite }
+  sseUserMeta: new Map(),
+  sseStaffMeta: new Map(),
   behaviorScore: new Map(),
   scoreLastDecay: 0,
+  subscriptionCodes: new Map(),
   rate: {
     invitesByUserHour: new Map(),
     lastInvitePair: new Map(),
@@ -56,6 +56,18 @@ let lastSSEPing = 0
 
 const dataDir = path.join(__dirname, 'data')
 if (!fs.existsSync(dataDir)) { try { fs.mkdirSync(dataDir) } catch {} }
+
+const SUBSCRIPTION_TIERS = ['free', 'nocturno', 'premium']
+const subCodesPath = path.join(dataDir, 'subscription_codes.json')
+function readSubscriptionCodes() {
+  try { const raw = fs.readFileSync(subCodesPath, 'utf8'); const d = JSON.parse(raw || '{}'); return d && typeof d === 'object' ? d : {} } catch { return {} }
+}
+function writeSubscriptionCodes(obj) {
+  try { fs.writeFileSync(subCodesPath, JSON.stringify(obj || {})) } catch {}
+}
+;(function loadSubCodes() {
+  try { const d = readSubscriptionCodes(); for (const [k, v] of Object.entries(d)) state.subscriptionCodes.set(k, v) } catch {}
+})()
 const GLOBAL_STAFF_PIN = String(process.env.STAFF_PIN || '')
 const ALLOW_GLOBAL_STAFF_PIN = String(process.env.ALLOW_GLOBAL_STAFF_PIN || 'false') === 'true'
 const ADMIN_SECRET = String(process.env.ADMIN_SECRET || '')
@@ -193,10 +205,13 @@ try {
 }
 async function initDB() {
   if (!db || dbReady) return !!db
-  await db.query('CREATE TABLE IF NOT EXISTS venues (venue_id TEXT PRIMARY KEY, name TEXT NOT NULL, credits INTEGER NOT NULL, active BOOLEAN NOT NULL, pin TEXT, email TEXT)')
+  await db.query('CREATE TABLE IF NOT EXISTS venues (venue_id TEXT PRIMARY KEY, name TEXT NOT NULL, credits INTEGER NOT NULL, active BOOLEAN NOT NULL, pin TEXT, email TEXT, discounts_json TEXT)')
   await db.query('ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS pin TEXT')
   await db.query('ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS email TEXT')
-  await db.query('CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, role TEXT NOT NULL, alias TEXT, selfie TEXT, selfie_approved BOOLEAN, available BOOLEAN, prefs_json TEXT, zone TEXT, muted BOOLEAN, receive_mode TEXT, table_id TEXT, visibility TEXT, paused_until BIGINT, silenced BOOLEAN)')
+  await db.query('ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS discounts_json TEXT')
+  await db.query('CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, role TEXT NOT NULL, alias TEXT, selfie TEXT, selfie_approved BOOLEAN, available BOOLEAN, prefs_json TEXT, zone TEXT, muted BOOLEAN, receive_mode TEXT, table_id TEXT, visibility TEXT, paused_until BIGINT, silenced BOOLEAN, subscription_tier TEXT, cover_paid BOOLEAN)')
+  await db.query('ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS subscription_tier TEXT')
+  await db.query('ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS cover_paid BOOLEAN')
   await db.query('CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, emitter_id TEXT NOT NULL, receiver_id TEXT NOT NULL, product TEXT NOT NULL, quantity INTEGER NOT NULL, price INTEGER NOT NULL, total INTEGER NOT NULL, status TEXT NOT NULL, created_at BIGINT NOT NULL, expires_at BIGINT NOT NULL, emitter_table TEXT, receiver_table TEXT, mesa_entrega TEXT, is_invitation BOOLEAN)')
   await db.query('CREATE TABLE IF NOT EXISTS table_closures (session_id TEXT NOT NULL, table_id TEXT NOT NULL, closed BOOLEAN NOT NULL, PRIMARY KEY (session_id, table_id))')
   await db.query('CREATE TABLE IF NOT EXISTS waiter_calls (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, user_id TEXT NOT NULL, table_id TEXT, reason TEXT, status TEXT, ts BIGINT NOT NULL)')
@@ -267,9 +282,13 @@ async function readVenues() {
   if (!db) return readFile()
   try {
     await initDB()
-    const r = await db.query('SELECT venue_id, name, credits, active, pin, email FROM venues')
+    const r = await db.query('SELECT venue_id, name, credits, active, pin, email, discounts_json FROM venues')
     const obj = {}
-    for (const row of r.rows) obj[row.venue_id] = { name: row.name, credits: Number(row.credits || 0), active: !!row.active, pin: row.pin || '', email: row.email || '' }
+    for (const row of r.rows) {
+      let discounts = { nocturno: 0, premium: 0 }
+      try { if (row.discounts_json) discounts = { ...discounts, ...JSON.parse(row.discounts_json) } } catch {}
+      obj[row.venue_id] = { name: row.name, credits: Number(row.credits || 0), active: !!row.active, pin: row.pin || '', email: row.email || '', discounts }
+    }
     return obj
   } catch {
     return readFile()
@@ -285,9 +304,10 @@ async function writeVenues(obj) {
     await initDB()
     const entries = Object.entries(obj)
     for (const [id, v] of entries) {
+      const discountsJson = JSON.stringify(v.discounts || { nocturno: 0, premium: 0 })
       await db.query(
-        'INSERT INTO venues (venue_id, name, credits, active, pin, email) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (venue_id) DO UPDATE SET name=EXCLUDED.name, credits=EXCLUDED.credits, active=EXCLUDED.active, pin=EXCLUDED.pin, email=EXCLUDED.email',
-        [String(id), String(v.name || id), Number(v.credits || 0), v.active !== false, String(v.pin || ''), String(v.email || '')]
+        'INSERT INTO venues (venue_id, name, credits, active, pin, email, discounts_json) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (venue_id) DO UPDATE SET name=EXCLUDED.name, credits=EXCLUDED.credits, active=EXCLUDED.active, pin=EXCLUDED.pin, email=EXCLUDED.email, discounts_json=EXCLUDED.discounts_json',
+        [String(id), String(v.name || id), Number(v.credits || 0), v.active !== false, String(v.pin || ''), String(v.email || ''), discountsJson]
       )
     }
   } catch {
@@ -424,14 +444,16 @@ async function dbUpsertUser(u) {
     String(u.tableId || ''),
     String(u.visibility || 'visible'),
     Number(u.pausedUntil || 0),
-    !!u.silenced
+    !!u.silenced,
+    String(u.subscriptionTier || 'free'),
+    !!u.coverPaid
   ]
-  await db.query('INSERT INTO users (id, session_id, role, alias, selfie, selfie_approved, available, prefs_json, zone, muted, receive_mode, table_id, visibility, paused_until, silenced) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) ON CONFLICT (id) DO UPDATE SET session_id=EXCLUDED.session_id, role=EXCLUDED.role, alias=EXCLUDED.alias, selfie=EXCLUDED.selfie, selfie_approved=EXCLUDED.selfie_approved, available=EXCLUDED.available, prefs_json=EXCLUDED.prefs_json, zone=EXCLUDED.zone, muted=EXCLUDED.muted, receive_mode=EXCLUDED.receive_mode, table_id=EXCLUDED.table_id, visibility=EXCLUDED.visibility, paused_until=EXCLUDED.paused_until, silenced=EXCLUDED.silenced', vals)
+  await db.query('INSERT INTO users (id, session_id, role, alias, selfie, selfie_approved, available, prefs_json, zone, muted, receive_mode, table_id, visibility, paused_until, silenced, subscription_tier, cover_paid) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) ON CONFLICT (id) DO UPDATE SET session_id=EXCLUDED.session_id, role=EXCLUDED.role, alias=EXCLUDED.alias, selfie=EXCLUDED.selfie, selfie_approved=EXCLUDED.selfie_approved, available=EXCLUDED.available, prefs_json=EXCLUDED.prefs_json, zone=EXCLUDED.zone, muted=EXCLUDED.muted, receive_mode=EXCLUDED.receive_mode, table_id=EXCLUDED.table_id, visibility=EXCLUDED.visibility, paused_until=EXCLUDED.paused_until, silenced=EXCLUDED.silenced, subscription_tier=EXCLUDED.subscription_tier, cover_paid=EXCLUDED.cover_paid', vals)
 }
 async function dbGetUser(id) {
   requireDB()
   await initDB()
-  const r = await db.query('SELECT id, session_id, role, alias, selfie, selfie_approved, available, prefs_json, zone, muted, receive_mode, table_id, visibility, paused_until, silenced FROM users WHERE id=$1', [String(id)])
+  const r = await db.query('SELECT id, session_id, role, alias, selfie, selfie_approved, available, prefs_json, zone, muted, receive_mode, table_id, visibility, paused_until, silenced, subscription_tier, cover_paid FROM users WHERE id=$1', [String(id)])
   if (!r.rows.length) return null
   const w = r.rows[0]
   return {
@@ -439,7 +461,8 @@ async function dbGetUser(id) {
     selfie: w.selfie || '', selfieApproved: !!w.selfie_approved, available: !!w.available,
     prefs: (typeof w.prefs_json === 'string' ? JSON.parse(w.prefs_json || '{}') : {}),
     zone: w.zone || '', muted: !!w.muted, receiveMode: w.receive_mode || 'all',
-    tableId: w.table_id || '', visibility: w.visibility || 'visible', pausedUntil: Number(w.paused_until || 0), silenced: !!w.silenced
+    tableId: w.table_id || '', visibility: w.visibility || 'visible', pausedUntil: Number(w.paused_until || 0), silenced: !!w.silenced,
+    subscriptionTier: w.subscription_tier || 'free', coverPaid: !!w.cover_paid
   }
 }
 async function dbGetUsersBySession(sessionId) {
@@ -1413,7 +1436,9 @@ const server = http.createServer(async (req, res) => {
         const sessionId = genId('sess')
         const pin = String(Math.floor(1000 + Math.random() * 9000))
         const startedAt = now()
-        state.sessions.set(sessionId, { id: sessionId, venueId, venue: body.venue || 'Venue', startedAt, expiresAt: startedAt + SESSION_TTL_MS, active: true, pin, publicBaseUrl: '', closedTables: new Set(), mode })
+        const coverPrice = Math.max(0, Number(body.coverPrice || 0))
+        const coverEnabled = coverPrice > 0 || !!body.coverEnabled
+        state.sessions.set(sessionId, { id: sessionId, venueId, venue: body.venue || 'Venue', startedAt, expiresAt: startedAt + SESSION_TTL_MS, active: true, pin, publicBaseUrl: '', closedTables: new Set(), mode, eventName: String(body.eventName || '').slice(0, 80), djName: String(body.djName || '').slice(0, 60), coverPrice, coverEnabled })
         try { await saveSessionToRedis(sessionId) } catch {}
         json(res, 200, { sessionId, pin, venueId, mode })
         return
@@ -1448,7 +1473,9 @@ const server = http.createServer(async (req, res) => {
       let s = ensureSession(sessionId)
       if (!s && sessionId) { try { await loadSessionFromRedis(sessionId) } catch {} s = ensureSession(sessionId) }
       if (!s) { json(res, 404, { error: 'no_session' }); return }
-      json(res, 200, { sessionId: s.id, venueId: s.venueId, mode: s.mode || 'disco', expiresAt: s.expiresAt || 0 })
+      let venueDiscounts = { nocturno: 0, premium: 0 }
+      try { const vens = await readVenues(); const vd = vens[s.venueId]; if (vd && vd.discounts) venueDiscounts = vd.discounts } catch {}
+      json(res, 200, { sessionId: s.id, venueId: s.venueId, mode: s.mode || 'disco', expiresAt: s.expiresAt || 0, eventName: s.eventName || '', djName: s.djName || '', coverPrice: s.coverPrice || 0, coverEnabled: !!s.coverEnabled, discounts: venueDiscounts })
       return
     }
     if (pathname === '/api/session/end' && req.method === 'POST') {
@@ -1544,10 +1571,21 @@ const server = http.createServer(async (req, res) => {
         if (!alias) { json(res, 400, { error: 'alias_required' }); return }
       }
       const id = genId(role === 'staff' ? 'staff' : 'user')
-      const user = { id, sessionId: body.sessionId, role, alias: role === 'user' ? String(body.alias || '').trim().slice(0, 32) : '', selfie: '', selfieApproved: false, available: false, prefs: { tags: [], gender: '' }, zone: '', muted: false, receiveMode: 'all', allowedSenders: new Set(), tableId: '', visibility: 'visible', pausedUntil: 0, silenced: false, danceState: 'idle', dancePartnerId: '', meetingId: '' }
+      let subscriptionTier = 'free'
+      if (role === 'user' && body.subscriptionCode) {
+        const code = String(body.subscriptionCode || '').trim()
+        const codeData = state.subscriptionCodes.get(code)
+        if (codeData && SUBSCRIPTION_TIERS.includes(codeData.tier) && (!codeData.maxUses || codeData.usedCount < codeData.maxUses)) {
+          subscriptionTier = codeData.tier
+          codeData.usedCount = (codeData.usedCount || 0) + 1
+          state.subscriptionCodes.set(code, codeData)
+          try { const d = readSubscriptionCodes(); if (d[code]) { d[code].usedCount = codeData.usedCount; writeSubscriptionCodes(d) } } catch {}
+        }
+      }
+      const user = { id, sessionId: body.sessionId, role, alias: role === 'user' ? String(body.alias || '').trim().slice(0, 32) : '', selfie: '', selfieApproved: false, available: false, prefs: { tags: [], gender: '' }, zone: '', muted: false, receiveMode: 'all', allowedSenders: new Set(), tableId: '', visibility: 'visible', pausedUntil: 0, silenced: false, danceState: 'idle', dancePartnerId: '', meetingId: '', subscriptionTier, coverPaid: false }
       state.users.set(id, user)
       try { await dbUpsertUser(user) } catch {}
-      json(res, 200, { user })
+      json(res, 200, { user, coverPrice: s.coverPrice || 0, coverEnabled: !!s.coverEnabled })
       return
     }
     if (pathname === '/api/user/get' && req.method === 'GET') {
@@ -1614,7 +1652,7 @@ const server = http.createServer(async (req, res) => {
       const list = []
       for (const id of Object.keys(venues)) {
         const v = venues[id] || {}
-        list.push({ venueId: id, name: String(v.name || id), credits: Number(v.credits || 0), active: v.active !== false, pin: String(v.pin || ''), email: String(v.email || '') })
+        list.push({ venueId: id, name: String(v.name || id), credits: Number(v.credits || 0), active: v.active !== false, pin: String(v.pin || ''), email: String(v.email || ''), discounts: v.discounts || { nocturno: 0, premium: 0 } })
       }
       json(res, 200, { venues: list })
       return
@@ -1635,7 +1673,7 @@ const server = http.createServer(async (req, res) => {
       if (!existed && !pin) {
         pin = String(Math.floor(1000 + Math.random() * 9000))
       }
-      venues[venueId] = { name: String(prev.name || venueId), credits: Math.max(0, nextCredits), active: prev.active !== false, pin, email: String(prev.email || '') }
+      venues[venueId] = { name: String(prev.name || venueId), credits: Math.max(0, nextCredits), active: prev.active !== false, pin, email: String(prev.email || ''), discounts: prev.discounts || { nocturno: 0, premium: 0 } }
       await writeVenues(venues)
       if (!existed && String(venues[venueId].email || '')) {
         const to = String(venues[venueId].email)
@@ -1656,7 +1694,7 @@ const server = http.createServer(async (req, res) => {
       if (!venueId || !pin) { json(res, 400, { error: 'bad_input' }); return }
       const venues = await readVenues()
       const prev = venues[venueId] || { name: venueId, credits: 0, active: true, email: '' }
-      venues[venueId] = { name: String(prev.name || venueId), credits: Number(prev.credits || 0), active: prev.active !== false, pin, email: String(prev.email || '') }
+      venues[venueId] = { name: String(prev.name || venueId), credits: Number(prev.credits || 0), active: prev.active !== false, pin, email: String(prev.email || ''), discounts: prev.discounts || { nocturno: 0, premium: 0 } }
       await writeVenues(venues)
       if (String(venues[venueId].email || '')) {
         const to = String(venues[venueId].email)
@@ -1698,7 +1736,7 @@ const server = http.createServer(async (req, res) => {
       if (!venueId || !email || !email.includes('@')) { json(res, 400, { error: 'bad_input' }); return }
       const venues = await readVenues()
       const prev = venues[venueId] || { name: venueId, credits: 0, active: true, pin: '' }
-      venues[venueId] = { name: String(prev.name || venueId), credits: Number(prev.credits || 0), active: prev.active !== false, pin: String(prev.pin || ''), email }
+      venues[venueId] = { name: String(prev.name || venueId), credits: Number(prev.credits || 0), active: prev.active !== false, pin: String(prev.pin || ''), email, discounts: prev.discounts || { nocturno: 0, premium: 0 } }
       await writeVenues(venues)
       json(res, 200, { ok: true, venueId, email })
       return
@@ -1736,7 +1774,7 @@ const server = http.createServer(async (req, res) => {
       if (!venueId) { json(res, 400, { error: 'bad_input' }); return }
       const venues = await readVenues()
       const prev = venues[venueId] || { name: venueId, credits: 0, active: true, pin: '', email: '' }
-      venues[venueId] = { name: String(prev.name || venueId), credits: Number(prev.credits || 0), active, pin: String(prev.pin || ''), email: String(prev.email || '') }
+      venues[venueId] = { name: String(prev.name || venueId), credits: Number(prev.credits || 0), active, pin: String(prev.pin || ''), email: String(prev.email || ''), discounts: prev.discounts || { nocturno: 0, premium: 0 } }
       await writeVenues(venues)
       json(res, 200, { ok: true, venueId, active })
       return
@@ -1750,7 +1788,7 @@ const server = http.createServer(async (req, res) => {
       if (!venueId || !name) { json(res, 400, { error: 'bad_input' }); return }
       const venues = await readVenues()
       const prev = venues[venueId] || { credits: 0, active: true, pin: '', email: '' }
-      venues[venueId] = { name, credits: Number(prev.credits || 0), active: prev.active !== false, pin: String(prev.pin || ''), email: String(prev.email || '') }
+      venues[venueId] = { name, credits: Number(prev.credits || 0), active: prev.active !== false, pin: String(prev.pin || ''), email: String(prev.email || ''), discounts: prev.discounts || { nocturno: 0, premium: 0 } }
       await writeVenues(venues)
       json(res, 200, { ok: true, venueId, name })
       return
@@ -2338,7 +2376,17 @@ const server = http.createServer(async (req, res) => {
       const itemsBase = await getCatalogBaseForSession(s)
       const found = itemsBase.find(i => i.name === itemName)
       const price = found ? found.price : 0
-      const total = price * qty
+      let discountPct = 0
+      try {
+        const tier = u.subscriptionTier || 'free'
+        if (tier !== 'free' && s) {
+          const vens = await readVenues()
+          const vd = vens[s.venueId]
+          if (vd && vd.discounts) discountPct = Math.max(0, Math.min(100, Number(vd.discounts[tier] || 0)))
+        }
+      } catch {}
+      const rawTotal = price * qty
+      const total = discountPct > 0 ? Math.round(rawTotal * (1 - discountPct / 100)) : rawTotal
       const idemKey = getIdempotencyKey(req)
       if (idemKey) {
         const prev = await dbGetIdempotent(idemKey, pathname)
@@ -2348,7 +2396,7 @@ const server = http.createServer(async (req, res) => {
       const expiresAt = now() + 10 * 60 * 1000
       const createdAt = now()
       const mesaEntrega = u.tableId || ''
-      const order = { id: orderId, sessionId: u.sessionId, emitterId: u.id, receiverId: u.id, product: itemName, quantity: qty, price, total, status: 'pendiente_cobro', createdAt, expiresAt, emitterTable: u.tableId || '', receiverTable: u.tableId || '', mesaEntrega }
+      const order = { id: orderId, sessionId: u.sessionId, emitterId: u.id, receiverId: u.id, product: itemName, quantity: qty, price, total, discountPct, status: 'pendiente_cobro', createdAt, expiresAt, emitterTable: u.tableId || '', receiverTable: u.tableId || '', mesaEntrega }
       await withDbTx(async (client) => {
         await dbInsertOrder(order, client)
         await dbInsertEvent({ sessionId: order.sessionId, entityType: 'order', entityId: order.id, eventType: 'created', payload: { product: order.product, quantity: order.quantity, price: order.price, total: order.total, emitterId: order.emitterId, receiverId: order.receiverId }, ts: createdAt }, client)
@@ -2376,16 +2424,28 @@ const server = http.createServer(async (req, res) => {
         if (prev) { json(res, prev.status, prev.body); return }
       }
       const createdAt = now()
+      let bulkDiscountPct = 0
+      try {
+        const tier = u.subscriptionTier || 'free'
+        const bs = ensureSession(u.sessionId)
+        if (tier !== 'free' && bs) {
+          const vens = await readVenues()
+          const vd = vens[bs.venueId]
+          if (vd && vd.discounts) bulkDiscountPct = Math.max(0, Math.min(100, Number(vd.discounts[tier] || 0)))
+        }
+      } catch {}
       const orders = []
       await withDbTx(async (client) => {
         for (const it of filtered) {
           const found = itemsBase.find(i => i.name === it.product)
           const price = found ? Number(found.price || 0) : 0
-          const total = price * it.quantity
+          const rawTotal = price * it.quantity
+          const total = bulkDiscountPct > 0 ? Math.round(rawTotal * (1 - bulkDiscountPct / 100)) : rawTotal
+          const discountPct = bulkDiscountPct
           const orderId = genId('ord')
           const expiresAt = now() + 10 * 60 * 1000
           const mesaEntrega = u.tableId || ''
-          const order = { id: orderId, sessionId: u.sessionId, emitterId: u.id, receiverId: u.id, product: it.product, quantity: it.quantity, price, total, status: 'pendiente_cobro', createdAt, expiresAt, emitterTable: u.tableId || '', receiverTable: u.tableId || '', mesaEntrega }
+          const order = { id: orderId, sessionId: u.sessionId, emitterId: u.id, receiverId: u.id, product: it.product, quantity: it.quantity, price, total, discountPct, status: 'pendiente_cobro', createdAt, expiresAt, emitterTable: u.tableId || '', receiverTable: u.tableId || '', mesaEntrega }
           await dbInsertOrder(order, client)
           await dbInsertEvent({ sessionId: order.sessionId, entityType: 'order', entityId: order.id, eventType: 'created', payload: { product: order.product, quantity: order.quantity, price: order.price, total: order.total, emitterId: order.emitterId, receiverId: order.receiverId }, ts: createdAt }, client)
           orders.push(order)
@@ -3268,6 +3328,136 @@ const server = http.createServer(async (req, res) => {
         state.sseStaff.set(sessionId, list.filter(r => r !== res))
         state.sseStaffMeta.delete(res)
       })
+      return
+    }
+    // Staff: configurar info del evento (nombre, DJ, cover)
+    if (pathname === '/api/session/event-info' && req.method === 'POST') {
+      const body = await parseBody(req)
+      let s = ensureSession(body.sessionId)
+      if (!s && body.sessionId) { try { await loadSessionFromRedis(body.sessionId) } catch {} s = ensureSession(body.sessionId) }
+      if (!s) { json(res, 404, { error: 'no_session' }); return }
+      const pinStr = String(body.pin || '')
+      const okAdmin = ADMIN_SECRET && String(req.headers['x-admin-secret'] || '') === ADMIN_SECRET
+      const okPin = pinStr === String(s.pin)
+      let okVenuePin = false
+      try { const vens = await readVenues(); const v = vens[s.venueId]; if (v && String(v.pin || '') && pinStr === String(v.pin)) okVenuePin = true } catch {}
+      if (!okAdmin && !okPin && !okVenuePin) { json(res, 403, { error: 'forbidden' }); return }
+      if (body.eventName !== undefined) s.eventName = String(body.eventName || '').slice(0, 80)
+      if (body.djName !== undefined) s.djName = String(body.djName || '').slice(0, 60)
+      if (body.coverPrice !== undefined) { s.coverPrice = Math.max(0, Number(body.coverPrice || 0)); s.coverEnabled = s.coverPrice > 0 }
+      if (body.coverEnabled !== undefined) s.coverEnabled = !!body.coverEnabled
+      json(res, 200, { ok: true, eventName: s.eventName, djName: s.djName, coverPrice: s.coverPrice, coverEnabled: s.coverEnabled })
+      return
+    }
+    // Usuario: redimir código de suscripción
+    if (pathname === '/api/user/subscription/redeem' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const userId = String(body.userId || '')
+      const code = String(body.code || '').trim()
+      const u = state.users.get(userId)
+      if (!u) { json(res, 404, { error: 'no_user' }); return }
+      if (!code) { json(res, 400, { error: 'code_required' }); return }
+      const codeData = state.subscriptionCodes.get(code)
+      if (!codeData) { json(res, 400, { error: 'invalid_code' }); return }
+      if (!SUBSCRIPTION_TIERS.includes(codeData.tier)) { json(res, 400, { error: 'invalid_tier' }); return }
+      if (codeData.maxUses && codeData.usedCount >= codeData.maxUses) { json(res, 400, { error: 'code_exhausted' }); return }
+      u.subscriptionTier = codeData.tier
+      codeData.usedCount = (codeData.usedCount || 0) + 1
+      state.subscriptionCodes.set(code, codeData)
+      try { const d = readSubscriptionCodes(); if (d[code]) { d[code].usedCount = codeData.usedCount; writeSubscriptionCodes(d) } } catch {}
+      try { await dbUpsertUser(u) } catch {}
+      json(res, 200, { ok: true, tier: u.subscriptionTier })
+      return
+    }
+    // Usuario: pagar cover
+    if (pathname === '/api/user/cover/pay' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const userId = String(body.userId || '')
+      const u = state.users.get(userId)
+      if (!u) { json(res, 404, { error: 'no_user' }); return }
+      const s = ensureSession(u.sessionId)
+      if (!s) { json(res, 404, { error: 'no_session' }); return }
+      u.coverPaid = true
+      try { await dbUpsertUser(u) } catch {}
+      sendToStaff(u.sessionId, 'cover_paid', { userId: u.id, alias: u.alias, tableId: u.tableId })
+      json(res, 200, { ok: true, coverPrice: s.coverPrice || 0 })
+      return
+    }
+    // Admin: configurar descuentos de un venue
+    if (pathname === '/api/admin/venues/discounts' && req.method === 'POST') {
+      if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const body = await parseBody(req)
+      const venueId = String(body.venueId || '').trim()
+      if (!venueId) { json(res, 400, { error: 'bad_input' }); return }
+      const nocturno = Math.max(0, Math.min(100, Number(body.nocturno || 0)))
+      const premium = Math.max(0, Math.min(100, Number(body.premium || 0)))
+      const venues = await readVenues()
+      const prev = venues[venueId] || { name: venueId, credits: 0, active: true, pin: '', email: '' }
+      venues[venueId] = { ...prev, discounts: { nocturno, premium } }
+      await writeVenues(venues)
+      json(res, 200, { ok: true, venueId, discounts: { nocturno, premium } })
+      return
+    }
+    // Admin: listar códigos de suscripción
+    if (pathname === '/api/admin/subscription/codes' && req.method === 'GET') {
+      if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const list = []
+      for (const [code, data] of state.subscriptionCodes.entries()) list.push({ code, ...data })
+      json(res, 200, { codes: list })
+      return
+    }
+    // Admin: crear código de suscripción
+    if (pathname === '/api/admin/subscription/codes' && req.method === 'POST') {
+      if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const body = await parseBody(req)
+      const tier = String(body.tier || '').toLowerCase()
+      if (!SUBSCRIPTION_TIERS.includes(tier) || tier === 'free') { json(res, 400, { error: 'bad_tier' }); return }
+      const maxUses = Math.max(1, Number(body.maxUses || 100))
+      const code = body.code ? String(body.code).trim().toUpperCase() : `${tier.toUpperCase()}-${genId('').slice(0, 8).toUpperCase()}`
+      if (state.subscriptionCodes.has(code)) { json(res, 400, { error: 'code_exists' }); return }
+      const data = { tier, maxUses, usedCount: 0, createdAt: now() }
+      state.subscriptionCodes.set(code, data)
+      const d = readSubscriptionCodes(); d[code] = data; writeSubscriptionCodes(d)
+      json(res, 200, { ok: true, code, tier, maxUses })
+      return
+    }
+    // Admin: eliminar código de suscripción
+    if (pathname === '/api/admin/subscription/codes/delete' && req.method === 'POST') {
+      if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const body = await parseBody(req)
+      const code = String(body.code || '').trim().toUpperCase()
+      if (!code) { json(res, 400, { error: 'bad_input' }); return }
+      state.subscriptionCodes.delete(code)
+      const d = readSubscriptionCodes(); delete d[code]; writeSubscriptionCodes(d)
+      json(res, 200, { ok: true, code })
+      return
+    }
+    // Feed "Esta noche": sesiones activas con info del evento
+    if (pathname === '/api/venues/tonight' && req.method === 'GET') {
+      await expireOldSessions()
+      const venues = await readVenues()
+      const tonight = []
+      for (const s of state.sessions.values()) {
+        ensureSessionExpiry(s)
+        if (isSessionExpired(s) || !s.active) continue
+        const v = venues[s.venueId] || {}
+        const userCount = [...state.users.values()].filter(u => u.sessionId === s.id && u.role === 'user').length
+        tonight.push({ sessionId: s.id, venueId: s.venueId, venueName: v.name || s.venueId, mode: s.mode || 'disco', eventName: s.eventName || '', djName: s.djName || '', coverPrice: s.coverPrice || 0, coverEnabled: !!s.coverEnabled, userCount, discounts: v.discounts || { nocturno: 0, premium: 0 }, expiresAt: s.expiresAt || 0 })
+      }
+      json(res, 200, { tonight })
+      return
+    }
+    // Info pública de venue (descuentos actuales)
+    if (pathname === '/api/venue/info' && req.method === 'GET') {
+      const venueId = String(query.venueId || 'default')
+      const venues = await readVenues()
+      const v = venues[venueId]
+      if (!v) { json(res, 404, { error: 'venue_not_found' }); return }
+      json(res, 200, { venueId, name: v.name || venueId, discounts: v.discounts || { nocturno: 0, premium: 0 }, active: v.active !== false })
       return
     }
     if (pathname === '/api/health' && (req.method === 'GET' || req.method === 'HEAD')) {
