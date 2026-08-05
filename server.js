@@ -56,6 +56,20 @@ const state = {
 
 let lastSSEPing = 0
 
+// Mutex simple para serializar ciclos read-modify-write (ej. venues.json/DB),
+// que de otra forma pierden actualizaciones si dos requests concurrentes leen
+// el mismo estado previo antes de que cualquiera escriba (lost update).
+class Mutex {
+  constructor() { this._chain = Promise.resolve() }
+  lock() {
+    let release
+    const acquired = this._chain.then(() => release)
+    this._chain = new Promise(resolve => { release = resolve })
+    return acquired
+  }
+}
+const venuesMutex = new Mutex()
+
 const dataDir = path.join(__dirname, 'data')
 if (!fs.existsSync(dataDir)) { try { fs.mkdirSync(dataDir) } catch {} }
 
@@ -635,12 +649,48 @@ async function dbInsertEvent(evt, client = null) {
 function isAdminAuthorized(req, query) {
   const headerSecret = String(req.headers['x-admin-secret'] || '')
   if (!ADMIN_SECRET) return false
-  return headerSecret === ADMIN_SECRET
+  return timingSafeEqualStr(headerSecret, ADMIN_SECRET)
 }
 function isStaffAuthorized(req, query) {
   const headerSecret = String(req.headers['x-staff-secret'] || '')
   if (!ADMIN_STAFF_SECRET) return false
-  return headerSecret === ADMIN_STAFF_SECRET
+  return timingSafeEqualStr(headerSecret, ADMIN_STAFF_SECRET)
+}
+// Token de posesión por usuario: emitido al hacer /api/join, requerido en mutaciones
+// para evitar que cualquiera que conozca un userId (expuesto vía /api/users/available)
+// pueda modificar el perfil de otro usuario.
+function timingSafeEqualStr(a, b) {
+  const bufA = Buffer.from(String(a || ''))
+  const bufB = Buffer.from(String(b || ''))
+  if (bufA.length !== bufB.length) return false
+  return crypto.timingSafeEqual(bufA, bufB)
+}
+function requireOwnUser(body, res) {
+  const u = state.users.get(body.userId)
+  if (!u) { json(res, 404, { error: 'no_user' }); return null }
+  if (!u.token || !timingSafeEqualStr(body.token, u.token)) { json(res, 403, { error: 'forbidden' }); return null }
+  return u
+}
+// Detecta el tipo real de una imagen por sus magic bytes, en vez de confiar en el
+// MIME declarado por el cliente en el data: URI (que es trivialmente falsificable).
+function detectImageType(buf) {
+  if (buf.length >= 3 && buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return 'image/jpeg'
+  if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47 && buf[4] === 0x0D && buf[5] === 0x0A && buf[6] === 0x1A && buf[7] === 0x0A) return 'image/png'
+  if (buf.length >= 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return 'image/webp'
+  return null
+}
+function validateImageDataUri(dataUri, maxBytes) {
+  const m = String(dataUri || '').match(/^data:(.*?);base64,(.+)$/)
+  if (!m) return { ok: false, err: 'bad_format' }
+  const declaredMime = m[1]
+  let buf
+  try { buf = Buffer.from(m[2], 'base64') } catch { return { ok: false, err: 'bad_format' } }
+  if (!buf.length) return { ok: false, err: 'bad_format' }
+  if (buf.length > maxBytes) return { ok: false, err: 'too_big' }
+  const actualType = detectImageType(buf)
+  if (!actualType) return { ok: false, err: 'bad_mime' }
+  if (actualType !== declaredMime) return { ok: false, err: 'mime_mismatch' }
+  return { ok: true, buf, mime: actualType }
 }
 function normalizeMode(mode) {
   const v = String(mode || '').toLowerCase()
@@ -819,8 +869,16 @@ async function getCatalogBaseForSession(s) {
   return await getGlobalCatalogForMode(mode)
 }
 
+// Por defecto la API solo se sirve al propio frontend (mismo origen); un '*' permitía
+// que cualquier sitio de terceros scriptease los endpoints del usuario/admin desde el
+// navegador de una víctima. Si se necesita acceso cross-origin real (ej. una app móvil
+// separada), configúralo explícitamente vía CORS_ALLOWED_ORIGIN.
+const CORS_ORIGIN = String(process.env.CORS_ALLOWED_ORIGIN || '')
+function corsHeaders() {
+  return CORS_ORIGIN ? { 'Access-Control-Allow-Origin': CORS_ORIGIN, 'Vary': 'Origin' } : {}
+}
 function json(res, code, obj) {
-  res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+  res.writeHead(code, { 'Content-Type': 'application/json', ...corsHeaders() })
   res.end(JSON.stringify(obj))
 }
 
@@ -1414,14 +1472,14 @@ async function expireOldSessions() {
     }
   }
 }
-function deactivateSession(sessionId) {
+async function deactivateSession(sessionId) {
   const s = ensureSession(sessionId)
   if (!s) return
   ensureSessionExpiry(s)
   s.active = false
   s.endedAt = now()
-  try { cleanupSessionSelfies(sessionId) } catch {}
-  try { purgeSessionFromRedis(sessionId) } catch {}
+  try { await cleanupSessionSelfies(sessionId) } catch (e) { log('error', 'cleanup_selfies_failed', { error: String(e) }) }
+  try { await purgeSessionFromRedis(sessionId) } catch (e) { log('error', 'purge_redis_failed', { error: String(e) }) }
   const staffConns = state.sseStaff.get(sessionId) || []
   for (const res of staffConns) { try { res.end() } catch {} state.sseStaffMeta.delete(res) }
   state.sseStaff.delete(sessionId)
@@ -1442,6 +1500,12 @@ function serveStatic(req, res, pathname) {
     const wantsGzip = (req.headers['accept-encoding'] || '').includes('gzip')
     const cacheControl = ['.html', '.js', '.css'].includes(ext) ? 'no-cache' : 'public, max-age=3600'
     const headers = { 'Content-Type': type, 'ETag': etag, 'Cache-Control': cacheControl }
+    if (ext === '.html') {
+      headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+      headers['X-Content-Type-Options'] = 'nosniff'
+      headers['X-Frame-Options'] = 'DENY'
+      headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    }
     if (canGzip && wantsGzip) {
       zlib.gzip(data, (gzErr, compressed) => {
         if (gzErr) { res.writeHead(200, headers); res.end(data); return }
@@ -1468,7 +1532,7 @@ const server = http.createServer(async (req, res) => {
     const { pathname, query } = url.parse(req.url, true)
     if (req.method === 'OPTIONS') {
       res.writeHead(200, {
-        'Access-Control-Allow-Origin': '*',
+        ...corsHeaders(),
         'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Admin-Secret,X-Request-Id,X-Idempotency-Key',
       })
@@ -1495,13 +1559,17 @@ const server = http.createServer(async (req, res) => {
             return
           }
         }
-        const venues = await readVenues()
-        const entry = venues[venueId] || { name: venueId, credits: 0, active: true }
-        const current = Number(entry.credits || 0)
-        if (entry.active === false) { json(res, 403, { error: 'inactive' }); return }
-        if (current <= 0) { json(res, 403, { error: 'no_credit' }); return }
-        venues[venueId] = { name: String(entry.name || venueId), credits: current - 1, active: entry.active !== false, pin: String(entry.pin || ''), email: String(entry.email || '') }
-        await writeVenues(venues)
+        const unlockVenues = await venuesMutex.lock()
+        let venues
+        try {
+          venues = await readVenues()
+          const entry = venues[venueId] || { name: venueId, credits: 0, active: true }
+          const current = Number(entry.credits || 0)
+          if (entry.active === false) { json(res, 403, { error: 'inactive' }); return }
+          if (current <= 0) { json(res, 403, { error: 'no_credit' }); return }
+          venues[venueId] = { name: String(entry.name || venueId), credits: current - 1, active: entry.active !== false, pin: String(entry.pin || ''), email: String(entry.email || '') }
+          await writeVenues(venues)
+        } finally { unlockVenues() }
         const sessionId = genId('sess')
         const pin = String(Math.floor(1000 + Math.random() * 9000))
         const startedAt = now()
@@ -1556,7 +1624,7 @@ const server = http.createServer(async (req, res) => {
       if (!s) { json(res, 404, { error: 'no_session' }); return }
       const pinStr = String(body.pin || '')
       const adminSecret = String(req.headers['x-admin-secret'] || query.admin_secret || '')
-      const okAdmin = ADMIN_SECRET && adminSecret === ADMIN_SECRET
+      const okAdmin = ADMIN_SECRET && timingSafeEqualStr(adminSecret, ADMIN_SECRET)
       const okSessionPin = pinStr === String(s.pin)
       const okGlobalPin = (ALLOW_GLOBAL_STAFF_PIN && GLOBAL_STAFF_PIN && pinStr === GLOBAL_STAFF_PIN)
       let okVenuePin = false
@@ -1566,7 +1634,7 @@ const server = http.createServer(async (req, res) => {
         if (v && String(v.pin || '') && pinStr === String(v.pin)) okVenuePin = true
       } catch {}
       if (!okAdmin && !okSessionPin && !okVenuePin && !okGlobalPin) { json(res, 403, { error: 'forbidden' }); return }
-      deactivateSession(body.sessionId)
+      await deactivateSession(body.sessionId)
       json(res, 200, { ok: true })
       return
     }
@@ -1577,7 +1645,7 @@ const server = http.createServer(async (req, res) => {
       if (!s) { json(res, 404, { error: 'no_session' }); return }
       const pinStr = String(body.pin || '')
       const adminSecret = String(req.headers['x-admin-secret'] || query.admin_secret || '')
-      const okAdmin = ADMIN_SECRET && adminSecret === ADMIN_SECRET
+      const okAdmin = ADMIN_SECRET && timingSafeEqualStr(adminSecret, ADMIN_SECRET)
       const okSessionPin = pinStr === String(s.pin)
       let okVenuePin = false
       try {
@@ -1598,7 +1666,7 @@ const server = http.createServer(async (req, res) => {
       if (!s) { json(res, 404, { error: 'no_session' }); return }
       const pinStr = String(body.pin || '')
       const adminSecret = String(req.headers['x-admin-secret'] || query.admin_secret || '')
-      const okAdmin = ADMIN_SECRET && adminSecret === ADMIN_SECRET
+      const okAdmin = ADMIN_SECRET && timingSafeEqualStr(adminSecret, ADMIN_SECRET)
       const okSessionPin = pinStr === String(s.pin)
       let okVenuePin = false
       try {
@@ -1653,7 +1721,8 @@ const server = http.createServer(async (req, res) => {
           try { const d = readSubscriptionCodes(); if (d[code]) { d[code].usedCount = codeData.usedCount; writeSubscriptionCodes(d) } } catch {}
         }
       }
-      const user = { id, sessionId: body.sessionId, role, alias: role === 'user' ? String(body.alias || '').trim().slice(0, 32) : '', selfie: '', selfieApproved: false, available: false, prefs: { tags: [], gender: '' }, zone: '', muted: false, receiveMode: 'all', allowedSenders: new Set(), tableId: '', visibility: 'visible', pausedUntil: 0, silenced: false, danceState: 'idle', dancePartnerId: '', meetingId: '', subscriptionTier, coverPaid: false }
+      const token = crypto.randomBytes(24).toString('hex')
+      const user = { id, sessionId: body.sessionId, role, alias: role === 'user' ? String(body.alias || '').trim().slice(0, 32) : '', selfie: '', selfieApproved: false, available: false, prefs: { tags: [], gender: '' }, zone: '', muted: false, receiveMode: 'all', allowedSenders: new Set(), tableId: '', visibility: 'visible', pausedUntil: 0, silenced: false, danceState: 'idle', dancePartnerId: '', meetingId: '', subscriptionTier, coverPaid: false, token }
       state.users.set(id, user)
       try { await dbUpsertUser(user) } catch {}
       if (role === 'user' && body.subscriberId) {
@@ -1687,32 +1756,18 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/user/profile' && req.method === 'POST') {
       if (ipRateLimited(clientIp, 5, 60 * 1000)) { json(res, 429, { error: 'rate_limit' }); return }
       const body = await parseBody(req)
-      const u = state.users.get(body.userId)
-      if (!u) { json(res, 404, { error: 'no_user' }); return }
+      const u = requireOwnUser(body, res)
+      if (!u) return
       u.alias = String(body.alias || '').slice(0, 32)
       const genderRaw = String(body.gender || '').toLowerCase()
       if (!allowedGenders.includes(genderRaw)) { json(res, 400, { error: 'gender_required' }); return }
       u.prefs = u.prefs || {}
       u.prefs.gender = genderRaw
       const selfieStr = String(body.selfie || '')
-      // Validaciones de imagen: tamaño ≤ 500KB, MIME permitido (jpeg/webp)
-      let okImage = false, err = ''
-      if (selfieStr.startsWith('data:')) {
-        const m = selfieStr.match(/^data:(.*?);base64,(.+)$/)
-        if (m) {
-          const mime = m[1]
-          const b64 = m[2]
-          const buf = Buffer.from(b64, 'base64')
-          const size = buf.length
-          const allowed = mime === 'image/jpeg' || mime === 'image/webp' || mime === 'image/png'
-          if (!allowed) { err = 'bad_mime' }
-          else if (size > 500 * 1024) { err = 'too_big' }
-          else okImage = true
-        } else { err = 'bad_format' }
-      } else if (selfieStr) {
-        err = 'bad_format'
-      }
-      if (!okImage) { json(res, 400, { error: 'bad_image', reason: err }); return }
+      // Validación de imagen: tamaño ≤ 500KB y tipo real verificado por magic bytes
+      // (no basta con el MIME que declara el cliente en el data: URI, es falsificable)
+      const imgCheck = validateImageDataUri(selfieStr, 500 * 1024)
+      if (!imgCheck.ok) { json(res, 400, { error: 'bad_image', reason: imgCheck.err }); return }
       let upload = null
       try {
         upload = await uploadSelfieToCloudinary(selfieStr, u)
@@ -1749,21 +1804,25 @@ const server = http.createServer(async (req, res) => {
       const venueId = String(body.venueId || '').trim()
       const amount = Number(body.amount || 0)
       if (!venueId || !Number.isFinite(amount)) { json(res, 400, { error: 'bad_input' }); return }
-      const venues = await readVenues()
-      const existed = !!venues[venueId]
-      const prev = venues[venueId] || { name: venueId, credits: 0, active: true, pin: '', email: '' }
-      const nextCredits = Number(prev.credits || 0) + amount
-      let pin = String(prev.pin || '')
-      if (!existed && !pin) {
-        pin = String(Math.floor(1000 + Math.random() * 9000))
-      }
-      venues[venueId] = { name: String(prev.name || venueId), credits: Math.max(0, nextCredits), active: prev.active !== false, pin, email: String(prev.email || ''), discounts: prev.discounts || { nocturno: 0, premium: 0 } }
-      await writeVenues(venues)
+      const unlockVenues = await venuesMutex.lock()
+      let venues, existed
+      try {
+        venues = await readVenues()
+        existed = !!venues[venueId]
+        const prev = venues[venueId] || { name: venueId, credits: 0, active: true, pin: '', email: '' }
+        const nextCredits = Number(prev.credits || 0) + amount
+        let pin = String(prev.pin || '')
+        if (!existed && !pin) {
+          pin = String(Math.floor(1000 + Math.random() * 9000))
+        }
+        venues[venueId] = { name: String(prev.name || venueId), credits: Math.max(0, nextCredits), active: prev.active !== false, pin, email: String(prev.email || ''), discounts: prev.discounts || { nocturno: 0, premium: 0 } }
+        await writeVenues(venues)
+      } finally { unlockVenues() }
       if (!existed && String(venues[venueId].email || '')) {
         const to = String(venues[venueId].email)
         const subject = `PIN del local ${venues[venueId].name}`
         const link = `${process.env.PUBLIC_BASE_URL || ''}/?venueId=${encodeURIComponent(venueId)}`
-        const text = `Hola,\n\nSe creó el local "${venues[venueId].name}" (ID: ${venueId}).\nPIN del venue: ${pin}\nAcceso: ${link}\n\nSi lo deseas, puedes cambiar el PIN desde el Panel Admin.\n`
+        const text = `Hola,\n\nSe creó el local "${venues[venueId].name}" (ID: ${venueId}).\nPIN del venue: ${venues[venueId].pin}\nAcceso: ${link}\n\nSi lo deseas, puedes cambiar el PIN desde el Panel Admin.\n`
         try { await sendEmail(to, subject, text) } catch {}
       }
       json(res, 200, { ok: true, venueId, credits: venues[venueId].credits })
@@ -1776,10 +1835,14 @@ const server = http.createServer(async (req, res) => {
       const venueId = String(body.venueId || '').trim()
       const pin = String(body.pin || '').trim()
       if (!venueId || !pin) { json(res, 400, { error: 'bad_input' }); return }
-      const venues = await readVenues()
-      const prev = venues[venueId] || { name: venueId, credits: 0, active: true, email: '' }
-      venues[venueId] = { name: String(prev.name || venueId), credits: Number(prev.credits || 0), active: prev.active !== false, pin, email: String(prev.email || ''), discounts: prev.discounts || { nocturno: 0, premium: 0 } }
-      await writeVenues(venues)
+      const unlockVenues = await venuesMutex.lock()
+      let venues
+      try {
+        venues = await readVenues()
+        const prev = venues[venueId] || { name: venueId, credits: 0, active: true, email: '' }
+        venues[venueId] = { name: String(prev.name || venueId), credits: Number(prev.credits || 0), active: prev.active !== false, pin, email: String(prev.email || ''), discounts: prev.discounts || { nocturno: 0, premium: 0 } }
+        await writeVenues(venues)
+      } finally { unlockVenues() }
       if (String(venues[venueId].email || '')) {
         const to = String(venues[venueId].email)
         const subject = `PIN actualizado para ${venues[venueId].name}`
@@ -1818,10 +1881,13 @@ const server = http.createServer(async (req, res) => {
       const venueId = String(body.venueId || '').trim()
       const email = String(body.email || '').trim()
       if (!venueId || !email || !email.includes('@')) { json(res, 400, { error: 'bad_input' }); return }
-      const venues = await readVenues()
-      const prev = venues[venueId] || { name: venueId, credits: 0, active: true, pin: '' }
-      venues[venueId] = { name: String(prev.name || venueId), credits: Number(prev.credits || 0), active: prev.active !== false, pin: String(prev.pin || ''), email, discounts: prev.discounts || { nocturno: 0, premium: 0 } }
-      await writeVenues(venues)
+      const unlockVenues = await venuesMutex.lock()
+      try {
+        const venues = await readVenues()
+        const prev = venues[venueId] || { name: venueId, credits: 0, active: true, pin: '' }
+        venues[venueId] = { name: String(prev.name || venueId), credits: Number(prev.credits || 0), active: prev.active !== false, pin: String(prev.pin || ''), email, discounts: prev.discounts || { nocturno: 0, premium: 0 } }
+        await writeVenues(venues)
+      } finally { unlockVenues() }
       json(res, 200, { ok: true, venueId, email })
       return
     }
@@ -1840,11 +1906,14 @@ const server = http.createServer(async (req, res) => {
           await db.query('DELETE FROM venues WHERE venue_id=$1', [String(venueId)])
         } catch {}
       } else {
-        const venues = await readVenues()
-        if (venues[venueId]) {
-          delete venues[venueId]
-          await writeVenues(venues)
-        }
+        const unlockVenues = await venuesMutex.lock()
+        try {
+          const venues = await readVenues()
+          if (venues[venueId]) {
+            delete venues[venueId]
+            await writeVenues(venues)
+          }
+        } finally { unlockVenues() }
       }
       json(res, 200, { ok: true, venueId })
       return
@@ -1856,10 +1925,13 @@ const server = http.createServer(async (req, res) => {
       const venueId = String(body.venueId || '').trim()
       const active = !!body.active
       if (!venueId) { json(res, 400, { error: 'bad_input' }); return }
-      const venues = await readVenues()
-      const prev = venues[venueId] || { name: venueId, credits: 0, active: true, pin: '', email: '' }
-      venues[venueId] = { name: String(prev.name || venueId), credits: Number(prev.credits || 0), active, pin: String(prev.pin || ''), email: String(prev.email || ''), discounts: prev.discounts || { nocturno: 0, premium: 0 } }
-      await writeVenues(venues)
+      const unlockVenues = await venuesMutex.lock()
+      try {
+        const venues = await readVenues()
+        const prev = venues[venueId] || { name: venueId, credits: 0, active: true, pin: '', email: '' }
+        venues[venueId] = { name: String(prev.name || venueId), credits: Number(prev.credits || 0), active, pin: String(prev.pin || ''), email: String(prev.email || ''), discounts: prev.discounts || { nocturno: 0, premium: 0 } }
+        await writeVenues(venues)
+      } finally { unlockVenues() }
       json(res, 200, { ok: true, venueId, active })
       return
     }
@@ -1870,10 +1942,13 @@ const server = http.createServer(async (req, res) => {
       const venueId = String(body.venueId || '').trim()
       const name = String(body.name || '').trim()
       if (!venueId || !name) { json(res, 400, { error: 'bad_input' }); return }
-      const venues = await readVenues()
-      const prev = venues[venueId] || { credits: 0, active: true, pin: '', email: '' }
-      venues[venueId] = { name, credits: Number(prev.credits || 0), active: prev.active !== false, pin: String(prev.pin || ''), email: String(prev.email || ''), discounts: prev.discounts || { nocturno: 0, premium: 0 } }
-      await writeVenues(venues)
+      const unlockVenues = await venuesMutex.lock()
+      try {
+        const venues = await readVenues()
+        const prev = venues[venueId] || { credits: 0, active: true, pin: '', email: '' }
+        venues[venueId] = { name, credits: Number(prev.credits || 0), active: prev.active !== false, pin: String(prev.pin || ''), email: String(prev.email || ''), discounts: prev.discounts || { nocturno: 0, premium: 0 } }
+        await writeVenues(venues)
+      } finally { unlockVenues() }
       json(res, 200, { ok: true, venueId, name })
       return
     }
@@ -1901,8 +1976,8 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/api/user/update' && req.method === 'POST') {
       const body = await parseBody(req)
-      const u = state.users.get(body.userId)
-      if (!u) { json(res, 404, { error: 'no_user' }); return }
+      const u = requireOwnUser(body, res)
+      if (!u) return
       if (typeof body.alias === 'string') u.alias = body.alias.slice(0,32)
       if (Array.isArray(body.tags)) u.prefs.tags = body.tags.slice(0,5)
       if (typeof body.visibility === 'string') u.visibility = body.visibility
@@ -1970,8 +2045,8 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/api/user/change-table' && req.method === 'POST') {
       const body = await parseBody(req)
-      const u = state.users.get(body.userId)
-      if (!u) { json(res, 404, { error: 'no_user' }); return }
+      const u = requireOwnUser(body, res)
+      if (!u) return
       const s = ensureSession(u.sessionId)
       if (!s) { json(res, 404, { error: 'no_session' }); return }
       const sessionPin = String(s.tableChangePin || '').trim()
@@ -2000,6 +2075,7 @@ const server = http.createServer(async (req, res) => {
       const target = state.users.get(body.userId)
       if (!staff || staff.role !== 'staff') { json(res, 403, { error: 'no_staff' }); return }
       if (!target) { json(res, 404, { error: 'no_user' }); return }
+      if (staff.sessionId !== target.sessionId) { json(res, 403, { error: 'forbidden' }); return }
       target.selfieApproved = true
       try { await dbUpsertUser(target) } catch {}
       json(res, 200, { ok: true })
@@ -2007,8 +2083,8 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/api/user/available' && req.method === 'POST') {
       const body = await parseBody(req)
-      const u = state.users.get(body.userId)
-      if (!u) { json(res, 404, { error: 'no_user' }); return }
+      const u = requireOwnUser(body, res)
+      if (!u) return
       u.available = !!body.available
       u.receiveMode = body.receiveMode || 'all'
       u.prefs = Object.assign({}, u.prefs || {}, (body.prefs || {}))
@@ -3237,6 +3313,11 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/staff/catalog' && req.method === 'POST') {
       const body = await parseBody(req)
       const s = ensureSession(body.sessionId)
+      if (!isAdminAuthorized(req, query)) {
+        const staff = state.users.get(body.staffId)
+        if (!staff || staff.role !== 'staff') { json(res, 403, { error: 'no_staff' }); return }
+        if (!s || staff.sessionId !== s.id) { json(res, 403, { error: 'forbidden' }); return }
+      }
       const mode = normalizeMode(body.mode || (s && s.mode) || '')
       const initVenueCatalog = !!body.initVenueCatalog
       const resetVenueCatalog = !!body.resetVenueCatalog
@@ -3370,6 +3451,7 @@ const server = http.createServer(async (req, res) => {
       const target = state.users.get(body.userId)
       if (!staff || staff.role !== 'staff') { json(res, 403, { error: 'no_staff' }); return }
       if (!target) { json(res, 404, { error: 'no_user' }); return }
+      if (staff.sessionId !== target.sessionId) { json(res, 403, { error: 'forbidden' }); return }
       target.muted = !!body.muted
       try { await dbUpsertUser(target) } catch {}
       json(res, 200, { ok: true })
@@ -3386,7 +3468,7 @@ const server = http.createServer(async (req, res) => {
       const u = state.users.get(userId)
       if (!u) { res.writeHead(404); res.end(); return }
       try { u.lastActiveAt = now() } catch {}
-      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'Access-Control-Allow-Origin': '*' })
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', ...corsHeaders() })
       const arr = state.sseUsers.get(userId) || []
       arr.push(res)
       state.sseUsers.set(userId, arr)
@@ -3402,7 +3484,7 @@ const server = http.createServer(async (req, res) => {
       const sessionId = query.sessionId
       const s = ensureSession(sessionId)
       if (!s) { res.writeHead(404); res.end(); return }
-      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'Access-Control-Allow-Origin': '*' })
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', ...corsHeaders() })
       const arr = state.sseStaff.get(sessionId) || []
       arr.push(res)
       state.sseStaff.set(sessionId, arr)
@@ -3421,7 +3503,7 @@ const server = http.createServer(async (req, res) => {
       if (!s && body.sessionId) { try { await loadSessionFromRedis(body.sessionId) } catch {} s = ensureSession(body.sessionId) }
       if (!s) { json(res, 404, { error: 'no_session' }); return }
       const pinStr = String(body.pin || '')
-      const okAdmin = ADMIN_SECRET && String(req.headers['x-admin-secret'] || '') === ADMIN_SECRET
+      const okAdmin = ADMIN_SECRET && timingSafeEqualStr(String(req.headers['x-admin-secret'] || ''), ADMIN_SECRET)
       const okPin = pinStr === String(s.pin)
       let okVenuePin = false
       try { const vens = await readVenues(); const v = vens[s.venueId]; if (v && String(v.pin || '') && pinStr === String(v.pin)) okVenuePin = true } catch {}
@@ -3476,10 +3558,13 @@ const server = http.createServer(async (req, res) => {
       if (!venueId) { json(res, 400, { error: 'bad_input' }); return }
       const nocturno = Math.max(0, Math.min(100, Number(body.nocturno || 0)))
       const premium = Math.max(0, Math.min(100, Number(body.premium || 0)))
-      const venues = await readVenues()
-      const prev = venues[venueId] || { name: venueId, credits: 0, active: true, pin: '', email: '' }
-      venues[venueId] = { ...prev, discounts: { nocturno, premium } }
-      await writeVenues(venues)
+      const unlockVenues = await venuesMutex.lock()
+      try {
+        const venues = await readVenues()
+        const prev = venues[venueId] || { name: venueId, credits: 0, active: true, pin: '', email: '' }
+        venues[venueId] = { ...prev, discounts: { nocturno, premium } }
+        await writeVenues(venues)
+      } finally { unlockVenues() }
       json(res, 200, { ok: true, venueId, discounts: { nocturno, premium } })
       return
     }
@@ -3817,6 +3902,10 @@ const server = http.createServer(async (req, res) => {
       const proofImage = String(body.proofImage || '').slice(0, 500000)
       if (!subscriberId || !plan || !method || !reference) { json(res, 400, { error: 'missing_fields' }); return }
       if (!['nocturno', 'premium'].includes(plan)) { json(res, 400, { error: 'invalid_plan' }); return }
+      if (proofImage) {
+        const proofCheck = validateImageDataUri(proofImage, 500 * 1024)
+        if (!proofCheck.ok) { json(res, 400, { error: 'bad_image', reason: proofCheck.err }); return }
+      }
       const price = plan === 'premium' ? PLAN_PREMIUM_PRICE : PLAN_NOCTURNO_PRICE
       const paymentId = genId('pay')
       let proofUrl = ''
@@ -3913,7 +4002,7 @@ const server = http.createServer(async (req, res) => {
 server.on('request', (req, res) => {
   const { pathname } = url.parse(req.url, true)
   if (pathname === '/favicon.ico') {
-    res.writeHead(200, { 'Content-Type': 'image/x-icon', 'Cache-Control': 'max-age=86400', 'Access-Control-Allow-Origin': '*' })
+    res.writeHead(200, { 'Content-Type': 'image/x-icon', 'Cache-Control': 'max-age=86400', ...corsHeaders() })
     res.end('')
   }
 })

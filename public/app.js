@@ -1,6 +1,9 @@
 let S = { sessionId: '', venueId: '', user: null, staff: null, role: '', sse: null, staffSSE: null, currentInvite: null, meeting: null, consumptionReq: null, nav: { history: [], current: '' }, notifications: { invites: 0 }, timers: { userPoll: 0, staffPoll: 0, userReconnect: 0, staffReconnect: 0, catalogSave: 0, modalHide: 0 }, staffTab: '', cart: [], messageTTL: 4000, modalShownAt: 0, isMeetingReceiver: false, meetingPlan: '', sched: {}, loading: {}, catalogGroups: {}, catalogCat: '', catalogSubcat: '', waiterReason: '', invitesQueue: [], inInviteFlow: false, missed: [], skipConfirmInvite: false, audioCtx: null, modalKind: '', appMode: '' }
 
 function q(id) { return document.getElementById(id) }
+function escapeHtml(str) {
+  return String(str == null ? '' : str).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+}
 function isRestaurantMode() { return S.appMode === 'restaurant' }
 function normalizeModeParam(mode) {
   const m = String(mode || '').toLowerCase()
@@ -120,7 +123,9 @@ function chooseVenueMode(mode) {
 function show(id) {
   maybeAutoCancelMeetingOnLeave(id)
   for (const el of document.querySelectorAll('.screen')) el.classList.remove('active')
-  q(id).classList.add('active')
+  const screenEl = q(id)
+  if (!screenEl) { console.warn('show(): pantalla inexistente', id); return }
+  screenEl.classList.add('active')
   if (S.nav && S.nav.current && S.nav.current !== id) S.nav.history.push(S.nav.current)
   S.nav.current = id
   try { localStorage.setItem('discos_last_view', id) } catch {}
@@ -1006,10 +1011,10 @@ async function saveProfile() {
   showModal('Preparando tu perfil', 'Estamos cargando tus datos. En segundos disfrutarás una nueva experiencia.', 'info')
   try {
     if (isRestaurant) {
-      await api('/api/user/update', { method: 'POST', body: JSON.stringify({ userId: S.user.id, alias, tableId }) })
+      await api('/api/user/update', { method: 'POST', body: JSON.stringify({ userId: S.user.id, token: S.user.token, alias, tableId }) })
     } else {
-      const resp = await api('/api/user/profile', { method: 'POST', body: JSON.stringify({ userId: S.user.id, alias, selfie, gender }) })
-      await api('/api/user/change-table', { method: 'POST', body: JSON.stringify({ userId: S.user.id, newTable: tableId }) })
+      const resp = await api('/api/user/profile', { method: 'POST', body: JSON.stringify({ userId: S.user.id, token: S.user.token, alias, selfie, gender }) })
+      await api('/api/user/change-table', { method: 'POST', body: JSON.stringify({ userId: S.user.id, token: S.user.token, newTable: tableId }) })
       if (resp && resp.selfie) selfie = resp.selfie
     }
   } catch (e) {
@@ -1128,7 +1133,7 @@ async function setAvailable() {
                     : `Vas a desactivar el modo disponible para bailar. ¿Confirmas?`
   const ok = await confirmAction(phr)
   if (!ok) { if (q('switch-available')) q('switch-available').checked = prev; return }
-  await api('/api/user/available', { method: 'POST', body: JSON.stringify({ userId: S.user.id, available: next, receiveMode, zone }) })
+  await api('/api/user/available', { method: 'POST', body: JSON.stringify({ userId: S.user.id, token: S.user.token, available: next, receiveMode, zone }) })
   if (!S.user) S.user = {}
   S.user.available = next
   S.user.receiveMode = receiveMode
@@ -2967,7 +2972,7 @@ async function saveEditProfile() {
   const tags = q('edit-tags').value.split(',').map(s => s.trim()).filter(Boolean)
   const tableRaw = q('edit-table').value.trim()
   const tableId = normalizeTableId(tableRaw)
-  await api('/api/user/update', { method: 'POST', body: JSON.stringify({ userId: S.user.id, alias, tags, tableId }) })
+  await api('/api/user/update', { method: 'POST', body: JSON.stringify({ userId: S.user.id, token: S.user.token, alias, tags, tableId }) })
   showError('Perfil actualizado')
   setTimeout(() => showError(''), 1000)
   show('screen-user-home')
@@ -3096,7 +3101,7 @@ async function changeTableWithPin(newTable) {
   const pin = q('select-table-pin')?.value.trim()
   if (!pin) { showError('Ingresa el PIN de cambio de mesa'); setTimeout(() => showError(''), 1400); return false }
   try {
-    await api('/api/user/change-table', { method: 'POST', body: JSON.stringify({ userId: S.user.id, newTable, pin }) })
+    await api('/api/user/change-table', { method: 'POST', body: JSON.stringify({ userId: S.user.id, token: S.user.token, newTable, pin }) })
   } catch (e) {
     handleChangeTableError(String(e.message || 'error'))
     return false
@@ -3545,7 +3550,7 @@ function saveLocalUser() {
   const modeKey = getCurrentModeKey()
   const m = getLocalUsers()
   const k = makeLocalKey(v, modeKey)
-  m[k] = { sessionId: S.sessionId || '', role: S.role || (S.user ? S.user.role : ''), userId: S.user ? S.user.id : '' }
+  m[k] = { sessionId: S.sessionId || '', role: S.role || (S.user ? S.user.role : ''), userId: S.user ? S.user.id : '', token: S.user ? (S.user.token || '') : '' }
   setLocalUsers(m)
   setLastVenueKey(modeKey, v)
 }
@@ -3584,7 +3589,7 @@ async function restoreLocalUser() {
       const k = makeLocalKey(venueParam, modeKey)
       if (m[k]) {
         key = k
-        d = { sessionId: m[k].sessionId, userId: m[k].userId, role: m[k].role, venueId: venueParam }
+        d = { sessionId: m[k].sessionId, userId: m[k].userId, role: m[k].role, venueId: venueParam, token: m[k].token || '' }
       }
     }
     if (!d && sidParam) {
@@ -3594,14 +3599,14 @@ async function restoreLocalUser() {
         const kVenue = parts[0] || ''
         const kMode = parts[1] || 'disco'
         if (kMode !== modeKey) continue
-        if (v && v.sessionId === sidParam) { key = k; d = { sessionId: v.sessionId, userId: v.userId, role: v.role, venueId: kVenue }; break }
+        if (v && v.sessionId === sidParam) { key = k; d = { sessionId: v.sessionId, userId: v.userId, role: v.role, venueId: kVenue, token: v.token || '' }; break }
       }
     }
     if (!d && lastVenue) {
       const k = makeLocalKey(lastVenue, modeKey)
       if (m[k]) {
         key = k
-        d = { sessionId: m[k].sessionId, userId: m[k].userId, role: m[k].role, venueId: lastVenue }
+        d = { sessionId: m[k].sessionId, userId: m[k].userId, role: m[k].role, venueId: lastVenue, token: m[k].token || '' }
       }
     }
     if (!d) {
@@ -3611,7 +3616,7 @@ async function restoreLocalUser() {
         const v = m[key]
         const parts = String(key).split('::')
         const kVenue = parts[0] || ''
-        d = { sessionId: v.sessionId, userId: v.userId, role: v.role, venueId: kVenue }
+        d = { sessionId: v.sessionId, userId: v.userId, role: v.role, venueId: kVenue, token: v.token || '' }
       }
     }
     if (!d || !d.sessionId || !d.userId || !d.role) return false
@@ -3620,7 +3625,7 @@ async function restoreLocalUser() {
     if (sidParam && ajParam === '1' && sidParam !== d.sessionId) { return false }
     S.venueId = d.venueId || (S.venueId || 'default')
     if (d.role === 'staff') {
-      S.user = { id: d.userId, role: 'staff', sessionId: d.sessionId }
+      S.user = { id: d.userId, role: 'staff', sessionId: d.sessionId, token: d.token || '' }
       S.sessionId = d.sessionId
       S.role = 'staff'
       await syncSessionMode(S.sessionId)
@@ -3628,6 +3633,7 @@ async function restoreLocalUser() {
       const r = await api(`/api/user/get?userId=${encodeURIComponent(d.userId)}`).catch(() => null)
       if (!r || !r.user) return false
       S.user = r.user
+      S.user.token = d.token || ''
       S.sessionId = r.user.sessionId
       S.role = r.user.role
       await syncSessionMode(S.sessionId)
@@ -4265,20 +4271,20 @@ async function saveStaffCatalog() {
       if (isRestaurantMode() && !description) { showError('Agrega una descripción'); return }
       items.push({ name, price, category, subcategory, description, combo, includes, discount })
     }
-    const s = await api('/api/staff/catalog', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, items }) })
+    const s = await api('/api/staff/catalog', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, staffId: S.user && S.user.id, items }) })
     if (s && s.ok) { showError('Carta guardada'); setTimeout(() => showError(''), 1000) }
     await loadStaffCatalogEditor()
   } catch (e) { showError(String(e.message || 'Error')) }
 }
 async function useGlobalCatalog() {
   try {
-    await api('/api/staff/catalog', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, items: [] }) })
+    await api('/api/staff/catalog', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, staffId: S.user && S.user.id, items: [] }) })
     await loadStaffCatalogEditor()
   } catch (e) { showError(String(e.message)) }
 }
 async function initEmptyVenueCatalog() {
   try {
-    await api('/api/staff/catalog', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, venueId: S.venueId || '', items: [], initVenueCatalog: true }) })
+    await api('/api/staff/catalog', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, staffId: S.user && S.user.id, venueId: S.venueId || '', items: [], initVenueCatalog: true }) })
     await loadStaffCatalogEditor()
   } catch (e) { showError(String(e.message)) }
 }
@@ -4286,7 +4292,7 @@ async function copyGlobalToSession(initVenueCatalog = false) {
   try {
     const r = await api(`/api/catalog${isRestaurantMode() ? '?mode=restaurant' : ''}`)
     const items = r.items || []
-    await api('/api/staff/catalog', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, venueId: S.venueId || '', items, initVenueCatalog: !!initVenueCatalog }) })
+    await api('/api/staff/catalog', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, staffId: S.user && S.user.id, venueId: S.venueId || '', items, initVenueCatalog: !!initVenueCatalog }) })
     await loadStaffCatalogEditor()
   } catch (e) { showError(String(e.message)) }
 }
@@ -4848,7 +4854,7 @@ function renderVenueProfile(v) {
       el.style.cssText = 'padding:8px 0;border-bottom:1px solid #222'
       const d = new Date(ev.date)
       const dateStr = `${d.getDate()}/${d.getMonth() + 1} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
-      el.innerHTML = `<div style="font-weight:600">${ev.eventName || 'Evento'}</div><div style="font-size:12px;color:#aaa">${dateStr}${ev.djName ? ' • DJ: ' + ev.djName : ''}${ev.coverPrice > 0 ? ' • Cover: $' + ev.coverPrice : ''}</div>${ev.description ? `<div style="font-size:12px;color:#666;margin-top:2px">${ev.description}</div>` : ''}`
+      el.innerHTML = `<div style="font-weight:600">${escapeHtml(ev.eventName || 'Evento')}</div><div style="font-size:12px;color:#aaa">${dateStr}${ev.djName ? ' • DJ: ' + escapeHtml(ev.djName) : ''}${ev.coverPrice > 0 ? ' • Cover: $' + Number(ev.coverPrice) : ''}</div>${ev.description ? `<div style="font-size:12px;color:#666;margin-top:2px">${escapeHtml(ev.description)}</div>` : ''}`
       eventsList.appendChild(el)
     }
   } else if (eventsCard) { eventsCard.style.display = 'none' }
@@ -4862,7 +4868,7 @@ function renderVenueProfile(v) {
       el.style.cssText = 'padding:8px 0;border-bottom:1px solid #222'
       const stars = '★'.repeat(rev.rating) + '☆'.repeat(5 - rev.rating)
       const d = new Date(rev.date)
-      el.innerHTML = `<div style="color:#fbbf24;font-size:13px">${stars}</div>${rev.comment ? `<div style="font-size:13px;margin-top:2px">${rev.comment}</div>` : ''}<div style="font-size:11px;color:#555;margin-top:2px">${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()}</div>`
+      el.innerHTML = `<div style="color:#fbbf24;font-size:13px">${stars}</div>${rev.comment ? `<div style="font-size:13px;margin-top:2px">${escapeHtml(rev.comment)}</div>` : ''}<div style="font-size:11px;color:#555;margin-top:2px">${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()}</div>`
       reviewsList.appendChild(el)
     }
   }
