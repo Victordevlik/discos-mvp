@@ -1083,6 +1083,7 @@ async function join(role, codeOverride = '', pinOverride = '') {
     S.role = role
     S.sessionCoverPrice = r.coverPrice || 0
     S.sessionCoverEnabled = !!r.coverEnabled
+    if (r.welcomeGift) toast(`🎁 Trago de bienvenida: ${r.welcomeGift.product}`, 'success')
     await syncSessionMode(S.sessionId)
     try {
       const sInfo = await api(`/api/session/info?sessionId=${encodeURIComponent(S.sessionId)}`)
@@ -2296,7 +2297,7 @@ async function loadOrders(state = '') {
     return ia.localeCompare(ib)
   })
   const filtered = state ? listAsc : listAsc.filter(o => o.status !== 'cobrado')
-  const sigOrders = buildSig(filtered, o => [o.id, o.status, o.quantity, o.total, o.product, o.emitterId, o.receiverId, o.receiverTable, o.emitterTable, o.mesaEntrega, o.createdAt, o.isInvitation, o.servedByStaffAlias].join('~'))
+  const sigOrders = buildSig(filtered, o => [o.id, o.status, o.quantity, o.total, o.product, o.emitterId, o.receiverId, o.receiverTable, o.emitterTable, o.mesaEntrega, o.createdAt, o.isInvitation, o.servedByStaffAlias, o.tier].join('~'))
   const sig = sigOrders
   S.ui = S.ui || {}
   S.ui.staffOrdersSigMap = S.ui.staffOrdersSigMap || {}
@@ -2374,6 +2375,13 @@ async function loadOrders(state = '') {
         invChip.className = 'chip'
         invChip.textContent = 'Invitación'
         info.append(invChip)
+      }
+      if (o.tier && o.tier !== 'free') {
+        const tierChip = document.createElement('span')
+        tierChip.className = 'chip'
+        tierChip.textContent = `${TIER_LABELS[o.tier] || o.tier} ⭐`
+        tierChip.style.cssText = `color:${TIER_COLORS[o.tier] || '#aaa'};background:#1a1a2e`
+        info.append(tierChip)
       }
       const row = document.createElement('div')
       row.className = 'row'
@@ -2499,7 +2507,8 @@ async function loadReservations() {
     div.className = 'card'
     const info = document.createElement('div')
     const tag = res.guestList ? 'Guest list' : 'Reserva'
-    info.textContent = `${res.name} • ${res.partySize} persona(s) • ${tag} • ${STATUS_LABELS[res.status] || res.status}${res.note ? ' • ' + res.note : ''}`
+    const tierTag = res.subscriberTier ? ` • ${TIER_LABELS[res.subscriberTier] || res.subscriberTier} ⭐` : ''
+    info.textContent = `${res.name} • ${res.partySize} persona(s) • ${tag}${tierTag} • ${STATUS_LABELS[res.status] || res.status}${res.note ? ' • ' + res.note : ''}`
     div.append(info)
     if (res.status === 'pending' || res.status === 'confirmed') {
       const row = document.createElement('div')
@@ -5045,7 +5054,10 @@ async function redeemSubCode(userId, code) {
   if (!code || !userId) return null
   try {
     const r = await api('/api/user/subscription/redeem', { method: 'POST', body: JSON.stringify({ userId, code }) })
-    if (r && r.ok) return r.tier
+    if (r && r.ok) {
+      if (r.welcomeGift) toast(`🎁 Trago de bienvenida: ${r.welcomeGift.product}`, 'success')
+      return r.tier
+    }
   } catch {}
   return null
 }
@@ -5553,10 +5565,15 @@ async function submitVenueReservation() {
   const note = q('vp-res-note') ? q('vp-res-note').value.trim() : ''
   if (!name) { toast('Ingresá tu nombre', 'info'); return }
   try {
-    await api('/api/reservations/request', { method: 'POST', body: JSON.stringify({ venueId: _currentVenueProfile.venueId, subscriberId: _subscriber ? _subscriber.id : '', name, partySize, note, requestedFor: 'hoy' }) })
+    const r = await api('/api/reservations/request', { method: 'POST', body: JSON.stringify({ venueId: _currentVenueProfile.venueId, subscriberId: _subscriber ? _subscriber.id : '', name, partySize, note, requestedFor: 'hoy' }) })
     const st = q('vp-res-status')
-    if (st) { st.style.display = ''; st.textContent = 'Reserva solicitada — el venue la va a confirmar.' }
-    toast('Reserva solicitada', 'success')
+    if (r.autoConfirmed) {
+      if (st) { st.style.display = ''; st.textContent = '✅ Reserva confirmada al instante — beneficio de suscriptor. Ya estás en la guest list, entrás directo.' }
+      toast('Entrada confirmada — beneficio de suscriptor', 'success')
+    } else {
+      if (st) { st.style.display = ''; st.textContent = 'Reserva solicitada — el venue la va a confirmar.' }
+      toast('Reserva solicitada', 'success')
+    }
   } catch (e) { toast(String(e.message || 'Error al reservar'), 'info') }
 }
 

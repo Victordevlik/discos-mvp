@@ -305,6 +305,7 @@ async function initDB() {
   await db.query('ALTER TABLE IF EXISTS orders ADD COLUMN IF NOT EXISTS tip INTEGER')
   await db.query('ALTER TABLE IF EXISTS orders ADD COLUMN IF NOT EXISTS served_by_staff_id TEXT')
   await db.query('ALTER TABLE IF EXISTS orders ADD COLUMN IF NOT EXISTS served_by_staff_alias TEXT')
+  await db.query('ALTER TABLE IF EXISTS orders ADD COLUMN IF NOT EXISTS tier TEXT')
   await db.query('CREATE TABLE IF NOT EXISTS table_closures (session_id TEXT NOT NULL, table_id TEXT NOT NULL, closed BOOLEAN NOT NULL, PRIMARY KEY (session_id, table_id))')
   await db.query('CREATE TABLE IF NOT EXISTS waiter_calls (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, user_id TEXT NOT NULL, table_id TEXT, reason TEXT, status TEXT, ts BIGINT NOT NULL)')
   await db.query('CREATE TABLE IF NOT EXISTS catalog_items (session_id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, category TEXT, subcategory TEXT, description TEXT, stock INTEGER, PRIMARY KEY (session_id, name))')
@@ -577,10 +578,10 @@ async function dbInsertOrder(o, client = null) {
     String(o.product), Number(o.quantity || 1), Number(o.price || 0), Number(o.total || 0),
     String(o.status), Number(o.createdAt || 0), Number(o.expiresAt || 0),
     String(o.emitterTable || ''), String(o.receiverTable || ''), String(o.mesaEntrega || ''), !!o.isInvitation,
-    Number(o.tip || 0)
+    Number(o.tip || 0), String(o.tier || 'free')
   ]
   const runner = client || db
-  await runner.query('INSERT INTO orders (id, session_id, emitter_id, receiver_id, product, quantity, price, total, status, created_at, expires_at, emitter_table, receiver_table, mesa_entrega, is_invitation, tip) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status, quantity=EXCLUDED.quantity, price=EXCLUDED.price, total=EXCLUDED.total, emitter_table=EXCLUDED.emitter_table, receiver_table=EXCLUDED.receiver_table, mesa_entrega=EXCLUDED.mesa_entrega, expires_at=EXCLUDED.expires_at, tip=EXCLUDED.tip', vals)
+  await runner.query('INSERT INTO orders (id, session_id, emitter_id, receiver_id, product, quantity, price, total, status, created_at, expires_at, emitter_table, receiver_table, mesa_entrega, is_invitation, tip, tier) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status, quantity=EXCLUDED.quantity, price=EXCLUDED.price, total=EXCLUDED.total, emitter_table=EXCLUDED.emitter_table, receiver_table=EXCLUDED.receiver_table, mesa_entrega=EXCLUDED.mesa_entrega, expires_at=EXCLUDED.expires_at, tip=EXCLUDED.tip', vals)
 }
 async function dbUpdateOrderStatus(id, status) {
   requireDB()
@@ -591,10 +592,10 @@ async function dbGetOrdersBySession(sessionId, stateFilter) {
   requireDB()
   await initDB()
   if (stateFilter) {
-    const r = await db.query('SELECT id, product, quantity, price, total, status, created_at, expires_at, emitter_id, receiver_id, emitter_table, receiver_table, mesa_entrega, tip, served_by_staff_id, served_by_staff_alias FROM orders WHERE session_id=$1 AND status=$2', [String(sessionId), String(stateFilter)])
+    const r = await db.query('SELECT id, product, quantity, price, total, status, created_at, expires_at, emitter_id, receiver_id, emitter_table, receiver_table, mesa_entrega, tip, served_by_staff_id, served_by_staff_alias, tier FROM orders WHERE session_id=$1 AND status=$2', [String(sessionId), String(stateFilter)])
     return r.rows
   }
-  const r = await db.query('SELECT id, product, quantity, price, total, status, created_at, expires_at, emitter_id, receiver_id, emitter_table, receiver_table, mesa_entrega, tip, served_by_staff_id, served_by_staff_alias FROM orders WHERE session_id=$1', [String(sessionId)])
+  const r = await db.query('SELECT id, product, quantity, price, total, status, created_at, expires_at, emitter_id, receiver_id, emitter_table, receiver_table, mesa_entrega, tip, served_by_staff_id, served_by_staff_alias, tier FROM orders WHERE session_id=$1', [String(sessionId)])
   return r.rows
 }
 async function dbGetOrdersByTable(sessionId, tableId) {
@@ -1008,6 +1009,37 @@ async function decrementCatalogStock(s, itemName, qty) {
     }
   } catch {}
 }
+// Beneficio de suscripción: al hacer check-in, si el venue configuró un ítem de
+// bienvenida y tiene stock, se le genera automáticamente un pedido cortesía (100% off).
+async function createWelcomeOrder(u, s) {
+  try {
+    if (!s) return null
+    const prof = _venueProfiles[s.venueId] || {}
+    const itemName = String(prof.welcomeItem || '').trim()
+    if (!itemName) return null
+    const itemsBase = await getCatalogBaseForSession(s)
+    const found = itemsBase.find(i => i.name === itemName)
+    if (!found || !hasStock(found, 1)) return null
+    const orderId = genId('ord')
+    const createdAt = now()
+    const expiresAt = createdAt + 10 * 60 * 1000
+    const mesaEntrega = u.tableId || ''
+    const price = Number(found.price || 0)
+    const order = { id: orderId, sessionId: u.sessionId, emitterId: u.id, receiverId: u.id, product: itemName, quantity: 1, price, total: 0, tip: 0, discountPct: 100, status: 'pendiente_cobro', createdAt, expiresAt, emitterTable: u.tableId || '', receiverTable: u.tableId || '', mesaEntrega, tier: u.subscriptionTier || 'free' }
+    await withDbTx(async (client) => {
+      await dbInsertOrder(order, client)
+      await dbInsertEvent({ sessionId: order.sessionId, entityType: 'order', entityId: order.id, eventType: 'created', payload: { product: order.product, quantity: order.quantity, price: order.price, total: order.total, emitterId: order.emitterId, receiverId: order.receiverId, welcomeGift: true }, ts: createdAt }, client)
+    })
+    state.orders.set(orderId, order)
+    await decrementCatalogStock(s, itemName, 1)
+    sendToStaff(order.sessionId, 'order_new', { order })
+    sendToUser(u.id, 'order_update', { order })
+    return { product: itemName }
+  } catch (e) {
+    log('error', 'welcome_order_failed', { error: String(e && e.message || e) })
+    return null
+  }
+}
 
 // Por defecto la API solo se sirve al propio frontend (mismo origen); un '*' permitía
 // que cualquier sitio de terceros scriptease los endpoints del usuario/admin desde el
@@ -1404,15 +1436,28 @@ async function sendPushToSubscriber(subscriberId, payload) {
   if (kept.length !== sub.pushSubs.length) { sub.pushSubs = kept; writeSubscribersFile() }
 }
 
+// Beneficio de suscripción: Nocturno/Premium se entera de que el venue abrió
+// antes que el resto de los seguidores, para llegar temprano si quiere.
+const SUBSCRIBER_NOTIFY_HEAD_START_MS = 5 * 60 * 1000
 async function notifyVenueFollowers(venueId, sessionData) {
+  const bodyParts = []
+  if (sessionData.eventName) bodyParts.push(sessionData.eventName)
+  if (sessionData.djName) bodyParts.push('DJ: ' + sessionData.djName)
+  bodyParts.push(sessionData.coverPrice > 0 ? 'Cover: $' + sessionData.coverPrice : 'Sin cover')
+  const payload = JSON.stringify({ title: `${sessionData.venueName || venueId} está live 🎵`, body: bodyParts.join(' • '), url: `/?venueId=${encodeURIComponent(venueId)}&aj=1`, type: 'venue_live', sessionId: sessionData.sessionId })
+  const laterSubIds = []
   for (const [subId, sub] of state.subscribers) {
     if (!Array.isArray(sub.following) || !sub.following.includes(venueId)) continue
-    const bodyParts = []
-    if (sessionData.eventName) bodyParts.push(sessionData.eventName)
-    if (sessionData.djName) bodyParts.push('DJ: ' + sessionData.djName)
-    bodyParts.push(sessionData.coverPrice > 0 ? 'Cover: $' + sessionData.coverPrice : 'Sin cover')
-    const payload = JSON.stringify({ title: `${sessionData.venueName || venueId} está live 🎵`, body: bodyParts.join(' • '), url: `/?venueId=${encodeURIComponent(venueId)}&aj=1`, type: 'venue_live', sessionId: sessionData.sessionId })
-    try { await sendPushToSubscriber(subId, payload) } catch {}
+    if (sub.tier && sub.tier !== 'free') {
+      try { await sendPushToSubscriber(subId, payload) } catch {}
+    } else {
+      laterSubIds.push(subId)
+    }
+  }
+  if (laterSubIds.length) {
+    setTimeout(() => {
+      for (const subId of laterSubIds) { sendPushToSubscriber(subId, payload).catch(() => {}) }
+    }, SUBSCRIBER_NOTIFY_HEAD_START_MS)
   }
 }
 
@@ -1905,7 +1950,11 @@ const server = http.createServer(async (req, res) => {
           writeSubscribersFile()
         }
       }
-      json(res, 200, { user, coverPrice: s.coverPrice || 0, coverEnabled: !!s.coverEnabled })
+      let welcomeGift = null
+      if (role === 'user' && user.subscriptionTier && user.subscriptionTier !== 'free') {
+        welcomeGift = await createWelcomeOrder(user, s)
+      }
+      json(res, 200, { user, coverPrice: s.coverPrice || 0, coverEnabled: !!s.coverEnabled, welcomeGift })
       return
     }
     if (pathname === '/api/user/get' && req.method === 'GET') {
@@ -2921,7 +2970,7 @@ const server = http.createServer(async (req, res) => {
       const expiresAt = now() + 10 * 60 * 1000
       const createdAt = now()
       const mesaEntrega = u.tableId || ''
-      const order = { id: orderId, sessionId: u.sessionId, emitterId: u.id, receiverId: u.id, product: itemName, quantity: qty, price, total, tip: 0, discountPct, status: 'pendiente_cobro', createdAt, expiresAt, emitterTable: u.tableId || '', receiverTable: u.tableId || '', mesaEntrega }
+      const order = { id: orderId, sessionId: u.sessionId, emitterId: u.id, receiverId: u.id, product: itemName, quantity: qty, price, total, tip: 0, discountPct, status: 'pendiente_cobro', createdAt, expiresAt, emitterTable: u.tableId || '', receiverTable: u.tableId || '', mesaEntrega, tier: u.subscriptionTier || 'free' }
       await withDbTx(async (client) => {
         await dbInsertOrder(order, client)
         await dbInsertEvent({ sessionId: order.sessionId, entityType: 'order', entityId: order.id, eventType: 'created', payload: { product: order.product, quantity: order.quantity, price: order.price, total: order.total, emitterId: order.emitterId, receiverId: order.receiverId }, ts: createdAt }, client)
@@ -2975,7 +3024,7 @@ const server = http.createServer(async (req, res) => {
           const orderId = genId('ord')
           const expiresAt = now() + 10 * 60 * 1000
           const mesaEntrega = u.tableId || ''
-          const order = { id: orderId, sessionId: u.sessionId, emitterId: u.id, receiverId: u.id, product: it.product, quantity: it.quantity, price, total, tip: 0, discountPct, status: 'pendiente_cobro', createdAt, expiresAt, emitterTable: u.tableId || '', receiverTable: u.tableId || '', mesaEntrega }
+          const order = { id: orderId, sessionId: u.sessionId, emitterId: u.id, receiverId: u.id, product: it.product, quantity: it.quantity, price, total, tip: 0, discountPct, status: 'pendiente_cobro', createdAt, expiresAt, emitterTable: u.tableId || '', receiverTable: u.tableId || '', mesaEntrega, tier: u.subscriptionTier || 'free' }
           await dbInsertOrder(order, client)
           await dbInsertEvent({ sessionId: order.sessionId, entityType: 'order', entityId: order.id, eventType: 'created', payload: { product: order.product, quantity: order.quantity, price: order.price, total: order.total, emitterId: order.emitterId, receiverId: order.receiverId }, ts: createdAt }, client)
           orders.push(order)
@@ -3086,7 +3135,8 @@ const server = http.createServer(async (req, res) => {
             isInvitation: !!r.is_invitation,
             tip: Number(r.tip || 0),
             servedByStaffId: r.served_by_staff_id || '',
-            servedByStaffAlias: r.served_by_staff_alias || ''
+            servedByStaffAlias: r.served_by_staff_alias || '',
+            tier: r.tier || 'free'
           })
         }
         json(res, 200, { orders: out })
@@ -3113,7 +3163,8 @@ const server = http.createServer(async (req, res) => {
             isInvitation: !!o.isInvitation,
             tip: Number(o.tip || 0),
             servedByStaffId: o.servedByStaffId || '',
-            servedByStaffAlias: o.servedByStaffAlias || ''
+            servedByStaffAlias: o.servedByStaffAlias || '',
+            tier: o.tier || 'free'
           })
         }
         json(res, 200, { orders: list })
@@ -4084,12 +4135,15 @@ const server = http.createServer(async (req, res) => {
       if (!codeData) { json(res, 400, { error: 'invalid_code' }); return }
       if (!SUBSCRIPTION_TIERS.includes(codeData.tier)) { json(res, 400, { error: 'invalid_tier' }); return }
       if (codeData.maxUses && codeData.usedCount >= codeData.maxUses) { json(res, 400, { error: 'code_exhausted' }); return }
+      const wasFree = !u.subscriptionTier || u.subscriptionTier === 'free'
       u.subscriptionTier = codeData.tier
       codeData.usedCount = (codeData.usedCount || 0) + 1
       state.subscriptionCodes.set(code, codeData)
       try { const d = readSubscriptionCodes(); if (d[code]) { d[code].usedCount = codeData.usedCount; writeSubscriptionCodes(d) } } catch {}
       try { await dbUpsertUser(u) } catch {}
-      json(res, 200, { ok: true, tier: u.subscriptionTier })
+      let welcomeGift = null
+      if (wasFree && codeData.tier !== 'free') welcomeGift = await createWelcomeOrder(u, ensureSession(u.sessionId))
+      json(res, 200, { ok: true, tier: u.subscriptionTier, welcomeGift })
       return
     }
     // Usuario: pagar cover
@@ -4422,9 +4476,14 @@ const server = http.createServer(async (req, res) => {
       if (!venueId || !name) { json(res, 400, { error: 'bad_input' }); return }
       const venues = await readVenues()
       if (!venues[venueId]) { json(res, 404, { error: 'venue_not_found' }); return }
-      const reservation = { id: genId('res'), venueId, subscriberId, name, partySize, note, requestedFor, status: 'pending', guestList: false, createdAt: now() }
+      // Beneficio de suscripción: Nocturno/Premium entra directo a la guest list,
+      // sin pasar por la cola de aprobación manual del staff.
+      const sub = subscriberId ? state.subscribers.get(subscriberId) : null
+      const tier = sub && sub.tier && sub.tier !== 'free' ? sub.tier : ''
+      const autoConfirmed = !!tier
+      const reservation = { id: genId('res'), venueId, subscriberId, name, partySize, note, requestedFor, status: autoConfirmed ? 'confirmed' : 'pending', guestList: autoConfirmed, subscriberTier: tier, createdAt: now() }
       state.reservations.set(reservation.id, reservation)
-      json(res, 200, { ok: true, reservation })
+      json(res, 200, { ok: true, reservation, autoConfirmed })
       return
     }
     if (pathname === '/api/reservations/mine' && req.method === 'GET') {
@@ -4505,7 +4564,7 @@ const server = http.createServer(async (req, res) => {
         let followerCount = 0
         for (const s of state.sessions.values()) { ensureSessionExpiry(s); if (!isSessionExpired(s) && s.venueId === venueId) { hasActiveSession = true; break } }
         for (const sub of state.subscribers.values()) { if (Array.isArray(sub.following) && sub.following.includes(venueId)) followerCount++ }
-        result.push({ venueId, name: venue.name || venueId, description: prof.description || '', musicGenre: prof.musicGenre || '', location: prof.location || '', city: prof.city || '', lat: Number.isFinite(prof.lat) ? prof.lat : null, lng: Number.isFinite(prof.lng) ? prof.lng : null, maxCapacity: Number.isFinite(prof.maxCapacity) ? prof.maxCapacity : null, discounts: venue.discounts || { nocturno: 0, premium: 0 }, avgRating: prof.avgRating || 0, reviewCount: Array.isArray(prof.reviews) ? prof.reviews.length : 0, followerCount, hasActiveSession, upcomingEvents: (prof.events || []).filter(e => Number(e.date || 0) > now()).slice(0, 3) })
+        result.push({ venueId, name: venue.name || venueId, description: prof.description || '', musicGenre: prof.musicGenre || '', location: prof.location || '', city: prof.city || '', lat: Number.isFinite(prof.lat) ? prof.lat : null, lng: Number.isFinite(prof.lng) ? prof.lng : null, maxCapacity: Number.isFinite(prof.maxCapacity) ? prof.maxCapacity : null, welcomeItem: prof.welcomeItem || '', discounts: venue.discounts || { nocturno: 0, premium: 0 }, avgRating: prof.avgRating || 0, reviewCount: Array.isArray(prof.reviews) ? prof.reviews.length : 0, followerCount, hasActiveSession, upcomingEvents: (prof.events || []).filter(e => Number(e.date || 0) > now()).slice(0, 3) })
       }
       result.sort((a, b) => (b.hasActiveSession ? 1 : 0) - (a.hasActiveSession ? 1 : 0) || b.followerCount - a.followerCount)
       json(res, 200, { venues: result })
@@ -4542,7 +4601,7 @@ const server = http.createServer(async (req, res) => {
       const body = await parseBody(req)
       const venueId = String(body.venueId || '')
       if (!venueId) { json(res, 400, { error: 'missing_venue_id' }); return }
-      if (!_venueProfiles[venueId]) _venueProfiles[venueId] = { description: '', musicGenre: '', location: '', city: '', lat: null, lng: null, maxCapacity: null, photos: [], events: [], reviews: [] }
+      if (!_venueProfiles[venueId]) _venueProfiles[venueId] = { description: '', musicGenre: '', location: '', city: '', lat: null, lng: null, maxCapacity: null, welcomeItem: '', photos: [], events: [], reviews: [] }
       const prof = _venueProfiles[venueId]
       if (body.description !== undefined) prof.description = String(body.description || '').slice(0, 500)
       if (body.musicGenre !== undefined) prof.musicGenre = String(body.musicGenre || '').slice(0, 100)
@@ -4551,6 +4610,7 @@ const server = http.createServer(async (req, res) => {
       if (body.lat !== undefined) prof.lat = body.lat === '' || body.lat === null ? null : Number(body.lat)
       if (body.lng !== undefined) prof.lng = body.lng === '' || body.lng === null ? null : Number(body.lng)
       if (body.maxCapacity !== undefined) prof.maxCapacity = body.maxCapacity === '' || body.maxCapacity === null ? null : Math.max(0, reqInt(body.maxCapacity, 0, 1000000))
+      if (body.welcomeItem !== undefined) prof.welcomeItem = String(body.welcomeItem || '').trim().slice(0, 140)
       writeVenueProfiles(_venueProfiles)
       json(res, 200, { ok: true })
       return

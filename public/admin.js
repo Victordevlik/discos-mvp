@@ -540,6 +540,7 @@ async function loadVenueProfiles() {
           <input id="vp-lng-${escapeHtml(v.venueId)}" type="number" step="any" placeholder="Longitud" value="${v.lng !== null && v.lng !== undefined ? v.lng : ''}" style="width:120px">
           <input id="vp-cap-${escapeHtml(v.venueId)}" type="number" min="0" placeholder="Aforo máx. (vacío = sin límite)" value="${v.maxCapacity !== null && v.maxCapacity !== undefined ? v.maxCapacity : ''}" style="width:170px">
         </div>
+        <input id="vp-welcome-${escapeHtml(v.venueId)}" placeholder="Trago de bienvenida para suscriptores (nombre exacto del catálogo, vacío = desactivado)" value="${escapeHtml(v.welcomeItem || '')}" style="width:100%">
         <button id="btn-save-vp-${v.venueId}" class="success" style="align-self:flex-start">Guardar perfil</button>
       </div>
       <div style="margin-top:12px;border-top:1px solid #333;padding-top:10px">
@@ -558,7 +559,7 @@ async function loadVenueProfiles() {
       const latVal = document.getElementById(`vp-lat-${v.venueId}`).value
       const lngVal = document.getElementById(`vp-lng-${v.venueId}`).value
       const capVal = document.getElementById(`vp-cap-${v.venueId}`).value
-      await api('/api/admin/venue/profile', { method: 'POST', headers: { 'X-Admin-Secret': secret }, body: JSON.stringify({ venueId: v.venueId, description: document.getElementById(`vp-desc-${v.venueId}`).value, musicGenre: document.getElementById(`vp-genre-${v.venueId}`).value, location: document.getElementById(`vp-loc-${v.venueId}`).value, city: document.getElementById(`vp-city-${v.venueId}`).value, lat: latVal === '' ? null : Number(latVal), lng: lngVal === '' ? null : Number(lngVal), maxCapacity: capVal === '' ? null : Number(capVal) }) })
+      await api('/api/admin/venue/profile', { method: 'POST', headers: { 'X-Admin-Secret': secret }, body: JSON.stringify({ venueId: v.venueId, description: document.getElementById(`vp-desc-${v.venueId}`).value, musicGenre: document.getElementById(`vp-genre-${v.venueId}`).value, location: document.getElementById(`vp-loc-${v.venueId}`).value, city: document.getElementById(`vp-city-${v.venueId}`).value, lat: latVal === '' ? null : Number(latVal), lng: lngVal === '' ? null : Number(lngVal), maxCapacity: capVal === '' ? null : Number(capVal), welcomeItem: document.getElementById(`vp-welcome-${v.venueId}`).value }) })
       showSuccess('Perfil guardado')
     }
     const renderEvents = (events) => {
