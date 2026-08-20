@@ -4947,6 +4947,23 @@ const TIER_COLORS = { free: '#aaa', nocturno: '#2c6bff', premium: '#a855f7' }
 function formatPrice(n) {
   return '$' + Number(n || 0).toLocaleString('es-CO')
 }
+function vibeLabel(vibe) {
+  if (vibe === 'a_full') return '🔥 A full'
+  if (vibe === 'buen_ambiente') return '✨ Buen ambiente'
+  if (vibe === 'arrancando') return '🌙 Arrancando'
+  return ''
+}
+function venuePulseText(v) {
+  const parts = []
+  const count = Number(v.userCount || 0)
+  if (count > 0) {
+    parts.push(`${count} persona${count === 1 ? '' : 's'} ahora`)
+    if (Number(v.availableCount || 0) > 0) parts.push(`${v.availableCount} para conocer gente`)
+  }
+  const vl = vibeLabel(v.vibe)
+  if (vl) parts.push(vl)
+  return parts.join(' • ')
+}
 
 async function loadTonightFeed(opts) {
   try {
@@ -4983,7 +5000,8 @@ async function loadTonightFeed(opts) {
       if (v.djName) parts.push('DJ: ' + v.djName)
       if (v.coverEnabled && v.coverPrice > 0) parts.push('Cover: ' + formatPrice(v.coverPrice))
       else if (!v.coverEnabled || !v.coverPrice) parts.push('Sin cover')
-      parts.push(v.userCount + ' personas')
+      const pulse = venuePulseText(v)
+      if (pulse) parts.push(pulse)
       if (v.musicGenre) parts.push(v.musicGenre)
       if (v.city) parts.push(v.city)
       if (v.distanceKm !== null && v.distanceKm !== undefined) parts.push(`${v.distanceKm} km`)
@@ -5235,7 +5253,8 @@ async function loadSubscriberActiveSessions() {
       const parts = []
       if (s.eventName) parts.push(s.eventName)
       if (s.djName) parts.push('DJ: ' + s.djName)
-      parts.push(`${s.userCount} personas`)
+      const pulse = venuePulseText(s)
+      if (pulse) parts.push(pulse)
       info.innerHTML = `<div style="font-weight:600">${s.venueName}</div><div style="font-size:12px;color:#aaa">${parts.join(' • ')}</div>`
       const btn = document.createElement('button')
       btn.className = 'success'
@@ -5421,7 +5440,8 @@ function renderVenueProfile(v) {
     if (s.eventName) parts.push(s.eventName)
     if (s.djName) parts.push('DJ: ' + s.djName)
     if (s.coverPrice > 0) parts.push('Cover: $' + s.coverPrice)
-    parts.push(`${s.userCount} personas`)
+    const pulse = venuePulseText(s)
+    if (pulse) parts.push(pulse)
     if (liveInfo) liveInfo.textContent = parts.join(' • ')
     if (joinBtn) { joinBtn.style.display = ''; joinBtn.onclick = () => joinFromSubscriber(s.sessionId, v.venueId) }
   } else {

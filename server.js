@@ -954,6 +954,24 @@ function haversineKm(lat1, lng1, lat2, lng2) {
 function getSessionMode(s) {
   return s && s.mode ? normalizeMode(s.mode) : 'disco'
 }
+// Pulso en vivo del venue: cuántos hay y qué tan "prendido" está, para que un suscriptor
+// decida a qué local ir esta noche antes de llegar. Sin identidades, solo el número.
+function computeVenueVibe(sessionId, maxCapacity) {
+  let userCount = 0
+  let availableCount = 0
+  for (const u of state.users.values()) {
+    if (u.sessionId !== sessionId || u.role !== 'user' || u.kicked) continue
+    userCount++
+    if (u.available) availableCount++
+  }
+  const cap = Number.isFinite(maxCapacity) && maxCapacity > 0 ? maxCapacity : null
+  const occupancyPct = cap ? Math.min(100, Math.round((userCount / cap) * 100)) : null
+  const level = cap !== null ? occupancyPct : userCount
+  const highThreshold = cap !== null ? 70 : 40
+  const midThreshold = cap !== null ? 35 : 15
+  const vibe = level >= highThreshold ? 'a_full' : (level >= midThreshold ? 'buen_ambiente' : 'arrancando')
+  return { userCount, availableCount, occupancyPct, vibe }
+}
 async function getCatalogBaseForSession(s) {
   const mode = getSessionMode(s)
   const venueId = s && s.venueId ? s.venueId : ''
@@ -4212,12 +4230,12 @@ const server = http.createServer(async (req, res) => {
         if (cityFilter && String(prof.city || '').toLowerCase() !== cityFilter) continue
         if (genreFilter && !String(prof.musicGenre || '').toLowerCase().includes(genreFilter)) continue
         if (maxCover !== null && Number.isFinite(maxCover) && Number(s.coverPrice || 0) > maxCover) continue
-        const userCount = [...state.users.values()].filter(u => u.sessionId === s.id && u.role === 'user').length
+        const { userCount, availableCount, occupancyPct, vibe } = computeVenueVibe(s.id, prof.maxCapacity)
         let distanceKm = null
         if (lat !== null && lng !== null && Number.isFinite(lat) && Number.isFinite(lng) && Number.isFinite(prof.lat) && Number.isFinite(prof.lng)) {
           distanceKm = haversineKm(lat, lng, prof.lat, prof.lng)
         }
-        tonight.push({ sessionId: s.id, venueId: s.venueId, venueName: v.name || s.venueId, mode: s.mode || 'disco', eventName: s.eventName || '', djName: s.djName || '', coverPrice: s.coverPrice || 0, coverEnabled: !!s.coverEnabled, userCount, discounts: v.discounts || { nocturno: 0, premium: 0 }, expiresAt: s.expiresAt || 0, musicGenre: prof.musicGenre || '', location: prof.location || '', city: prof.city || '', distanceKm })
+        tonight.push({ sessionId: s.id, venueId: s.venueId, venueName: v.name || s.venueId, mode: s.mode || 'disco', eventName: s.eventName || '', djName: s.djName || '', coverPrice: s.coverPrice || 0, coverEnabled: !!s.coverEnabled, userCount, availableCount, occupancyPct, vibe, discounts: v.discounts || { nocturno: 0, premium: 0 }, expiresAt: s.expiresAt || 0, musicGenre: prof.musicGenre || '', location: prof.location || '', city: prof.city || '', distanceKm })
       }
       if (lat !== null && lng !== null) {
         tonight.sort((a, b) => {
@@ -4330,9 +4348,8 @@ const server = http.createServer(async (req, res) => {
         if (following.length && !following.includes(s.venueId)) continue
         const venue = venues[s.venueId] || {}
         const prof = _venueProfiles[s.venueId] || {}
-        let userCount = 0
-        for (const u of state.users.values()) if (u.sessionId === s.id && u.role === 'user') userCount++
-        sessions.push({ sessionId: s.id, venueId: s.venueId, venueName: venue.name || s.venueId, mode: s.mode || 'disco', eventName: s.eventName || '', djName: s.djName || '', coverPrice: s.coverPrice || 0, coverEnabled: !!s.coverEnabled, discounts: venue.discounts || { nocturno: 0, premium: 0 }, userCount, musicGenre: prof.musicGenre || '', location: prof.location || '' })
+        const { userCount, availableCount, occupancyPct, vibe } = computeVenueVibe(s.id, prof.maxCapacity)
+        sessions.push({ sessionId: s.id, venueId: s.venueId, venueName: venue.name || s.venueId, mode: s.mode || 'disco', eventName: s.eventName || '', djName: s.djName || '', coverPrice: s.coverPrice || 0, coverEnabled: !!s.coverEnabled, discounts: venue.discounts || { nocturno: 0, premium: 0 }, userCount, availableCount, occupancyPct, vibe, musicGenre: prof.musicGenre || '', location: prof.location || '' })
       }
       json(res, 200, { sessions })
       return
@@ -4504,13 +4521,12 @@ const server = http.createServer(async (req, res) => {
       const prof = _venueProfiles[venueId] || {}
       let hasActiveSession = false
       let activeSession = null
-      let userCount = 0
       for (const s of state.sessions.values()) {
         ensureSessionExpiry(s)
         if (!isSessionExpired(s) && s.venueId === venueId) {
           hasActiveSession = true
-          for (const u of state.users.values()) if (u.sessionId === s.id && u.role === 'user') userCount++
-          activeSession = { sessionId: s.id, eventName: s.eventName || '', djName: s.djName || '', coverPrice: s.coverPrice || 0, coverEnabled: !!s.coverEnabled, userCount }
+          const { userCount, availableCount, occupancyPct, vibe } = computeVenueVibe(s.id, prof.maxCapacity)
+          activeSession = { sessionId: s.id, eventName: s.eventName || '', djName: s.djName || '', coverPrice: s.coverPrice || 0, coverEnabled: !!s.coverEnabled, userCount, availableCount, occupancyPct, vibe }
           break
         }
       }
