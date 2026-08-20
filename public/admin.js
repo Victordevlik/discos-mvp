@@ -25,6 +25,17 @@ function showError(msg) {
   t.textContent = msg || ''
   m.classList.add('show')
 }
+function showAdminTab(tab) {
+  document.querySelectorAll('.admin-section').forEach(el => el.classList.toggle('active', el.id === 'admin-tab-' + tab))
+  document.querySelectorAll('.admin-tab').forEach(el => el.classList.toggle('active', el.dataset.tab === tab))
+  try { localStorage.setItem('discos_admin_tab', tab) } catch {}
+}
+document.querySelectorAll('.admin-tab').forEach(btn => { btn.onclick = () => showAdminTab(btn.dataset.tab) })
+try {
+  const savedAdminTab = localStorage.getItem('discos_admin_tab')
+  if (savedAdminTab && document.getElementById('admin-tab-' + savedAdminTab)) showAdminTab(savedAdminTab)
+} catch {}
+
 let VENUES_CACHE = []
 function renderSummary(list) {
   const total = list.length

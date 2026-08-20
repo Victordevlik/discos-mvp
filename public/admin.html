@@ -24,6 +24,16 @@
     .kpi { padding: 10px; border: 1px solid #333; border-radius: 8px; text-align: center }
     .kpi .num { font-size: 20px; font-weight: 600 }
     .filter { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; margin-top: 8px }
+    .admin-tabbar { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 16px }
+    .admin-tab {
+      padding: 9px 16px; border-radius: 10px; border: 1px solid #2b2c44;
+      background: rgba(20,21,32,0.6); color: var(--muted, #9aa); cursor: pointer; font-size: 14px;
+    }
+    .admin-tab.active { color: var(--primary2, #7c8cff); border-color: #3a3b5c; background: rgba(27,28,44,0.9) }
+    body[data-theme="light"] .admin-tab { background:#f3f5fd; border-color:#dbe1f3; color:#1b1f2b }
+    body[data-theme="light"] .admin-tab.active { background:#eaf0ff; border-color:#cdd9ff; color:#3747ff }
+    .admin-section { display: none }
+    .admin-section.active { display: block }
   </style>
 </head>
 <body>
@@ -50,6 +60,17 @@
       </div>
     </div>
   </div>
+
+  <div class="admin-tabbar" id="admin-tabbar">
+    <button class="admin-tab active" data-tab="negocio">Negocio</button>
+    <button class="admin-tab" data-tab="locales">Locales</button>
+    <button class="admin-tab" data-tab="suscripciones">Suscripciones</button>
+    <button class="admin-tab" data-tab="comunicacion">Comunicación</button>
+    <button class="admin-tab" data-tab="moderacion">Moderación</button>
+    <button class="admin-tab" data-tab="perfiles">Perfiles de venue</button>
+  </div>
+
+  <div class="admin-section active" id="admin-tab-negocio">
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center">
       <h3>Negocio</h3>
@@ -58,6 +79,9 @@
     <div id="dash-kpis" class="grid" style="grid-template-columns:repeat(3,1fr)"></div>
     <div id="dash-top-venues" style="margin-top:14px"></div>
   </div>
+  </div>
+
+  <div class="admin-section" id="admin-tab-locales">
   <div class="card">
     <h3>Locales</h3>
     <div id="summary">
@@ -98,6 +122,9 @@
       <button id="btn-reset-credit" class="warning">Reset créditos</button>
     </div>
   </div>
+  </div>
+
+  <div class="admin-section" id="admin-tab-suscripciones">
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center">
       <h3>Códigos de suscripción</h3>
@@ -132,7 +159,9 @@
     </div>
     <div id="payments-list" style="margin-top:10px"></div>
   </div>
+  </div>
 
+  <div class="admin-section" id="admin-tab-comunicacion">
   <div class="card">
     <h3>Comunicación masiva</h3>
     <div class="row" style="flex-wrap:wrap;gap:6px">
@@ -157,6 +186,9 @@
       <button id="btn-send-broadcast" class="success">Enviar</button>
     </div>
   </div>
+  </div>
+
+  <div class="admin-section" id="admin-tab-moderacion">
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center">
       <h3>Incidentes (todos los venues)</h3>
@@ -178,7 +210,9 @@
     <p style="font-size:13px;color:#aaa">Últimas acciones realizadas desde este panel: altas/bajas de venues, cambios de PIN, aprobación/rechazo de pagos.</p>
     <div id="audit-list" style="margin-top:10px"></div>
   </div>
+  </div>
 
+  <div class="admin-section" id="admin-tab-perfiles">
   <div class="section">
     <div class="row">
       <h3>Perfil de venue &amp; Eventos</h3>
@@ -186,6 +220,7 @@
     </div>
     <p style="font-size:13px;color:#aaa">Configura la descripción, género musical y próximos eventos de cada venue. Los suscriptores lo ven en el directorio.</p>
     <div id="venue-profiles-list"></div>
+  </div>
   </div>
   <script src="/admin.js"></script>
 </body>
