@@ -7,7 +7,8 @@
   <link rel="stylesheet" href="/styles.css">
   <style>
     body { max-width: 960px; margin: 0 auto; }
-    .toolbar { display: grid; grid-template-columns: 1fr auto auto auto; gap: 8px; align-items: center }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center }
+    .toolbar > *:first-child { flex: 1; min-width: 160px }
     .info.ok { color: #0a7 }
     .info.warn { color: #c50 }
     .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px }
@@ -35,6 +36,7 @@
       </div>
       <button id="btn-load" class="info">Cargar</button>
       <button id="btn-refresh" class="info">Refrescar</button>
+      <button id="btn-export-venues" class="secondary">Exportar CSV</button>
       <button id="btn-db-init" class="warning">Inicializar DB</button>
     </div>
     <div id="db-status" class="info"></div>
@@ -49,6 +51,14 @@
     </div>
   </div>
   <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h3>Negocio</h3>
+      <button id="btn-load-dashboard" class="info">Actualizar</button>
+    </div>
+    <div id="dash-kpis" class="grid" style="grid-template-columns:repeat(3,1fr)"></div>
+    <div id="dash-top-venues" style="margin-top:14px"></div>
+  </div>
+  <div class="card">
     <h3>Locales</h3>
     <div id="summary">
       <div class="kpi"><div>Total</div><div class="num" id="sum-total">0</div></div>
@@ -60,6 +70,16 @@
       <button id="btn-clear-filter" class="secondary">Limpiar</button>
     </div>
     <div id="venues-list" class="grid"></div>
+  </div>
+  <div class="card">
+    <h3>Crear venue nuevo</h3>
+    <div class="row" style="flex-wrap:wrap;gap:6px">
+      <input id="new-venue-id" type="text" placeholder="venueId (ej: club-luna)">
+      <input id="new-venue-name" type="text" placeholder="Nombre del local">
+      <input id="new-venue-email" type="email" placeholder="Email (opcional)">
+      <input id="new-venue-credits" type="number" min="0" value="0" placeholder="Créditos iniciales" style="width:140px">
+      <button id="btn-create-venue" class="success">Crear venue</button>
+    </div>
   </div>
   <div class="card">
     <h3>Créditos</h3>
@@ -107,9 +127,56 @@
           <option value="rejected">Rechazados</option>
         </select>
         <button id="btn-load-payments" class="info">Cargar</button>
+        <button id="btn-export-payments" class="secondary">Exportar CSV</button>
       </div>
     </div>
     <div id="payments-list" style="margin-top:10px"></div>
+  </div>
+
+  <div class="card">
+    <h3>Comunicación masiva</h3>
+    <div class="row" style="flex-wrap:wrap;gap:6px">
+      <select id="broadcast-target" style="min-width:140px">
+        <option value="venues">Venues (email)</option>
+        <option value="subscribers">Suscriptores (push)</option>
+      </select>
+      <select id="broadcast-tier" style="min-width:120px">
+        <option value="all">Todos los tiers</option>
+        <option value="free">Free</option>
+        <option value="nocturno">Nocturno</option>
+        <option value="premium">Premium</option>
+      </select>
+    </div>
+    <div class="row" style="margin-top:6px;flex-wrap:wrap;gap:6px">
+      <input id="broadcast-title" type="text" placeholder="Título / asunto" style="min-width:220px">
+    </div>
+    <div class="row" style="margin-top:6px">
+      <textarea id="broadcast-message" placeholder="Mensaje" rows="3" style="width:100%"></textarea>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <button id="btn-send-broadcast" class="success">Enviar</button>
+    </div>
+  </div>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h3>Incidentes (todos los venues)</h3>
+      <button id="btn-load-incidents" class="info">Cargar</button>
+    </div>
+    <p style="font-size:13px;color:#aaa">Expulsiones y silenciamientos en cualquier venue. Si un suscriptor reincide, podés banearlo globalmente.</p>
+    <div class="row" style="gap:6px;margin-top:6px">
+      <input id="ban-subscriber-id" type="text" placeholder="subscriberId a banear">
+      <input id="ban-reason" type="text" placeholder="Motivo">
+      <button id="btn-ban-subscriber" class="danger">Banear</button>
+    </div>
+    <div id="incidents-list" style="margin-top:10px"></div>
+  </div>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h3>Auditoría</h3>
+      <button id="btn-load-audit" class="info">Cargar</button>
+    </div>
+    <p style="font-size:13px;color:#aaa">Últimas acciones realizadas desde este panel: altas/bajas de venues, cambios de PIN, aprobación/rechazo de pagos.</p>
+    <div id="audit-list" style="margin-top:10px"></div>
   </div>
 
   <div class="section">

@@ -34,6 +34,10 @@ const state = {
   djRequests: new Map(),
   blocks: new Set(),
   reports: [],
+  staffIncidents: [],
+  shifts: new Map(),
+  reservations: new Map(),
+  staffNotes: [],
   sseUsers: new Map(),
   sseStaff: new Map(),
   sseUserMeta: new Map(),
@@ -129,6 +133,30 @@ const PLAN_PREMIUM_PRICE  = Number(process.env.PLAN_PREMIUM_PRICE  || 25000)
 
 const GLOBAL_STAFF_PIN = String(process.env.STAFF_PIN || '')
 const ALLOW_GLOBAL_STAFF_PIN = String(process.env.ALLOW_GLOBAL_STAFF_PIN || 'false') === 'true'
+// Roles de staff con PIN propio por venue. 'gerente' no está en esta lista porque usa el
+// PIN principal del venue (venue.pin) — el mismo que ya usaban todos los venues existentes.
+const STAFF_ROLES = ['mesero', 'seguridad', 'dj']
+const STAFF_PERMISSIONS = {
+  gerente: ['orders', 'tables', 'catalog_edit', 'moderation', 'dj', 'waiter', 'analytics', 'reports', 'promos', 'users', 'guestlist'],
+  mesero: ['orders', 'tables', 'waiter', 'guestlist'],
+  seguridad: ['moderation', 'waiter', 'users', 'guestlist'],
+  dj: ['dj'],
+}
+function staffHasPerm(staff, perm) {
+  const role = (staff && staff.staffRole) || 'gerente'
+  return (STAFF_PERMISSIONS[role] || []).includes(perm)
+}
+// Planes por venue: estructura técnica de límites, todavía sin cobro real asociado.
+// Los valores son de ejemplo — se ajustan cuando haya precios/tiers definidos.
+const VENUE_PLANS = {
+  free: { label: 'Free', maxCatalogItems: 40, maxStaffRoles: 1 },
+  pro: { label: 'Pro', maxCatalogItems: 200, maxStaffRoles: 3 },
+  enterprise: { label: 'Enterprise', maxCatalogItems: null, maxStaffRoles: null },
+}
+function getVenuePlanLimits(venue) {
+  const planKey = (venue && venue.plan) || 'free'
+  return VENUE_PLANS[planKey] || VENUE_PLANS.free
+}
 const ADMIN_SECRET = String(process.env.ADMIN_SECRET || '')
 const ADMIN_STAFF_SECRET = String(process.env.ADMIN_STAFF_SECRET || '')
 const RESEND_API_KEY = String(process.env.RESEND_API_KEY || '')
@@ -268,21 +296,27 @@ async function initDB() {
   await db.query('ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS pin TEXT')
   await db.query('ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS email TEXT')
   await db.query('ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS discounts_json TEXT')
+  await db.query('ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS role_pins_json TEXT')
+  await db.query("ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS plan TEXT")
   await db.query('CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, role TEXT NOT NULL, alias TEXT, selfie TEXT, selfie_approved BOOLEAN, available BOOLEAN, prefs_json TEXT, zone TEXT, muted BOOLEAN, receive_mode TEXT, table_id TEXT, visibility TEXT, paused_until BIGINT, silenced BOOLEAN, subscription_tier TEXT, cover_paid BOOLEAN)')
   await db.query('ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS subscription_tier TEXT')
   await db.query('ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS cover_paid BOOLEAN')
-  await db.query('CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, emitter_id TEXT NOT NULL, receiver_id TEXT NOT NULL, product TEXT NOT NULL, quantity INTEGER NOT NULL, price INTEGER NOT NULL, total INTEGER NOT NULL, status TEXT NOT NULL, created_at BIGINT NOT NULL, expires_at BIGINT NOT NULL, emitter_table TEXT, receiver_table TEXT, mesa_entrega TEXT, is_invitation BOOLEAN)')
+  await db.query('CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, emitter_id TEXT NOT NULL, receiver_id TEXT NOT NULL, product TEXT NOT NULL, quantity INTEGER NOT NULL, price INTEGER NOT NULL, total INTEGER NOT NULL, status TEXT NOT NULL, created_at BIGINT NOT NULL, expires_at BIGINT NOT NULL, emitter_table TEXT, receiver_table TEXT, mesa_entrega TEXT, is_invitation BOOLEAN, tip INTEGER)')
+  await db.query('ALTER TABLE IF EXISTS orders ADD COLUMN IF NOT EXISTS tip INTEGER')
   await db.query('CREATE TABLE IF NOT EXISTS table_closures (session_id TEXT NOT NULL, table_id TEXT NOT NULL, closed BOOLEAN NOT NULL, PRIMARY KEY (session_id, table_id))')
   await db.query('CREATE TABLE IF NOT EXISTS waiter_calls (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, user_id TEXT NOT NULL, table_id TEXT, reason TEXT, status TEXT, ts BIGINT NOT NULL)')
-  await db.query('CREATE TABLE IF NOT EXISTS catalog_items (session_id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, category TEXT, subcategory TEXT, description TEXT, PRIMARY KEY (session_id, name))')
+  await db.query('CREATE TABLE IF NOT EXISTS catalog_items (session_id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, category TEXT, subcategory TEXT, description TEXT, stock INTEGER, PRIMARY KEY (session_id, name))')
   await db.query('ALTER TABLE IF EXISTS catalog_items ADD COLUMN IF NOT EXISTS category TEXT')
   await db.query('ALTER TABLE IF EXISTS catalog_items ADD COLUMN IF NOT EXISTS subcategory TEXT')
   await db.query('ALTER TABLE IF EXISTS catalog_items ADD COLUMN IF NOT EXISTS description TEXT')
-  await db.query('CREATE TABLE IF NOT EXISTS venue_catalog_items (venue_id TEXT NOT NULL, mode TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, category TEXT, subcategory TEXT, description TEXT, PRIMARY KEY (venue_id, mode, name))')
+  await db.query('ALTER TABLE IF EXISTS catalog_items ADD COLUMN IF NOT EXISTS stock INTEGER')
+  await db.query('CREATE TABLE IF NOT EXISTS venue_catalog_items (venue_id TEXT NOT NULL, mode TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, category TEXT, subcategory TEXT, description TEXT, stock INTEGER, PRIMARY KEY (venue_id, mode, name))')
   await db.query('ALTER TABLE IF EXISTS venue_catalog_items ADD COLUMN IF NOT EXISTS description TEXT')
+  await db.query('ALTER TABLE IF EXISTS venue_catalog_items ADD COLUMN IF NOT EXISTS stock INTEGER')
   await db.query('CREATE TABLE IF NOT EXISTS venue_catalog_meta (venue_id TEXT NOT NULL, mode TEXT NOT NULL, initialized BOOLEAN NOT NULL, PRIMARY KEY (venue_id, mode))')
   await db.query('CREATE TABLE IF NOT EXISTS idempotency_keys (key TEXT PRIMARY KEY, route TEXT NOT NULL, status INTEGER NOT NULL, response_json TEXT NOT NULL, created_at BIGINT NOT NULL)')
   await db.query('CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, session_id TEXT, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, event_type TEXT NOT NULL, payload_json TEXT, ts BIGINT NOT NULL)')
+  await db.query('CREATE TABLE IF NOT EXISTS admin_audit_log (id TEXT PRIMARY KEY, actor TEXT NOT NULL, action TEXT NOT NULL, payload_json TEXT, ip TEXT, ts BIGINT NOT NULL)')
   lastDbError = ''
   dbReady = true
   return true
@@ -341,12 +375,14 @@ async function readVenues() {
   if (!db) return readFile()
   try {
     await initDB()
-    const r = await db.query('SELECT venue_id, name, credits, active, pin, email, discounts_json FROM venues')
+    const r = await db.query('SELECT venue_id, name, credits, active, pin, email, discounts_json, role_pins_json, plan FROM venues')
     const obj = {}
     for (const row of r.rows) {
       let discounts = { nocturno: 0, premium: 0 }
       try { if (row.discounts_json) discounts = { ...discounts, ...JSON.parse(row.discounts_json) } } catch {}
-      obj[row.venue_id] = { name: row.name, credits: Number(row.credits || 0), active: !!row.active, pin: row.pin || '', email: row.email || '', discounts }
+      let rolePins = { mesero: '', seguridad: '', dj: '' }
+      try { if (row.role_pins_json) rolePins = { ...rolePins, ...JSON.parse(row.role_pins_json) } } catch {}
+      obj[row.venue_id] = { name: row.name, credits: Number(row.credits || 0), active: !!row.active, pin: row.pin || '', email: row.email || '', discounts, rolePins, plan: row.plan || 'free' }
     }
     return obj
   } catch {
@@ -364,9 +400,10 @@ async function writeVenues(obj) {
     const entries = Object.entries(obj)
     for (const [id, v] of entries) {
       const discountsJson = JSON.stringify(v.discounts || { nocturno: 0, premium: 0 })
+      const rolePinsJson = JSON.stringify(v.rolePins || { mesero: '', seguridad: '', dj: '' })
       await db.query(
-        'INSERT INTO venues (venue_id, name, credits, active, pin, email, discounts_json) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (venue_id) DO UPDATE SET name=EXCLUDED.name, credits=EXCLUDED.credits, active=EXCLUDED.active, pin=EXCLUDED.pin, email=EXCLUDED.email, discounts_json=EXCLUDED.discounts_json',
-        [String(id), String(v.name || id), Number(v.credits || 0), v.active !== false, String(v.pin || ''), String(v.email || ''), discountsJson]
+        'INSERT INTO venues (venue_id, name, credits, active, pin, email, discounts_json, role_pins_json, plan) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (venue_id) DO UPDATE SET name=EXCLUDED.name, credits=EXCLUDED.credits, active=EXCLUDED.active, pin=EXCLUDED.pin, email=EXCLUDED.email, discounts_json=EXCLUDED.discounts_json, role_pins_json=EXCLUDED.role_pins_json, plan=EXCLUDED.plan',
+        [String(id), String(v.name || id), Number(v.credits || 0), v.active !== false, String(v.pin || ''), String(v.email || ''), discountsJson, rolePinsJson, String(v.plan || 'free')]
       )
     }
   } catch {
@@ -379,16 +416,16 @@ async function dbReadGlobalCatalog(mode) {
   const sessionId = catalogSessionIdForMode(mode)
   let rows = []
   try {
-    const r = await db.query('SELECT name, price, category, subcategory, description FROM catalog_items WHERE session_id=$1 ORDER BY name', [sessionId])
+    const r = await db.query('SELECT name, price, category, subcategory, description, stock FROM catalog_items WHERE session_id=$1 ORDER BY name', [sessionId])
     rows = r.rows || []
   } catch {}
   if (!rows.length && normalizeMode(mode) === 'restaurant') {
     try {
-      const legacy = await db.query('SELECT name, price, category, subcategory, description FROM catalog_items WHERE session_id=$1 ORDER BY name', ['global'])
+      const legacy = await db.query('SELECT name, price, category, subcategory, description, stock FROM catalog_items WHERE session_id=$1 ORDER BY name', ['global'])
       rows = legacy.rows || []
     } catch {}
   }
-  return rows.map(w => ({ name: w.name, price: Number(w.price || 0), category: String(w.category || 'otros'), subcategory: String(w.subcategory || ''), description: String(w.description || '') }))
+  return rows.map(w => ({ name: w.name, price: Number(w.price || 0), category: String(w.category || 'otros'), subcategory: String(w.subcategory || ''), description: String(w.description || ''), stock: w.stock === null || w.stock === undefined ? null : Number(w.stock) }))
 }
 async function dbWriteGlobalCatalog(mode, items) {
   requireDB()
@@ -396,7 +433,7 @@ async function dbWriteGlobalCatalog(mode, items) {
   const sessionId = catalogSessionIdForMode(mode)
   await db.query('DELETE FROM catalog_items WHERE session_id=$1', [sessionId])
   for (const it of Array.isArray(items) ? items : []) {
-    await db.query('INSERT INTO catalog_items (session_id, name, price, category, subcategory, description) VALUES ($1,$2,$3,$4,$5,$6)', [sessionId, String(it.name || ''), Number(it.price || 0), String(it.category || 'otros'), String(it.subcategory || ''), String(it.description || '')])
+    await db.query('INSERT INTO catalog_items (session_id, name, price, category, subcategory, description, stock) VALUES ($1,$2,$3,$4,$5,$6,$7)', [sessionId, String(it.name || ''), Number(it.price || 0), String(it.category || 'otros'), String(it.subcategory || ''), String(it.description || ''), it.stock === null || it.stock === undefined || it.stock === '' ? null : Number(it.stock)])
   }
 }
 async function dbFillGlobalRestaurantDescriptions() {
@@ -435,22 +472,22 @@ async function ensureGlobalCatalogSeed() {
 async function dbReadSessionCatalog(sessionId) {
   requireDB()
   await initDB()
-  const r = await db.query('SELECT name, price, category, subcategory, description FROM catalog_items WHERE session_id=$1 ORDER BY name', [String(sessionId)])
-  return r.rows.map(w => ({ name: w.name, price: Number(w.price || 0), category: String(w.category || 'otros'), subcategory: String(w.subcategory || ''), description: String(w.description || '') }))
+  const r = await db.query('SELECT name, price, category, subcategory, description, stock FROM catalog_items WHERE session_id=$1 ORDER BY name', [String(sessionId)])
+  return r.rows.map(w => ({ name: w.name, price: Number(w.price || 0), category: String(w.category || 'otros'), subcategory: String(w.subcategory || ''), description: String(w.description || ''), stock: w.stock === null || w.stock === undefined ? null : Number(w.stock) }))
 }
 async function dbWriteSessionCatalog(sessionId, items) {
   requireDB()
   await initDB()
   await db.query('DELETE FROM catalog_items WHERE session_id=$1', [String(sessionId)])
   for (const it of Array.isArray(items) ? items : []) {
-    await db.query('INSERT INTO catalog_items (session_id, name, price, category, subcategory, description) VALUES ($1,$2,$3,$4,$5,$6)', [String(sessionId), String(it.name || ''), Number(it.price || 0), String(it.category || 'otros'), String(it.subcategory || ''), String(it.description || '')])
+    await db.query('INSERT INTO catalog_items (session_id, name, price, category, subcategory, description, stock) VALUES ($1,$2,$3,$4,$5,$6,$7)', [String(sessionId), String(it.name || ''), Number(it.price || 0), String(it.category || 'otros'), String(it.subcategory || ''), String(it.description || ''), it.stock === null || it.stock === undefined || it.stock === '' ? null : Number(it.stock)])
   }
 }
 async function dbReadVenueCatalog(venueId, mode) {
   requireDB()
   await initDB()
-  const r = await db.query('SELECT name, price, category, subcategory, description FROM venue_catalog_items WHERE venue_id=$1 AND mode=$2 ORDER BY name', [String(venueId || 'default'), normalizeMode(mode)])
-  return r.rows.map(w => ({ name: w.name, price: Number(w.price || 0), category: String(w.category || 'otros'), subcategory: String(w.subcategory || ''), description: String(w.description || '') }))
+  const r = await db.query('SELECT name, price, category, subcategory, description, stock FROM venue_catalog_items WHERE venue_id=$1 AND mode=$2 ORDER BY name', [String(venueId || 'default'), normalizeMode(mode)])
+  return r.rows.map(w => ({ name: w.name, price: Number(w.price || 0), category: String(w.category || 'otros'), subcategory: String(w.subcategory || ''), description: String(w.description || ''), stock: w.stock === null || w.stock === undefined ? null : Number(w.stock) }))
 }
 async function dbWriteVenueCatalog(venueId, mode, items) {
   requireDB()
@@ -459,7 +496,7 @@ async function dbWriteVenueCatalog(venueId, mode, items) {
   const m = normalizeMode(mode)
   await db.query('DELETE FROM venue_catalog_items WHERE venue_id=$1 AND mode=$2', [v, m])
   for (const it of Array.isArray(items) ? items : []) {
-    await db.query('INSERT INTO venue_catalog_items (venue_id, mode, name, price, category, subcategory, description) VALUES ($1,$2,$3,$4,$5,$6,$7)', [v, m, String(it.name || ''), Number(it.price || 0), String(it.category || 'otros'), String(it.subcategory || ''), String(it.description || '')])
+    await db.query('INSERT INTO venue_catalog_items (venue_id, mode, name, price, category, subcategory, description, stock) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [v, m, String(it.name || ''), Number(it.price || 0), String(it.category || 'otros'), String(it.subcategory || ''), String(it.description || ''), it.stock === null || it.stock === undefined || it.stock === '' ? null : Number(it.stock)])
   }
 }
 async function dbDeleteVenueCatalog(venueId, mode) {
@@ -537,10 +574,11 @@ async function dbInsertOrder(o, client = null) {
     String(o.id), String(o.sessionId), String(o.emitterId), String(o.receiverId),
     String(o.product), Number(o.quantity || 1), Number(o.price || 0), Number(o.total || 0),
     String(o.status), Number(o.createdAt || 0), Number(o.expiresAt || 0),
-    String(o.emitterTable || ''), String(o.receiverTable || ''), String(o.mesaEntrega || ''), !!o.isInvitation
+    String(o.emitterTable || ''), String(o.receiverTable || ''), String(o.mesaEntrega || ''), !!o.isInvitation,
+    Number(o.tip || 0)
   ]
   const runner = client || db
-  await runner.query('INSERT INTO orders (id, session_id, emitter_id, receiver_id, product, quantity, price, total, status, created_at, expires_at, emitter_table, receiver_table, mesa_entrega, is_invitation) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status, quantity=EXCLUDED.quantity, price=EXCLUDED.price, total=EXCLUDED.total, emitter_table=EXCLUDED.emitter_table, receiver_table=EXCLUDED.receiver_table, mesa_entrega=EXCLUDED.mesa_entrega, expires_at=EXCLUDED.expires_at', vals)
+  await runner.query('INSERT INTO orders (id, session_id, emitter_id, receiver_id, product, quantity, price, total, status, created_at, expires_at, emitter_table, receiver_table, mesa_entrega, is_invitation, tip) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status, quantity=EXCLUDED.quantity, price=EXCLUDED.price, total=EXCLUDED.total, emitter_table=EXCLUDED.emitter_table, receiver_table=EXCLUDED.receiver_table, mesa_entrega=EXCLUDED.mesa_entrega, expires_at=EXCLUDED.expires_at, tip=EXCLUDED.tip', vals)
 }
 async function dbUpdateOrderStatus(id, status) {
   requireDB()
@@ -551,10 +589,10 @@ async function dbGetOrdersBySession(sessionId, stateFilter) {
   requireDB()
   await initDB()
   if (stateFilter) {
-    const r = await db.query('SELECT id, product, quantity, price, total, status, created_at, expires_at, emitter_id, receiver_id, emitter_table, receiver_table, mesa_entrega FROM orders WHERE session_id=$1 AND status=$2', [String(sessionId), String(stateFilter)])
+    const r = await db.query('SELECT id, product, quantity, price, total, status, created_at, expires_at, emitter_id, receiver_id, emitter_table, receiver_table, mesa_entrega, tip FROM orders WHERE session_id=$1 AND status=$2', [String(sessionId), String(stateFilter)])
     return r.rows
   }
-  const r = await db.query('SELECT id, product, quantity, price, total, status, created_at, expires_at, emitter_id, receiver_id, emitter_table, receiver_table, mesa_entrega FROM orders WHERE session_id=$1', [String(sessionId)])
+  const r = await db.query('SELECT id, product, quantity, price, total, status, created_at, expires_at, emitter_id, receiver_id, emitter_table, receiver_table, mesa_entrega, tip FROM orders WHERE session_id=$1', [String(sessionId)])
   return r.rows
 }
 async function dbGetOrdersByTable(sessionId, tableId) {
@@ -655,6 +693,34 @@ function isStaffAuthorized(req, query) {
   const headerSecret = String(req.headers['x-staff-secret'] || '')
   if (!ADMIN_STAFF_SECRET) return false
   return timingSafeEqualStr(headerSecret, ADMIN_STAFF_SECRET)
+}
+// Auditoría de acciones admin: con un solo ADMIN_SECRET compartido no se puede identificar
+// individualmente a cada operador, pero registrar qué se hizo y cuándo ya da trazabilidad
+// mínima (antes no quedaba ningún rastro de altas/bajas/aprobaciones).
+const ADMIN_AUDIT_MAX = 500
+let memAdminAuditLog = []
+async function auditLog(req, action, payload) {
+  const entry = { id: genId('aud'), actor: 'admin', action: String(action), payload: payload || {}, ip: getClientIp(req), ts: now() }
+  try {
+    if (db) {
+      await initDB()
+      await db.query('INSERT INTO admin_audit_log (id, actor, action, payload_json, ip, ts) VALUES ($1,$2,$3,$4,$5,$6)', [entry.id, entry.actor, entry.action, JSON.stringify(entry.payload), entry.ip, entry.ts])
+      return
+    }
+  } catch {}
+  memAdminAuditLog.unshift(entry)
+  if (memAdminAuditLog.length > ADMIN_AUDIT_MAX) memAdminAuditLog.length = ADMIN_AUDIT_MAX
+}
+async function readAuditLog(limit) {
+  const lim = Math.max(1, Math.min(500, Number(limit) || 100))
+  try {
+    if (db) {
+      await initDB()
+      const r = await db.query('SELECT id, actor, action, payload_json, ip, ts FROM admin_audit_log ORDER BY ts DESC LIMIT $1', [lim])
+      return r.rows.map(row => ({ id: row.id, actor: row.actor, action: row.action, payload: (() => { try { return JSON.parse(row.payload_json || '{}') } catch { return {} } })(), ip: row.ip, ts: Number(row.ts) }))
+    }
+  } catch {}
+  return memAdminAuditLog.slice(0, lim)
 }
 // Token de posesión por usuario: emitido al hacer /api/join, requerido en mutaciones
 // para evitar que cualquiera que conozca un userId (expuesto vía /api/users/available)
@@ -763,7 +829,8 @@ function sanitizeItem(it) {
   const category = allowedCategories.includes(rawCat) ? rawCat : 'otros'
   const subcategory = String(it.subcategory || '').slice(0, 60)
   const description = String(it.description || '').slice(0, 240)
-  return { name, price, category, subcategory, description }
+  const stock = (it.stock === null || it.stock === undefined || it.stock === '') ? null : Math.max(0, Number(it.stock))
+  return { name, price, category, subcategory, description, stock }
 }
 function readGlobalCatalog(mode) {
   const m = normalizeMode(mode)
@@ -857,6 +924,31 @@ async function getVenueCatalogState(venueId, mode) {
   } catch {}
   return { items: [], initialized: false }
 }
+function computeLoyalty(sub) {
+  const visits = Array.isArray(sub.visitHistory) ? sub.visitHistory : []
+  const totalVisits = visits.length
+  const uniqueVenues = new Set(visits.map(v => v.venueId)).size
+  const points = totalVisits * 10 + uniqueVenues * 5
+  const badges = []
+  if (totalVisits >= 1) badges.push({ id: 'first_night', label: 'Primera noche' })
+  if (totalVisits >= 5) badges.push({ id: 'five_nights', label: '5 noches' })
+  if (totalVisits >= 10) badges.push({ id: 'ten_nights', label: '10 noches' })
+  if (totalVisits >= 25) badges.push({ id: 'regular', label: 'Habitué' })
+  if (uniqueVenues >= 3) badges.push({ id: 'explorer', label: 'Explorador' })
+  if (sub.tier && sub.tier !== 'free') badges.push({ id: 'subscriber', label: sub.tier === 'premium' ? 'Premium' : 'Nocturno' })
+  return { points, badges }
+}
+function visiblePhotos(u) {
+  if (!u || u.hideSelfie || !Array.isArray(u.photos)) return []
+  return u.photos.filter(p => p.approved).map(p => p.url)
+}
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const R = 6371
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLng = (lng2 - lng1) * Math.PI / 180
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2
+  return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 10) / 10
+}
 function getSessionMode(s) {
   return s && s.mode ? normalizeMode(s.mode) : 'disco'
 }
@@ -867,6 +959,34 @@ async function getCatalogBaseForSession(s) {
   if (venueState.initialized) return venueState.items
   if (s && Array.isArray(s.catalog) && s.catalog.length) return s.catalog
   return await getGlobalCatalogForMode(mode)
+}
+function hasStock(item, qty) {
+  if (!item || item.stock === null || item.stock === undefined) return true
+  return Number(item.stock) >= qty
+}
+async function decrementCatalogStock(s, itemName, qty) {
+  try {
+    const mode = getSessionMode(s)
+    const venueId = s && s.venueId ? s.venueId : ''
+    const venueState = await getVenueCatalogState(venueId, mode)
+    if (venueState.initialized) {
+      const items = venueState.items
+      const it = items.find(x => x.name === itemName)
+      if (it && it.stock !== null && it.stock !== undefined) {
+        it.stock = Math.max(0, Number(it.stock) - qty)
+        if (db) await dbWriteVenueCatalog(venueId, mode, items)
+        else writeVenueCatalogFile(venueId, mode, items)
+      }
+      return
+    }
+    if (s && Array.isArray(s.catalog) && s.catalog.length) {
+      const it = s.catalog.find(x => x.name === itemName)
+      if (it && it.stock !== null && it.stock !== undefined) {
+        it.stock = Math.max(0, Number(it.stock) - qty)
+        if (db) await dbWriteSessionCatalog(s.id, s.catalog)
+      }
+    }
+  } catch {}
 }
 
 // Por defecto la API solo se sirve al propio frontend (mismo origen); un '*' permitía
@@ -1123,7 +1243,11 @@ async function uploadSelfieToCloudinary(selfieStr, user) {
 async function cleanupSessionSelfies(sessionId) {
   if (!cloudinary) return
   const targets = []
-  for (const u of state.users.values()) if (u.sessionId === sessionId && u.selfiePublicId) targets.push(u.selfiePublicId)
+  for (const u of state.users.values()) {
+    if (u.sessionId !== sessionId) continue
+    if (u.selfiePublicId) targets.push(u.selfiePublicId)
+    if (Array.isArray(u.photos)) for (const p of u.photos) if (p.publicId) targets.push(p.publicId)
+  }
   if (!targets.length) return
   for (const pid of targets) {
     try { await cloudinary.uploader.destroy(pid) } catch {}
@@ -1567,7 +1691,7 @@ const server = http.createServer(async (req, res) => {
           const current = Number(entry.credits || 0)
           if (entry.active === false) { json(res, 403, { error: 'inactive' }); return }
           if (current <= 0) { json(res, 403, { error: 'no_credit' }); return }
-          venues[venueId] = { name: String(entry.name || venueId), credits: current - 1, active: entry.active !== false, pin: String(entry.pin || ''), email: String(entry.email || '') }
+          venues[venueId] = { ...entry, name: String(entry.name || venueId), credits: current - 1, active: entry.active !== false, pin: String(entry.pin || ''), email: String(entry.email || '') }
           await writeVenues(venues)
         } finally { unlockVenues() }
         const sessionId = genId('sess')
@@ -1694,20 +1818,42 @@ const server = http.createServer(async (req, res) => {
       if (!s && body.sessionId) { try { await loadSessionFromRedis(body.sessionId) } catch {} s = ensureSession(body.sessionId) }
       if (!s) { json(res, 404, { error: 'no_session' }); return }
       const role = body.role === 'staff' ? 'staff' : 'user'
+      let staffRole = 'gerente'
       if (role === 'staff') {
         const pinStr = String(body.pin || '')
         const okSessionPin = pinStr === String(s.pin)
         const okGlobalPin = (ALLOW_GLOBAL_STAFF_PIN && GLOBAL_STAFF_PIN && pinStr === GLOBAL_STAFF_PIN)
         let okVenuePin = false
+        let matchedRolePin = ''
         try {
           const venues = await readVenues()
           const v = venues[s.venueId]
           if (v && String(v.pin || '') && pinStr === String(v.pin)) okVenuePin = true
+          if (v && v.rolePins) {
+            for (const r of STAFF_ROLES) {
+              if (String(v.rolePins[r] || '') && pinStr === String(v.rolePins[r])) { matchedRolePin = r; break }
+            }
+          }
         } catch {}
-        if (!pinStr || (!okSessionPin && !okGlobalPin && !okVenuePin)) { json(res, 403, { error: 'bad_pin' }); return }
+        if (!pinStr || (!okSessionPin && !okGlobalPin && !okVenuePin && !matchedRolePin)) { json(res, 403, { error: 'bad_pin' }); return }
+        staffRole = matchedRolePin || 'gerente'
       } else {
-        const alias = String(body.alias || '').trim().slice(0, 32)
+        let alias = String(body.alias || '').trim().slice(0, 32)
+        if (body.subscriberId) {
+          const sub = state.subscribers.get(String(body.subscriberId))
+          if (sub) {
+            if (sub.banned) { json(res, 403, { error: 'banned', reason: sub.banReason || '' }); return }
+            if (!alias && sub.defaultAlias) { alias = sub.defaultAlias; body.alias = alias }
+            if (sub.hideSelfie) body.hideSelfie = true
+          }
+        }
         if (!alias) { json(res, 400, { error: 'alias_required' }); return }
+        const prof = _venueProfiles[s.venueId]
+        const maxCapacity = prof && Number.isFinite(prof.maxCapacity) ? prof.maxCapacity : null
+        if (maxCapacity !== null) {
+          const currentCount = [...state.users.values()].filter(u => u.sessionId === s.id && u.role === 'user').length
+          if (currentCount >= maxCapacity) { json(res, 403, { error: 'capacity_full' }); return }
+        }
       }
       const id = genId(role === 'staff' ? 'staff' : 'user')
       let subscriptionTier = 'free'
@@ -1722,7 +1868,7 @@ const server = http.createServer(async (req, res) => {
         }
       }
       const token = crypto.randomBytes(24).toString('hex')
-      const user = { id, sessionId: body.sessionId, role, alias: role === 'user' ? String(body.alias || '').trim().slice(0, 32) : '', selfie: '', selfieApproved: false, available: false, prefs: { tags: [], gender: '' }, zone: '', muted: false, receiveMode: 'all', allowedSenders: new Set(), tableId: '', visibility: 'visible', pausedUntil: 0, silenced: false, danceState: 'idle', dancePartnerId: '', meetingId: '', subscriptionTier, coverPaid: false, token }
+      const user = { id, sessionId: body.sessionId, role, staffRole: role === 'staff' ? staffRole : '', alias: role === 'user' ? String(body.alias || '').trim().slice(0, 32) : '', selfie: '', selfieApproved: false, available: false, prefs: { tags: [], gender: '' }, zone: '', muted: false, hideSelfie: role === 'user' ? !!body.hideSelfie : false, photos: [], subscriberId: role === 'user' ? String(body.subscriberId || '') : '', receiveMode: 'all', allowedSenders: new Set(), tableId: '', visibility: 'visible', pausedUntil: 0, silenced: false, danceState: 'idle', dancePartnerId: '', meetingId: '', subscriptionTier, coverPaid: false, token }
       state.users.set(id, user)
       try { await dbUpsertUser(user) } catch {}
       if (role === 'user' && body.subscriberId) {
@@ -1735,6 +1881,7 @@ const server = http.createServer(async (req, res) => {
           if (sub.visitHistory.length > 50) sub.visitHistory = sub.visitHistory.slice(0, 50)
           if (sub.tier && sub.tier !== 'free' && subscriptionTier === 'free') subscriptionTier = sub.tier
           user.subscriptionTier = subscriptionTier
+          if (user.alias && sub.defaultAlias !== user.alias) sub.defaultAlias = user.alias
           writeSubscribersFile()
         }
       }
@@ -1750,7 +1897,16 @@ const server = http.createServer(async (req, res) => {
       if (!sActive) { json(res, 200, { found: false }); return }
       const partner = (u.dancePartnerId && state.users.get(u.dancePartnerId)) || null
       const partnerAlias = partner ? (partner.alias || partner.id) : ''
-      json(res, 200, { found: true, user: { id: u.id, sessionId: u.sessionId, role: u.role, alias: u.alias, selfie: u.selfie || '', selfieApproved: u.selfieApproved, available: u.available, prefs: u.prefs, zone: u.zone, tableId: u.tableId, visibility: u.visibility, danceState: u.danceState || 'idle', partnerAlias } })
+      json(res, 200, { found: true, user: { id: u.id, sessionId: u.sessionId, role: u.role, staffRole: u.staffRole || '', alias: u.alias, selfie: u.selfie || '', selfieApproved: u.selfieApproved, photos: Array.isArray(u.photos) ? u.photos : [], hideSelfie: !!u.hideSelfie, available: u.available, prefs: u.prefs, zone: u.zone, tableId: u.tableId, visibility: u.visibility, danceState: u.danceState || 'idle', partnerAlias } })
+      return
+    }
+    if (pathname === '/api/user/privacy' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const u = requireOwnUser(body, res)
+      if (!u) return
+      u.hideSelfie = !!body.hideSelfie
+      try { await dbUpsertUser(u) } catch {}
+      json(res, 200, { ok: true, hideSelfie: u.hideSelfie })
       return
     }
     if (pathname === '/api/user/profile' && req.method === 'POST') {
@@ -1784,6 +1940,111 @@ const server = http.createServer(async (req, res) => {
       return
     }
     // Admin: listar venues
+    // Visibilidad cross-venue: un usuario expulsado en un venue no debería reaparecer sin
+    // que el admin lo sepa. Como los usuarios de sesión son efímeros, la única identidad
+    // estable entre venues es el subscriberId — el ban global se ata a eso, no al userId.
+    if (pathname === '/api/admin/incidents' && req.method === 'GET') {
+      if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const venues = await readVenues()
+      const list = (state.staffIncidents || []).slice(0, 200).map(i => ({ ...i, venueName: (venues[i.venueId] && venues[i.venueId].name) || i.venueId || '' }))
+      json(res, 200, { incidents: list })
+      return
+    }
+    if (pathname === '/api/admin/subscribers/ban' && req.method === 'POST') {
+      if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const body = await parseBody(req)
+      const subscriberId = String(body.subscriberId || '')
+      const sub = state.subscribers.get(subscriberId)
+      if (!sub) { json(res, 404, { error: 'not_found' }); return }
+      sub.banned = !!body.banned
+      sub.banReason = String(body.reason || '').slice(0, 200)
+      writeSubscribersFile()
+      try { await auditLog(req, 'subscriber_ban', { subscriberId, banned: sub.banned }) } catch {}
+      json(res, 200, { ok: true, subscriberId, banned: sub.banned })
+      return
+    }
+    if (pathname === '/api/admin/dashboard' && req.method === 'GET') {
+      if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const venues = await readVenues()
+      const venueIds = Object.keys(venues)
+      const totalVenues = venueIds.length
+      const activeVenues = venueIds.filter(id => venues[id].active !== false).length
+      const totalCredits = venueIds.reduce((s, id) => s + Number(venues[id].credits || 0), 0)
+      const cutoff30 = now() - 30 * 24 * 60 * 60 * 1000
+      let subsRevenue30d = 0, subsApproved30d = 0, subsPending = 0
+      for (const p of state.pendingPayments.values()) {
+        if (p.status === 'approved' && Number(p.approvedAt || 0) >= cutoff30) { subsRevenue30d += Number(p.price || 0); subsApproved30d++ }
+        if (p.status === 'pending') subsPending++
+      }
+      let salesTotal = 0, tipsTotal = 0, shiftsClosed = 0
+      const perVenue = {}
+      for (const sh of state.shifts.values()) {
+        if (sh.status !== 'closed') continue
+        salesTotal += Number(sh.ordersTotal || 0)
+        tipsTotal += Number(sh.tipsTotal || 0)
+        shiftsClosed++
+        const vId = sh.venueId || 'default'
+        if (!perVenue[vId]) perVenue[vId] = { venueId: vId, name: (venues[vId] && venues[vId].name) || vId, sales: 0, tips: 0, shifts: 0 }
+        perVenue[vId].sales += Number(sh.ordersTotal || 0)
+        perVenue[vId].tips += Number(sh.tipsTotal || 0)
+        perVenue[vId].shifts++
+      }
+      const topVenues = Object.values(perVenue).sort((a, b) => b.sales - a.sales).slice(0, 10)
+      json(res, 200, { totalVenues, activeVenues, totalCredits, subsRevenue30d, subsApproved30d, subsPending, salesTotal, tipsTotal, shiftsClosed, topVenues })
+      return
+    }
+    if (pathname === '/api/admin/audit' && req.method === 'GET') {
+      if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const entries = await readAuditLog(query.limit)
+      json(res, 200, { entries })
+      return
+    }
+    if (pathname === '/api/admin/broadcast' && req.method === 'POST') {
+      if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const body = await parseBody(req)
+      const target = String(body.target || '')
+      if (!['subscribers', 'venues'].includes(target)) { json(res, 400, { error: 'bad_target' }); return }
+      const title = reqString(body.title, 1, 120)
+      const message = reqString(body.message, 1, 500)
+      let sent = 0
+      if (target === 'subscribers') {
+        const tier = String(body.tier || 'all')
+        for (const [subId, sub] of state.subscribers) {
+          if (tier !== 'all' && (sub.tier || 'free') !== tier) continue
+          const payload = JSON.stringify({ title, body: message, url: '/', type: 'broadcast' })
+          try { await sendPushToSubscriber(subId, payload); sent++ } catch {}
+        }
+      } else {
+        const venues = await readVenues()
+        for (const id of Object.keys(venues)) {
+          const v = venues[id]
+          if (!v || !v.email) continue
+          try { const r = await sendEmail(v.email, title, message); if (r && r.ok) sent++ } catch {}
+        }
+      }
+      try { await auditLog(req, 'broadcast', { target, tier: body.tier || '', title, sent }) } catch {}
+      json(res, 200, { ok: true, sent })
+      return
+    }
+    if (pathname === '/api/admin/venues/export' && req.method === 'GET') {
+      if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const venues = await readVenues()
+      const rows = [['venueId', 'name', 'credits', 'active', 'email', 'discountNocturno', 'discountPremium']]
+      for (const id of Object.keys(venues)) {
+        const v = venues[id]
+        rows.push([id, v.name || id, Number(v.credits || 0), v.active !== false, v.email || '', (v.discounts && v.discounts.nocturno) || 0, (v.discounts && v.discounts.premium) || 0])
+      }
+      const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n')
+      res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="venues.csv"' })
+      res.end(csv)
+      return
+    }
     if (pathname === '/api/admin/venues' && req.method === 'GET') {
       if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
       if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
@@ -1791,9 +2052,40 @@ const server = http.createServer(async (req, res) => {
       const list = []
       for (const id of Object.keys(venues)) {
         const v = venues[id] || {}
-        list.push({ venueId: id, name: String(v.name || id), credits: Number(v.credits || 0), active: v.active !== false, pin: String(v.pin || ''), email: String(v.email || ''), discounts: v.discounts || { nocturno: 0, premium: 0 } })
+        list.push({ venueId: id, name: String(v.name || id), credits: Number(v.credits || 0), active: v.active !== false, pin: String(v.pin || ''), email: String(v.email || ''), discounts: v.discounts || { nocturno: 0, premium: 0 }, rolePins: v.rolePins || { mesero: '', seguridad: '', dj: '' }, plan: v.plan || 'free' })
       }
       json(res, 200, { venues: list })
+      return
+    }
+    // Admin: alta explícita de un venue nuevo (no depende de "agregar crédito" a un ID inexistente)
+    if (pathname === '/api/admin/venues/create' && req.method === 'POST') {
+      if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const body = await parseBody(req)
+      const venueId = String(body.venueId || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '')
+      const name = reqString(body.name, 1, 120)
+      const email = String(body.email || '').trim().slice(0, 200)
+      const initialCredits = Math.max(0, reqInt(body.initialCredits || 0, 0, 1000000))
+      if (!venueId || !name) { json(res, 400, { error: 'bad_input' }); return }
+      const unlockVenues = await venuesMutex.lock()
+      let venues, pin
+      try {
+        venues = await readVenues()
+        if (venues[venueId]) { unlockVenues(); json(res, 409, { error: 'venue_exists' }); return }
+        pin = String(Math.floor(1000 + Math.random() * 9000))
+        venues[venueId] = { name, credits: initialCredits, active: true, pin, email, discounts: { nocturno: 0, premium: 0 }, rolePins: { mesero: '', seguridad: '', dj: '' }, plan: 'free' }
+        await writeVenues(venues)
+      } finally { unlockVenues() }
+      try {
+        await auditLog(req, 'venue_create', { venueId, name, initialCredits })
+      } catch {}
+      if (email) {
+        const subject = `Bienvenido a Discos — ${name}`
+        const link = `${process.env.PUBLIC_BASE_URL || ''}/?venueId=${encodeURIComponent(venueId)}`
+        const text = `Hola,\n\nSe creó tu local "${name}" (ID: ${venueId}) en Discos.\nPIN del venue: ${pin}\nAcceso: ${link}\n\nPuedes cambiar el PIN desde el Panel Admin cuando quieras.\n`
+        try { await sendEmail(email, subject, text) } catch {}
+      }
+      json(res, 200, { ok: true, venueId, pin, credits: initialCredits })
       return
     }
     // Admin: sumar créditos a un venue
@@ -1815,9 +2107,10 @@ const server = http.createServer(async (req, res) => {
         if (!existed && !pin) {
           pin = String(Math.floor(1000 + Math.random() * 9000))
         }
-        venues[venueId] = { name: String(prev.name || venueId), credits: Math.max(0, nextCredits), active: prev.active !== false, pin, email: String(prev.email || ''), discounts: prev.discounts || { nocturno: 0, premium: 0 } }
+        venues[venueId] = { ...prev, name: String(prev.name || venueId), credits: Math.max(0, nextCredits), active: prev.active !== false, pin }
         await writeVenues(venues)
       } finally { unlockVenues() }
+      try { await auditLog(req, 'venue_credit', { venueId, amount, newCredits: venues[venueId].credits }) } catch {}
       if (!existed && String(venues[venueId].email || '')) {
         const to = String(venues[venueId].email)
         const subject = `PIN del local ${venues[venueId].name}`
@@ -1840,7 +2133,7 @@ const server = http.createServer(async (req, res) => {
       try {
         venues = await readVenues()
         const prev = venues[venueId] || { name: venueId, credits: 0, active: true, email: '' }
-        venues[venueId] = { name: String(prev.name || venueId), credits: Number(prev.credits || 0), active: prev.active !== false, pin, email: String(prev.email || ''), discounts: prev.discounts || { nocturno: 0, premium: 0 } }
+        venues[venueId] = { ...prev, name: String(prev.name || venueId), credits: Number(prev.credits || 0), active: prev.active !== false, pin }
         await writeVenues(venues)
       } finally { unlockVenues() }
       if (String(venues[venueId].email || '')) {
@@ -1849,6 +2142,7 @@ const server = http.createServer(async (req, res) => {
         const text = `Hola,\n\nEl PIN del local "${venues[venueId].name}" (ID: ${venueId}) fue actualizado.\nNuevo PIN: ${pin}\n\nSi no solicitaste este cambio, por favor contáctanos.\n`
         try { await sendEmail(to, subject, text) } catch {}
       }
+      try { await auditLog(req, 'venue_pin_change', { venueId }) } catch {}
       json(res, 200, { ok: true, venueId, pin })
       return
     }
@@ -1885,7 +2179,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const venues = await readVenues()
         const prev = venues[venueId] || { name: venueId, credits: 0, active: true, pin: '' }
-        venues[venueId] = { name: String(prev.name || venueId), credits: Number(prev.credits || 0), active: prev.active !== false, pin: String(prev.pin || ''), email, discounts: prev.discounts || { nocturno: 0, premium: 0 } }
+        venues[venueId] = { ...prev, name: String(prev.name || venueId), credits: Number(prev.credits || 0), active: prev.active !== false, email }
         await writeVenues(venues)
       } finally { unlockVenues() }
       json(res, 200, { ok: true, venueId, email })
@@ -1915,6 +2209,7 @@ const server = http.createServer(async (req, res) => {
           }
         } finally { unlockVenues() }
       }
+      try { await auditLog(req, 'venue_delete', { venueId }) } catch {}
       json(res, 200, { ok: true, venueId })
       return
     }
@@ -1929,9 +2224,10 @@ const server = http.createServer(async (req, res) => {
       try {
         const venues = await readVenues()
         const prev = venues[venueId] || { name: venueId, credits: 0, active: true, pin: '', email: '' }
-        venues[venueId] = { name: String(prev.name || venueId), credits: Number(prev.credits || 0), active, pin: String(prev.pin || ''), email: String(prev.email || ''), discounts: prev.discounts || { nocturno: 0, premium: 0 } }
+        venues[venueId] = { ...prev, name: String(prev.name || venueId), credits: Number(prev.credits || 0), active }
         await writeVenues(venues)
       } finally { unlockVenues() }
+      try { await auditLog(req, 'venue_active_toggle', { venueId, active }) } catch {}
       json(res, 200, { ok: true, venueId, active })
       return
     }
@@ -1946,7 +2242,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const venues = await readVenues()
         const prev = venues[venueId] || { credits: 0, active: true, pin: '', email: '' }
-        venues[venueId] = { name, credits: Number(prev.credits || 0), active: prev.active !== false, pin: String(prev.pin || ''), email: String(prev.email || ''), discounts: prev.discounts || { nocturno: 0, premium: 0 } }
+        venues[venueId] = { ...prev, name, credits: Number(prev.credits || 0), active: prev.active !== false }
         await writeVenues(venues)
       } finally { unlockVenues() }
       json(res, 200, { ok: true, venueId, name })
@@ -2081,6 +2377,46 @@ const server = http.createServer(async (req, res) => {
       json(res, 200, { ok: true })
       return
     }
+    // Fotos extra de perfil: mismo circuito de moderación que la selfie principal —
+    // cada foto adicional queda oculta hasta que el staff la aprueba. Tope de 2 extra
+    // (3 en total con la selfie) para no multiplicar la carga de moderación del venue.
+    if (pathname === '/api/user/photos/add' && req.method === 'POST') {
+      if (ipRateLimited(clientIp, 5, 60 * 1000)) { json(res, 429, { error: 'rate_limit' }); return }
+      const body = await parseBody(req)
+      const u = requireOwnUser(body, res)
+      if (!u) return
+      u.photos = Array.isArray(u.photos) ? u.photos : []
+      if (u.photos.length >= 2) { json(res, 400, { error: 'max_photos' }); return }
+      const photoStr = String(body.photo || '')
+      const imgCheck = validateImageDataUri(photoStr, 500 * 1024)
+      if (!imgCheck.ok) { json(res, 400, { error: 'bad_image', reason: imgCheck.err }); return }
+      let upload = null
+      try { upload = await uploadSelfieToCloudinary(photoStr, u) } catch { json(res, 500, { error: 'photo_upload_failed' }); return }
+      if (!upload || !upload.url) { json(res, 500, { error: 'photo_upload_failed' }); return }
+      u.photos.push({ url: upload.url, publicId: upload.publicId || '', approved: false })
+      try { await dbUpsertUser(u) } catch {}
+      json(res, 200, { ok: true, photos: u.photos })
+      return
+    }
+    if (pathname === '/api/staff/photos/moderate' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const staff = state.users.get(body.staffId)
+      const target = state.users.get(body.userId)
+      if (!staff || staff.role !== 'staff') { json(res, 403, { error: 'no_staff' }); return }
+      if (!target) { json(res, 404, { error: 'no_user' }); return }
+      if (staff.sessionId !== target.sessionId) { json(res, 403, { error: 'forbidden' }); return }
+      const index = reqInt(body.index, 0, 10)
+      if (!Array.isArray(target.photos) || !target.photos[index]) { json(res, 404, { error: 'no_photo' }); return }
+      if (body.approved) {
+        target.photos[index].approved = true
+      } else {
+        const removed = target.photos.splice(index, 1)[0]
+        if (removed && removed.publicId && cloudinary) { try { await cloudinary.uploader.destroy(removed.publicId) } catch {} }
+      }
+      try { await dbUpsertUser(target) } catch {}
+      json(res, 200, { ok: true, photos: target.photos })
+      return
+    }
     if (pathname === '/api/user/available' && req.method === 'POST') {
       const body = await parseBody(req)
       const u = requireOwnUser(body, res)
@@ -2121,7 +2457,7 @@ const server = http.createServer(async (req, res) => {
         const zoneOk = zoneQ ? (u.zone === zoneQ) : true
         const partner = (u.dancePartnerId && state.users.get(u.dancePartnerId)) || null
         const partnerAlias = partner ? (partner.alias || partner.id) : ''
-        arr.push({ id: u.id, alias: u.alias, selfie: u.selfie || '', tags: u.prefs.tags || [], zone: u.zone, available: u.available, tableId: u.tableId, danceState: u.danceState || 'idle', partnerAlias, gender: (u.prefs && u.prefs.gender) ? u.prefs.gender : '' })
+        arr.push({ id: u.id, alias: u.alias, selfie: u.hideSelfie ? '' : (u.selfie || ''), photos: visiblePhotos(u), tags: u.prefs.tags || [], zone: u.zone, available: u.available, tableId: u.tableId, danceState: u.danceState || 'idle', partnerAlias, gender: (u.prefs && u.prefs.gender) ? u.prefs.gender : '' })
       }
       arr.sort((a, b) => {
         const sa = Number(state.behaviorScore.get(a.id) || 0)
@@ -2141,7 +2477,7 @@ const server = http.createServer(async (req, res) => {
         if (u.sessionId !== sessionId || u.role !== 'user') continue
         const partner = (u.dancePartnerId && state.users.get(u.dancePartnerId)) || null
         const partnerAlias = partner ? (partner.alias || partner.id) : ''
-        const obj = { id: u.id, alias: u.alias, selfie: u.selfie || '', tableId: u.tableId, zone: u.zone, danceState: u.danceState || 'idle', partnerAlias }
+        const obj = { id: u.id, alias: u.alias, selfie: u.hideSelfie ? '' : (u.selfie || ''), tableId: u.tableId, zone: u.zone, danceState: u.danceState || 'idle', partnerAlias }
         if (u.danceState === 'waiting') waiting.push(obj)
         else if (u.danceState === 'dancing') dancing.push(obj)
       }
@@ -2189,14 +2525,15 @@ const server = http.createServer(async (req, res) => {
         }
       }
       const msg = body.messageType === 'invitoCancion' ? 'invitoCancion' : 'bailamos'
+      const customMsg = reqString(body.customMsg, 0, 100)
       if (!rateCanInvite(from.id, to.id)) { json(res, 429, { error: 'rate' }); return }
       const invId = genId('inv')
       const ttlMs = computeInviteTTL(to)
-      const inv = { id: invId, sessionId: from.sessionId, fromId: from.id, toId: to.id, msg, status: 'pendiente', createdAt: now(), expiresAt: now() + ttlMs }
+      const inv = { id: invId, sessionId: from.sessionId, fromId: from.id, toId: to.id, msg, customMsg, status: 'pendiente', createdAt: now(), expiresAt: now() + ttlMs }
       state.invites.set(invId, inv)
       const fromSelfie = from.selfie || ''
-      sendToUser(to.id, 'dance_invite', { invite: { id: invId, from: { id: from.id, alias: from.alias, selfie: fromSelfie, tableId: from.tableId || '', zone: from.zone || '', gender: (from.prefs && from.prefs.gender) ? from.prefs.gender : '' } , msg, expiresAt: inv.expiresAt } })
-      const pushPayload = JSON.stringify({ title: 'Invitación de baile', body: `${from.alias || 'Alguien'} te invitó a bailar`, url: '/', type: 'dance_invite', inviteId: invId })
+      sendToUser(to.id, 'dance_invite', { invite: { id: invId, from: { id: from.id, alias: from.alias, selfie: fromSelfie, tableId: from.tableId || '', zone: from.zone || '', gender: (from.prefs && from.prefs.gender) ? from.prefs.gender : '' } , msg, customMsg, expiresAt: inv.expiresAt } })
+      const pushPayload = JSON.stringify({ title: 'Invitación de baile', body: customMsg ? `${from.alias || 'Alguien'}: "${customMsg}"` : `${from.alias || 'Alguien'} te invitó a bailar`, url: '/', type: 'dance_invite', inviteId: invId })
       try { await sendPushToUser(to.id, pushPayload) } catch {}
       json(res, 200, { inviteId: invId, expiresAt: inv.expiresAt })
       return
@@ -2423,6 +2760,7 @@ const server = http.createServer(async (req, res) => {
       const found = itemsBase.find(i => i.name === itemName)
       const price = found ? Number(found.price || 0) : 0
       const qty = reqInt(body.quantity || 1, 1, 999)
+      if (!hasStock(found, qty)) { json(res, 409, { error: 'sin_stock' }); return }
       const idemKey = getIdempotencyKey(req)
       if (idemKey) {
         const prev = await dbGetIdempotent(idemKey, pathname)
@@ -2431,12 +2769,13 @@ const server = http.createServer(async (req, res) => {
       const orderId = genId('ord')
       const expiresAt = now() + 10 * 60 * 1000
       const createdAt = now()
-      const order = { id: orderId, sessionId: from.sessionId, emitterId: from.id, receiverId: to.id, product: itemName, quantity: qty, price, total: price * qty, status: 'pendiente_cobro', createdAt, expiresAt, emitterTable: from.tableId || '', receiverTable: to.tableId || '', mesaEntrega: to.tableId || '', isInvitation: true }
+      const order = { id: orderId, sessionId: from.sessionId, emitterId: from.id, receiverId: to.id, product: itemName, quantity: qty, price, total: price * qty, tip: 0, status: 'pendiente_cobro', createdAt, expiresAt, emitterTable: from.tableId || '', receiverTable: to.tableId || '', mesaEntrega: to.tableId || '', isInvitation: true }
       await withDbTx(async (client) => {
         await dbInsertOrder(order, client)
         await dbInsertEvent({ sessionId: order.sessionId, entityType: 'order', entityId: order.id, eventType: 'created', payload: { product: order.product, quantity: order.quantity, price: order.price, total: order.total, emitterId: order.emitterId, receiverId: order.receiverId }, ts: createdAt }, client)
       })
       state.orders.set(orderId, order)
+      await decrementCatalogStock(s, itemName, qty)
       const ci = Array.from(state.consumptionInvites.values()).find(ci => ci.fromId === fromId && ci.toId === toId && ci.product === itemName)
       if (ci) {
         ci.status = 'aceptado'
@@ -2471,6 +2810,10 @@ const server = http.createServer(async (req, res) => {
       const items = Array.isArray(body.items) ? body.items.map(it => ({ product: reqString(it.product, 1, 140), quantity: reqInt(it.quantity || 1, 1, 999) })) : []
       const filtered = items.filter(it => it.product)
       if (!filtered.length) { json(res, 400, { error: 'no_items' }); return }
+      for (const it of filtered) {
+        const found = itemsBase.find(i => i.name === it.product)
+        if (!hasStock(found, it.quantity)) { json(res, 409, { error: 'sin_stock', product: it.product }); return }
+      }
       const idemKey = getIdempotencyKey(req)
       if (idemKey) {
         const prev = await dbGetIdempotent(idemKey, pathname)
@@ -2485,7 +2828,7 @@ const server = http.createServer(async (req, res) => {
           const total = price * Number(it.quantity || 1)
           const orderId = genId('ord')
           const expiresAt = now() + 10 * 60 * 1000
-          const order = { id: orderId, sessionId: from.sessionId, emitterId: from.id, receiverId: to.id, product: it.product, quantity: it.quantity, price, total, status: 'pendiente_cobro', createdAt, expiresAt, emitterTable: from.tableId || '', receiverTable: to.tableId || '', mesaEntrega: to.tableId || '', isInvitation: true }
+          const order = { id: orderId, sessionId: from.sessionId, emitterId: from.id, receiverId: to.id, product: it.product, quantity: it.quantity, price, total, tip: 0, status: 'pendiente_cobro', createdAt, expiresAt, emitterTable: from.tableId || '', receiverTable: to.tableId || '', mesaEntrega: to.tableId || '', isInvitation: true }
           await dbInsertOrder(order, client)
           await dbInsertEvent({ sessionId: order.sessionId, entityType: 'order', entityId: order.id, eventType: 'created', payload: { product: order.product, quantity: order.quantity, price: order.price, total: order.total, emitterId: order.emitterId, receiverId: order.receiverId }, ts: createdAt }, client)
           orders.push(order)
@@ -2493,6 +2836,7 @@ const server = http.createServer(async (req, res) => {
       })
       for (const order of orders) {
         state.orders.set(order.id, order)
+        await decrementCatalogStock(s, order.product, order.quantity)
         const ci = Array.from(state.consumptionInvites.values()).find(ci => ci.fromId === fromId && ci.toId === toId && ci.product === order.product)
         if (ci) {
           ci.status = 'aceptado'
@@ -2535,6 +2879,7 @@ const server = http.createServer(async (req, res) => {
       const s = ensureSession(u.sessionId)
       const itemsBase = await getCatalogBaseForSession(s)
       const found = itemsBase.find(i => i.name === itemName)
+      if (!hasStock(found, qty)) { json(res, 409, { error: 'sin_stock' }); return }
       const price = found ? found.price : 0
       let discountPct = 0
       try {
@@ -2556,12 +2901,13 @@ const server = http.createServer(async (req, res) => {
       const expiresAt = now() + 10 * 60 * 1000
       const createdAt = now()
       const mesaEntrega = u.tableId || ''
-      const order = { id: orderId, sessionId: u.sessionId, emitterId: u.id, receiverId: u.id, product: itemName, quantity: qty, price, total, discountPct, status: 'pendiente_cobro', createdAt, expiresAt, emitterTable: u.tableId || '', receiverTable: u.tableId || '', mesaEntrega }
+      const order = { id: orderId, sessionId: u.sessionId, emitterId: u.id, receiverId: u.id, product: itemName, quantity: qty, price, total, tip: 0, discountPct, status: 'pendiente_cobro', createdAt, expiresAt, emitterTable: u.tableId || '', receiverTable: u.tableId || '', mesaEntrega }
       await withDbTx(async (client) => {
         await dbInsertOrder(order, client)
         await dbInsertEvent({ sessionId: order.sessionId, entityType: 'order', entityId: order.id, eventType: 'created', payload: { product: order.product, quantity: order.quantity, price: order.price, total: order.total, emitterId: order.emitterId, receiverId: order.receiverId }, ts: createdAt }, client)
       })
       state.orders.set(orderId, order)
+      await decrementCatalogStock(s, itemName, qty)
       sendToStaff(order.sessionId, 'order_new', { order })
       sendToUser(u.id, 'order_update', { order })
       if (idemKey) await dbSetIdempotent(idemKey, pathname, 200, { orderId })
@@ -2578,6 +2924,10 @@ const server = http.createServer(async (req, res) => {
       const items = Array.isArray(body.items) ? body.items.map(it => ({ product: reqString(it.product, 1, 140), quantity: reqInt(it.quantity || 1, 1, 999) })) : []
       const filtered = items.filter(it => it.product)
       if (!filtered.length) { json(res, 400, { error: 'no_items' }); return }
+      for (const it of filtered) {
+        const found = itemsBase.find(i => i.name === it.product)
+        if (!hasStock(found, it.quantity)) { json(res, 409, { error: 'sin_stock', product: it.product }); return }
+      }
       const idemKey = getIdempotencyKey(req)
       if (idemKey) {
         const prev = await dbGetIdempotent(idemKey, pathname)
@@ -2605,7 +2955,7 @@ const server = http.createServer(async (req, res) => {
           const orderId = genId('ord')
           const expiresAt = now() + 10 * 60 * 1000
           const mesaEntrega = u.tableId || ''
-          const order = { id: orderId, sessionId: u.sessionId, emitterId: u.id, receiverId: u.id, product: it.product, quantity: it.quantity, price, total, discountPct, status: 'pendiente_cobro', createdAt, expiresAt, emitterTable: u.tableId || '', receiverTable: u.tableId || '', mesaEntrega }
+          const order = { id: orderId, sessionId: u.sessionId, emitterId: u.id, receiverId: u.id, product: it.product, quantity: it.quantity, price, total, tip: 0, discountPct, status: 'pendiente_cobro', createdAt, expiresAt, emitterTable: u.tableId || '', receiverTable: u.tableId || '', mesaEntrega }
           await dbInsertOrder(order, client)
           await dbInsertEvent({ sessionId: order.sessionId, entityType: 'order', entityId: order.id, eventType: 'created', payload: { product: order.product, quantity: order.quantity, price: order.price, total: order.total, emitterId: order.emitterId, receiverId: order.receiverId }, ts: createdAt }, client)
           orders.push(order)
@@ -2613,12 +2963,35 @@ const server = http.createServer(async (req, res) => {
       })
       for (const order of orders) {
         state.orders.set(order.id, order)
+        await decrementCatalogStock(s, order.product, order.quantity)
         sendToStaff(order.sessionId, 'order_new', { order })
         sendToUser(u.id, 'order_update', { order })
       }
       const orderIds = orders.map(o => o.id)
       if (idemKey) await dbSetIdempotent(idemKey, pathname, 200, { orderIds })
       json(res, 200, { orderIds })
+      return
+    }
+    if (pathname.startsWith('/api/staff/orders/') && pathname.endsWith('/edit') && req.method === 'POST') {
+      const orderId = pathname.split('/').slice(-2)[0]
+      const body = await parseBody(req)
+      const order = state.orders.get(orderId)
+      if (!order) { json(res, 404, { error: 'no_order' }); return }
+      if (order.status !== 'pendiente_cobro') { json(res, 409, { error: 'not_editable' }); return }
+      const qty = reqInt(body.quantity, 1, 999)
+      const rawTotal = order.price * qty
+      const discountPct = Number(order.discountPct || 0)
+      const total = discountPct > 0 ? Math.round(rawTotal * (1 - discountPct / 100)) : rawTotal
+      order.quantity = qty
+      order.total = total
+      await withDbTx(async (client) => {
+        await client.query('UPDATE orders SET quantity=$2, total=$3 WHERE id=$1', [String(order.id), qty, total])
+        await dbInsertEvent({ sessionId: order.sessionId, entityType: 'order', entityId: order.id, eventType: 'edited', payload: { quantity: qty, total }, ts: now() }, client)
+      })
+      sendToUser(order.emitterId, 'order_update', { order })
+      sendToUser(order.receiverId, 'order_update', { order })
+      sendToStaff(order.sessionId, 'order_update', { order })
+      json(res, 200, { ok: true, order })
       return
     }
     if (pathname.startsWith('/api/staff/orders/') && req.method === 'POST') {
@@ -2628,13 +3001,15 @@ const server = http.createServer(async (req, res) => {
       if (!order) { json(res, 404, { error: 'no_order' }); return }
       const status = body.status
       if (!['cobrado', 'entregado', 'cancelado', 'en_preparacion', 'expirado'].includes(status)) { json(res, 400, { error: 'bad_status' }); return }
+      const tip = status === 'cobrado' ? reqInt(body.tip || 0, 0, 10000000) : order.tip || 0
       await withDbTx(async (client) => {
         const r = await client.query('SELECT status FROM orders WHERE id=$1 FOR UPDATE', [String(order.id)])
         if (!r.rows.length) throw new Error('no_order')
-        await client.query('UPDATE orders SET status=$2 WHERE id=$1', [String(order.id), String(status)])
-        await dbInsertEvent({ sessionId: order.sessionId, entityType: 'order', entityId: order.id, eventType: 'status', payload: { status }, ts: now() }, client)
+        await client.query('UPDATE orders SET status=$2, tip=$3 WHERE id=$1', [String(order.id), String(status), tip])
+        await dbInsertEvent({ sessionId: order.sessionId, entityType: 'order', entityId: order.id, eventType: 'status', payload: { status, tip }, ts: now() }, client)
       })
       order.status = status
+      order.tip = tip
       sendToUser(order.emitterId, 'order_update', { order })
       sendToUser(order.receiverId, 'order_update', { order })
       sendToStaff(order.sessionId, 'order_update', { order })
@@ -2681,7 +3056,8 @@ const server = http.createServer(async (req, res) => {
             emitterTable: r.emitter_table || '',
             receiverTable: r.receiver_table || '',
             mesaEntrega: r.mesa_entrega || '',
-            isInvitation: !!r.is_invitation
+            isInvitation: !!r.is_invitation,
+            tip: Number(r.tip || 0)
           })
         }
         json(res, 200, { orders: out })
@@ -2705,7 +3081,8 @@ const server = http.createServer(async (req, res) => {
             emitterTable: o.emitterTable || '',
             receiverTable: o.receiverTable || '',
             mesaEntrega: o.mesaEntrega || '',
-            isInvitation: !!o.isInvitation
+            isInvitation: !!o.isInvitation,
+            tip: Number(o.tip || 0)
           })
         }
         json(res, 200, { orders: list })
@@ -2957,7 +3334,7 @@ const server = http.createServer(async (req, res) => {
             msg: inv.msg,
             createdAt: inv.createdAt,
             expiresAt: inv.expiresAt,
-            from: { id: inv.fromId, alias: from ? (from.alias || '') : '', selfie: from ? (from.selfie || '') : '', tableId: from ? (from.tableId || '') : '', zone: from ? (from.zone || '') : '', gender: (from && from.prefs && from.prefs.gender) ? from.prefs.gender : '' }
+            from: { id: inv.fromId, alias: from ? (from.alias || '') : '', selfie: from ? (from.hideSelfie ? '' : (from.selfie || '')) : '', tableId: from ? (from.tableId || '') : '', zone: from ? (from.zone || '') : '', gender: (from && from.prefs && from.prefs.gender) ? from.prefs.gender : '' }
           })
         }
       }
@@ -3052,7 +3429,7 @@ const server = http.createServer(async (req, res) => {
       const song = String(body.song || '').slice(0, 120)
       if (!song) { json(res, 400, { error: 'no_song' }); return }
       const reqId = genId('dj')
-      const item = { id: reqId, sessionId: u.sessionId, userId: u.id, tableId: table, song, status: 'pendiente', ts: now() }
+      const item = { id: reqId, sessionId: u.sessionId, userId: u.id, tableId: table, song, status: 'pendiente', priority: 0, ts: now() }
       state.djRequests.set(reqId, item)
       sendToStaff(item.sessionId, 'dj_request', { request: item })
       try { /* optional db insert */ } catch {}
@@ -3093,13 +3470,18 @@ const server = http.createServer(async (req, res) => {
       const sessionId = query.sessionId
       const tableId = String(query.tableId || '')
       const list = []
+      const history = []
       for (const r of state.djRequests.values()) {
         if (r.sessionId !== sessionId) continue
         if (tableId && r.tableId !== tableId) continue
         const u = state.users.get(r.userId)
-        list.push({ id: r.id, tableId: r.tableId, song: r.song, status: r.status, ts: r.ts, userAlias: u ? u.alias : r.userId })
+        const out = { id: r.id, tableId: r.tableId, song: r.song, status: r.status, priority: r.priority || 0, ts: r.ts, userAlias: u ? u.alias : r.userId }
+        if (r.status === 'terminado') history.push(out)
+        else list.push(out)
       }
-      json(res, 200, { requests: list })
+      list.sort((a, b) => (b.priority - a.priority) || (a.ts - b.ts))
+      history.sort((a, b) => b.ts - a.ts)
+      json(res, 200, { requests: list, history: history.slice(0, 30) })
       return
     }
     if (pathname.startsWith('/api/staff/dj/') && req.method === 'POST') {
@@ -3107,6 +3489,7 @@ const server = http.createServer(async (req, res) => {
       const body = await parseBody(req)
       const r = state.djRequests.get(reqId)
       if (!r) { json(res, 404, { error: 'no_request' }); return }
+      if (body.priority !== undefined) { r.priority = reqInt(body.priority, 0, 1000); json(res, 200, { ok: true, priority: r.priority }); return }
       const status = String(body.status || 'atendido')
       r.status = status
       sendToStaff(r.sessionId, 'dj_update', { request: r })
@@ -3310,6 +3693,19 @@ const server = http.createServer(async (req, res) => {
       json(res, 200, { invitesActive, seenRate, acceptedRate, tablesActivity: tables, ordersPendingOverMin: ordersPendingOverX.length, alerts, peakHour, peakHourLabel, mostActiveTable })
       return
     }
+    if (pathname === '/api/staff/catalog/export' && req.method === 'GET') {
+      const sessionId = query.sessionId
+      const s = sessionId ? ensureSession(sessionId) : null
+      const items = s ? await getCatalogBaseForSession(s) : await getGlobalCatalogForMode(query.mode || 'disco')
+      const rows = [['name', 'price', 'category', 'subcategory', 'description', 'stock', 'discount', 'combo', 'includes']]
+      for (const it of items) {
+        rows.push([it.name || '', Number(it.price || 0), it.category || 'otros', it.subcategory || '', it.description || '', (it.stock === null || it.stock === undefined) ? '' : it.stock, it.discount || 0, it.combo ? '1' : '0', Array.isArray(it.includes) ? it.includes.join('|') : ''])
+      }
+      const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n')
+      res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="catalogo.csv"' })
+      res.end(csv)
+      return
+    }
     if (pathname === '/api/staff/catalog' && req.method === 'POST') {
       const body = await parseBody(req)
       const s = ensureSession(body.sessionId)
@@ -3317,6 +3713,7 @@ const server = http.createServer(async (req, res) => {
         const staff = state.users.get(body.staffId)
         if (!staff || staff.role !== 'staff') { json(res, 403, { error: 'no_staff' }); return }
         if (!s || staff.sessionId !== s.id) { json(res, 403, { error: 'forbidden' }); return }
+        if (!staffHasPerm(staff, 'catalog_edit')) { json(res, 403, { error: 'no_permission' }); return }
       }
       const mode = normalizeMode(body.mode || (s && s.mode) || '')
       const initVenueCatalog = !!body.initVenueCatalog
@@ -3333,11 +3730,21 @@ const server = http.createServer(async (req, res) => {
         const combo = !!it.combo
         const includes = Array.isArray(it.includes) ? it.includes.map(x => String(x || '').slice(0, 60)).filter(x => x) : []
         const discount = Math.max(0, Math.min(100, Number(it.discount || 0)))
+        const stock = (it.stock === null || it.stock === undefined || it.stock === '') ? null : Math.max(0, Number(it.stock))
         if (!name) continue
-        clean.push({ name, price, category, subcategory, description, combo, includes, discount })
+        clean.push({ name, price, category, subcategory, description, combo, includes, discount, stock })
+      }
+      const venueId = s && s.venueId ? s.venueId : String(body.venueId || '')
+      if (venueId) {
+        try {
+          const venues = await readVenues()
+          const limits = getVenuePlanLimits(venues[venueId])
+          if (limits.maxCatalogItems !== null && clean.length > limits.maxCatalogItems) {
+            json(res, 403, { error: 'plan_limit', limit: 'maxCatalogItems', max: limits.maxCatalogItems }); return
+          }
+        } catch {}
       }
       if (s) s.catalog = clean
-      const venueId = s && s.venueId ? s.venueId : String(body.venueId || '')
       if (db) {
         if (venueId) {
           try {
@@ -3440,7 +3847,7 @@ const server = http.createServer(async (req, res) => {
         json(res, 200, { users: list })
       } else {
         const list = []
-        for (const u of state.users.values()) if (u.sessionId === sessionId && u.role === 'user') list.push({ id: u.id, alias: u.alias, selfieApproved: u.selfieApproved, muted: u.muted })
+        for (const u of state.users.values()) if (u.sessionId === sessionId && u.role === 'user') list.push({ id: u.id, alias: u.alias, selfieApproved: u.selfieApproved, muted: u.muted, kicked: !!u.kicked, photos: Array.isArray(u.photos) ? u.photos : [] })
         json(res, 200, { users: list })
       }
       return
@@ -3452,9 +3859,128 @@ const server = http.createServer(async (req, res) => {
       if (!staff || staff.role !== 'staff') { json(res, 403, { error: 'no_staff' }); return }
       if (!target) { json(res, 404, { error: 'no_user' }); return }
       if (staff.sessionId !== target.sessionId) { json(res, 403, { error: 'forbidden' }); return }
+      if (!staffHasPerm(staff, 'moderation')) { json(res, 403, { error: 'no_permission' }); return }
+      const action = String(body.action || 'mute')
+      if (action === 'kick') {
+        const reason = String(body.reason || '').slice(0, 200)
+        target.muted = true
+        target.visibility = 'hidden'
+        target.available = false
+        target.tableId = ''
+        target.kicked = true
+        try { await dbUpsertUser(target) } catch {}
+        const sForInc = ensureSession(staff.sessionId)
+        const incident = { id: genId('inc'), sessionId: staff.sessionId, venueId: sForInc ? sForInc.venueId : '', targetUserId: target.id, targetAlias: target.alias || target.id, targetSubscriberId: target.subscriberId || '', staffId: staff.id, action: 'kick', reason, ts: now() }
+        state.staffIncidents = state.staffIncidents || []
+        state.staffIncidents.unshift(incident)
+        if (state.staffIncidents.length > 1000) state.staffIncidents.length = 1000
+        try { sendToUser(target.id, 'kicked', { reason }) } catch {}
+        try { for (const r of (state.sseUsers.get(target.id) || [])) { try { r.end() } catch {} } state.sseUsers.delete(target.id) } catch {}
+        json(res, 200, { ok: true, kicked: true })
+        return
+      }
       target.muted = !!body.muted
       try { await dbUpsertUser(target) } catch {}
+      if (body.muted) {
+        const sForInc2 = ensureSession(staff.sessionId)
+        const incident = { id: genId('inc'), sessionId: staff.sessionId, venueId: sForInc2 ? sForInc2.venueId : '', targetUserId: target.id, targetAlias: target.alias || target.id, targetSubscriberId: target.subscriberId || '', staffId: staff.id, action: 'mute', reason: String(body.reason || '').slice(0, 200), ts: now() }
+        state.staffIncidents = state.staffIncidents || []
+        state.staffIncidents.unshift(incident)
+        if (state.staffIncidents.length > 1000) state.staffIncidents.length = 1000
+      }
       json(res, 200, { ok: true })
+      return
+    }
+    // Tablero de notas del staff: broadcast simple entre mesero/seguridad/DJ/gerente de la
+    // misma sesión, sin hilos ni DMs — reusa el SSE de staff que ya existe.
+    if (pathname === '/api/staff/notes' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const staff = state.users.get(body.staffId)
+      if (!staff || staff.role !== 'staff') { json(res, 403, { error: 'no_staff' }); return }
+      const message = reqString(body.message, 1, 200)
+      if (!message) { json(res, 400, { error: 'no_message' }); return }
+      const note = { id: genId('note'), sessionId: staff.sessionId, staffId: staff.id, staffRole: staff.staffRole || 'gerente', message, ts: now() }
+      state.staffNotes.unshift(note)
+      if (state.staffNotes.length > 500) state.staffNotes.length = 500
+      sendToStaff(staff.sessionId, 'staff_note', { note })
+      json(res, 200, { ok: true, note })
+      return
+    }
+    if (pathname === '/api/staff/notes' && req.method === 'GET') {
+      const sessionId = query.sessionId
+      const list = state.staffNotes.filter(n => n.sessionId === sessionId).slice(0, 50)
+      json(res, 200, { notes: list })
+      return
+    }
+    if (pathname === '/api/staff/incidents' && req.method === 'GET') {
+      const sessionId = query.sessionId
+      const list = (state.staffIncidents || []).filter(i => i.sessionId === sessionId)
+      json(res, 200, { incidents: list })
+      return
+    }
+    // Turnos de caja: apertura/cierre con arqueo. Los montos de venta se calculan a partir
+    // de las órdenes de la sesión creadas dentro de la ventana del turno (no depende de que
+    // el staff registre cada cobro manualmente aparte).
+    if (pathname === '/api/staff/shift/open' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const staff = state.users.get(body.staffId)
+      const s = ensureSession(body.sessionId)
+      if (!staff || staff.role !== 'staff') { json(res, 403, { error: 'no_staff' }); return }
+      if (!s || staff.sessionId !== s.id) { json(res, 403, { error: 'forbidden' }); return }
+      if (!staffHasPerm(staff, 'orders')) { json(res, 403, { error: 'no_permission' }); return }
+      for (const sh of state.shifts.values()) {
+        if (sh.sessionId === s.id && sh.status === 'open') { json(res, 200, { shift: sh, reused: true }); return }
+      }
+      const openingCash = Math.max(0, reqInt(body.openingCash || 0, 0, 100000000))
+      const shift = { id: genId('shift'), sessionId: s.id, venueId: s.venueId || '', staffId: staff.id, staffRole: staff.staffRole || 'gerente', openingCash, openedAt: now(), closedAt: 0, status: 'open', closingCash: 0, ordersCount: 0, ordersTotal: 0, tipsTotal: 0, expectedCash: openingCash, difference: 0 }
+      state.shifts.set(shift.id, shift)
+      json(res, 200, { shift, reused: false })
+      return
+    }
+    if (pathname === '/api/staff/shift/close' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const staff = state.users.get(body.staffId)
+      const s = ensureSession(body.sessionId)
+      if (!staff || staff.role !== 'staff') { json(res, 403, { error: 'no_staff' }); return }
+      if (!s || staff.sessionId !== s.id) { json(res, 403, { error: 'forbidden' }); return }
+      if (!staffHasPerm(staff, 'orders')) { json(res, 403, { error: 'no_permission' }); return }
+      const shift = state.shifts.get(String(body.shiftId || ''))
+      if (!shift || shift.sessionId !== s.id) { json(res, 404, { error: 'no_shift' }); return }
+      if (shift.status !== 'open') { json(res, 409, { error: 'already_closed' }); return }
+      let ordersCount = 0, ordersTotal = 0, tipsTotal = 0
+      for (const o of state.orders.values()) {
+        if (o.sessionId !== s.id) continue
+        if (o.createdAt < shift.openedAt) continue
+        if (!['cobrado', 'en_preparacion', 'entregado'].includes(o.status)) continue
+        ordersCount++
+        ordersTotal += Number(o.total || 0)
+        tipsTotal += Number(o.tip || 0)
+      }
+      const closingCash = Math.max(0, reqInt(body.closingCash || 0, 0, 100000000))
+      const expectedCash = shift.openingCash + ordersTotal + tipsTotal
+      shift.status = 'closed'
+      shift.closedAt = now()
+      shift.closingCash = closingCash
+      shift.ordersCount = ordersCount
+      shift.ordersTotal = ordersTotal
+      shift.tipsTotal = tipsTotal
+      shift.expectedCash = expectedCash
+      shift.difference = closingCash - expectedCash
+      try { await auditLog(req, 'shift_close', { sessionId: s.id, shiftId: shift.id, difference: shift.difference }) } catch {}
+      json(res, 200, { shift })
+      return
+    }
+    if (pathname === '/api/staff/shift/active' && req.method === 'GET') {
+      const sessionId = query.sessionId
+      let found = null
+      for (const sh of state.shifts.values()) { if (sh.sessionId === sessionId && sh.status === 'open') { found = sh; break } }
+      json(res, 200, { shift: found })
+      return
+    }
+    if (pathname === '/api/staff/shift/history' && req.method === 'GET') {
+      const sessionId = query.sessionId
+      const list = Array.from(state.shifts.values()).filter(sh => sh.sessionId === sessionId && sh.status === 'closed').sort((a, b) => b.closedAt - a.closedAt)
+      json(res, 200, { shifts: list })
       return
     }
     if (pathname === '/api/staff/reports' && req.method === 'GET') {
@@ -3568,6 +4094,56 @@ const server = http.createServer(async (req, res) => {
       json(res, 200, { ok: true, venueId, discounts: { nocturno, premium } })
       return
     }
+    if (pathname === '/api/admin/venues/plan' && req.method === 'POST') {
+      if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const body = await parseBody(req)
+      const venueId = String(body.venueId || '').trim()
+      const plan = String(body.plan || '')
+      if (!venueId || !VENUE_PLANS[plan]) { json(res, 400, { error: 'bad_input' }); return }
+      const unlockVenues = await venuesMutex.lock()
+      let venues
+      try {
+        venues = await readVenues()
+        const prev = venues[venueId]
+        if (!prev) { unlockVenues(); json(res, 404, { error: 'venue_not_found' }); return }
+        venues[venueId] = { ...prev, plan }
+        await writeVenues(venues)
+      } finally { unlockVenues() }
+      try { await auditLog(req, 'venue_plan_change', { venueId, plan }) } catch {}
+      json(res, 200, { ok: true, venueId, plan, limits: VENUE_PLANS[plan] })
+      return
+    }
+    if (pathname === '/api/admin/plans' && req.method === 'GET') {
+      if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      json(res, 200, { plans: VENUE_PLANS })
+      return
+    }
+    // Admin: PIN por rol de staff (mesero/seguridad/dj). El PIN principal del venue
+    // sigue funcionando como PIN de gerente (acceso total), para no romper venues existentes.
+    if (pathname === '/api/admin/venues/role-pins' && req.method === 'POST') {
+      if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const body = await parseBody(req)
+      const venueId = String(body.venueId || '').trim()
+      const role = String(body.role || '')
+      const pin = String(body.pin || '').trim().slice(0, 20)
+      if (!venueId || !STAFF_ROLES.includes(role)) { json(res, 400, { error: 'bad_input' }); return }
+      const unlockVenues = await venuesMutex.lock()
+      let venues
+      try {
+        venues = await readVenues()
+        const prev = venues[venueId]
+        if (!prev) { unlockVenues(); json(res, 404, { error: 'venue_not_found' }); return }
+        const rolePins = { ...(prev.rolePins || { mesero: '', seguridad: '', dj: '' }), [role]: pin }
+        venues[venueId] = { ...prev, rolePins }
+        await writeVenues(venues)
+      } finally { unlockVenues() }
+      try { await auditLog(req, 'venue_role_pin_change', { venueId, role }) } catch {}
+      json(res, 200, { ok: true, venueId, role, rolePins: venues[venueId].rolePins })
+      return
+    }
     // Admin: listar códigos de suscripción
     if (pathname === '/api/admin/subscription/codes' && req.method === 'GET') {
       if (!ADMIN_SECRET) { json(res, 403, { error: 'no_admin_secret' }); return }
@@ -3609,13 +4185,34 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/venues/tonight' && req.method === 'GET') {
       await expireOldSessions()
       const venues = await readVenues()
+      const cityFilter = String(query.city || '').trim().toLowerCase()
+      const genreFilter = String(query.genre || '').trim().toLowerCase()
+      const maxCover = query.maxCover !== undefined ? Number(query.maxCover) : null
+      const lat = query.lat !== undefined ? Number(query.lat) : null
+      const lng = query.lng !== undefined ? Number(query.lng) : null
       const tonight = []
       for (const s of state.sessions.values()) {
         ensureSessionExpiry(s)
         if (isSessionExpired(s) || !s.active) continue
         const v = venues[s.venueId] || {}
+        const prof = _venueProfiles[s.venueId] || {}
+        if (cityFilter && String(prof.city || '').toLowerCase() !== cityFilter) continue
+        if (genreFilter && !String(prof.musicGenre || '').toLowerCase().includes(genreFilter)) continue
+        if (maxCover !== null && Number.isFinite(maxCover) && Number(s.coverPrice || 0) > maxCover) continue
         const userCount = [...state.users.values()].filter(u => u.sessionId === s.id && u.role === 'user').length
-        tonight.push({ sessionId: s.id, venueId: s.venueId, venueName: v.name || s.venueId, mode: s.mode || 'disco', eventName: s.eventName || '', djName: s.djName || '', coverPrice: s.coverPrice || 0, coverEnabled: !!s.coverEnabled, userCount, discounts: v.discounts || { nocturno: 0, premium: 0 }, expiresAt: s.expiresAt || 0 })
+        let distanceKm = null
+        if (lat !== null && lng !== null && Number.isFinite(lat) && Number.isFinite(lng) && Number.isFinite(prof.lat) && Number.isFinite(prof.lng)) {
+          distanceKm = haversineKm(lat, lng, prof.lat, prof.lng)
+        }
+        tonight.push({ sessionId: s.id, venueId: s.venueId, venueName: v.name || s.venueId, mode: s.mode || 'disco', eventName: s.eventName || '', djName: s.djName || '', coverPrice: s.coverPrice || 0, coverEnabled: !!s.coverEnabled, userCount, discounts: v.discounts || { nocturno: 0, premium: 0 }, expiresAt: s.expiresAt || 0, musicGenre: prof.musicGenre || '', location: prof.location || '', city: prof.city || '', distanceKm })
+      }
+      if (lat !== null && lng !== null) {
+        tonight.sort((a, b) => {
+          if (a.distanceKm === null && b.distanceKm === null) return 0
+          if (a.distanceKm === null) return 1
+          if (b.distanceKm === null) return -1
+          return a.distanceKm - b.distanceKm
+        })
       }
       json(res, 200, { tonight })
       return
@@ -3667,7 +4264,8 @@ const server = http.createServer(async (req, res) => {
       if (!subscriberId) { json(res, 400, { error: 'missing_subscriber_id' }); return }
       const sub = state.subscribers.get(subscriberId)
       if (!sub) { json(res, 404, { error: 'not_found' }); return }
-      json(res, 200, { subscriber: { id: sub.id, tier: sub.tier, following: sub.following || [], visitHistory: (sub.visitHistory || []).slice(0, 20), createdAt: sub.createdAt } })
+      const loyalty = computeLoyalty(sub)
+      json(res, 200, { subscriber: { id: sub.id, tier: sub.tier, following: sub.following || [], visitHistory: (sub.visitHistory || []).slice(0, 20), createdAt: sub.createdAt, defaultAlias: sub.defaultAlias || '', hideSelfie: !!sub.hideSelfie, points: loyalty.points, badges: loyalty.badges } })
       return
     }
 
@@ -3758,17 +4356,100 @@ const server = http.createServer(async (req, res) => {
       if (!subscriberId || !venueId || !rating) { json(res, 400, { error: 'missing_fields' }); return }
       const sub = state.subscribers.get(subscriberId)
       if (!sub) { json(res, 404, { error: 'not_found' }); return }
-      if (!_venueProfiles[venueId]) _venueProfiles[venueId] = { description: '', musicGenre: '', location: '', photos: [], events: [], reviews: [] }
+      let photoUrl = ''
+      const photoImage = String(body.photo || '')
+      if (photoImage) {
+        const photoCheck = validateImageDataUri(photoImage, 500 * 1024)
+        if (!photoCheck.ok) { json(res, 400, { error: 'bad_image', reason: photoCheck.err }); return }
+        if (cloudinary) {
+          try {
+            const r = await cloudinary.uploader.upload(photoImage, { folder: CLOUDINARY_FOLDER + '/reviews', resource_type: 'image' })
+            photoUrl = r.secure_url || ''
+          } catch {}
+        }
+      }
+      if (!_venueProfiles[venueId]) _venueProfiles[venueId] = { description: '', musicGenre: '', location: '', city: '', lat: null, lng: null, maxCapacity: null, photos: [], events: [], reviews: [] }
       const prof = _venueProfiles[venueId]
       if (!Array.isArray(prof.reviews)) prof.reviews = []
       prof.reviews = prof.reviews.filter(r => r.subscriberId !== subscriberId)
-      prof.reviews.push({ subscriberId, rating, comment: String(body.comment || '').slice(0, 200), date: now() })
+      prof.reviews.push({ subscriberId, rating, comment: String(body.comment || '').slice(0, 200), photoUrl, date: now() })
       prof.avgRating = Math.round(prof.reviews.reduce((s, r) => s + r.rating, 0) / prof.reviews.length * 10) / 10
       writeVenueProfiles(_venueProfiles)
       json(res, 200, { ok: true, avgRating: prof.avgRating })
       return
     }
 
+    // ─── RESERVAS / GUEST LIST ────────────────────────────────────────────────
+    if (pathname === '/api/reservations/request' && req.method === 'POST') {
+      if (ipRateLimited(clientIp, 10, 60 * 1000)) { json(res, 429, { error: 'rate_limit' }); return }
+      const body = await parseBody(req)
+      const venueId = String(body.venueId || '').trim()
+      const subscriberId = String(body.subscriberId || '').trim()
+      const name = reqString(body.name, 1, 80)
+      const partySize = reqInt(body.partySize || 1, 1, 50)
+      const note = String(body.note || '').slice(0, 200)
+      const requestedFor = reqString(body.requestedFor, 1, 40)
+      if (!venueId || !name) { json(res, 400, { error: 'bad_input' }); return }
+      const venues = await readVenues()
+      if (!venues[venueId]) { json(res, 404, { error: 'venue_not_found' }); return }
+      const reservation = { id: genId('res'), venueId, subscriberId, name, partySize, note, requestedFor, status: 'pending', guestList: false, createdAt: now() }
+      state.reservations.set(reservation.id, reservation)
+      json(res, 200, { ok: true, reservation })
+      return
+    }
+    if (pathname === '/api/reservations/mine' && req.method === 'GET') {
+      const subscriberId = String(query.subscriberId || '')
+      if (!subscriberId) { json(res, 400, { error: 'missing' }); return }
+      const list = Array.from(state.reservations.values()).filter(r => r.subscriberId === subscriberId).sort((a, b) => b.createdAt - a.createdAt)
+      json(res, 200, { reservations: list })
+      return
+    }
+    if (pathname === '/api/staff/reservations' && req.method === 'GET') {
+      const sessionId = query.sessionId
+      const s = ensureSession(sessionId)
+      if (!s) { json(res, 404, { error: 'no_session' }); return }
+      const list = Array.from(state.reservations.values()).filter(r => r.venueId === s.venueId && r.status !== 'cancelled').sort((a, b) => b.createdAt - a.createdAt)
+      json(res, 200, { reservations: list })
+      return
+    }
+    if (pathname === '/api/staff/reservations/guestlist-add' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const staff = state.users.get(body.staffId)
+      const s = ensureSession(body.sessionId)
+      if (!staff || staff.role !== 'staff') { json(res, 403, { error: 'no_staff' }); return }
+      if (!s || staff.sessionId !== s.id) { json(res, 403, { error: 'forbidden' }); return }
+      if (!staffHasPerm(staff, 'guestlist')) { json(res, 403, { error: 'no_permission' }); return }
+      const name = reqString(body.name, 1, 80)
+      const partySize = reqInt(body.partySize || 1, 1, 50)
+      if (!name) { json(res, 400, { error: 'bad_input' }); return }
+      const reservation = { id: genId('res'), venueId: s.venueId, subscriberId: '', name, partySize, note: String(body.note || '').slice(0, 200), requestedFor: 'hoy', status: 'confirmed', guestList: true, createdAt: now() }
+      state.reservations.set(reservation.id, reservation)
+      json(res, 200, { ok: true, reservation })
+      return
+    }
+    if (pathname.startsWith('/api/staff/reservations/') && req.method === 'POST') {
+      const resId = pathname.split('/').pop()
+      const body = await parseBody(req)
+      const staff = state.users.get(body.staffId)
+      const reservation = state.reservations.get(resId)
+      if (!staff || staff.role !== 'staff') { json(res, 403, { error: 'no_staff' }); return }
+      if (!reservation) { json(res, 404, { error: 'no_reservation' }); return }
+      if (!staffHasPerm(staff, 'guestlist')) { json(res, 403, { error: 'no_permission' }); return }
+      const status = String(body.status || '')
+      if (!['confirmed', 'denied', 'arrived', 'cancelled'].includes(status)) { json(res, 400, { error: 'bad_status' }); return }
+      reservation.status = status
+      json(res, 200, { ok: true, reservation })
+      return
+    }
+    if (pathname === '/api/subscriber/privacy' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const sub = state.subscribers.get(String(body.subscriberId || ''))
+      if (!sub) { json(res, 404, { error: 'not_found' }); return }
+      sub.hideSelfie = !!body.hideSelfie
+      writeSubscribersFile()
+      json(res, 200, { ok: true, hideSelfie: sub.hideSelfie })
+      return
+    }
     if (pathname === '/api/subscriber/set-tier' && req.method === 'POST') {
       const body = await parseBody(req)
       const sub = state.subscribers.get(String(body.subscriberId || ''))
@@ -3782,15 +4463,19 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === '/api/venues/directory' && req.method === 'GET') {
       const venues = await readVenues().catch(() => ({}))
+      const cityFilter = String(query.city || '').trim().toLowerCase()
+      const genreFilter = String(query.genre || '').trim().toLowerCase()
       const result = []
       for (const [venueId, venue] of Object.entries(venues)) {
         if (venue.active === false) continue
         const prof = _venueProfiles[venueId] || {}
+        if (cityFilter && String(prof.city || '').toLowerCase() !== cityFilter) continue
+        if (genreFilter && !String(prof.musicGenre || '').toLowerCase().includes(genreFilter)) continue
         let hasActiveSession = false
         let followerCount = 0
         for (const s of state.sessions.values()) { ensureSessionExpiry(s); if (!isSessionExpired(s) && s.venueId === venueId) { hasActiveSession = true; break } }
         for (const sub of state.subscribers.values()) { if (Array.isArray(sub.following) && sub.following.includes(venueId)) followerCount++ }
-        result.push({ venueId, name: venue.name || venueId, description: prof.description || '', musicGenre: prof.musicGenre || '', location: prof.location || '', discounts: venue.discounts || { nocturno: 0, premium: 0 }, avgRating: prof.avgRating || 0, reviewCount: Array.isArray(prof.reviews) ? prof.reviews.length : 0, followerCount, hasActiveSession, upcomingEvents: (prof.events || []).filter(e => Number(e.date || 0) > now()).slice(0, 3) })
+        result.push({ venueId, name: venue.name || venueId, description: prof.description || '', musicGenre: prof.musicGenre || '', location: prof.location || '', city: prof.city || '', lat: Number.isFinite(prof.lat) ? prof.lat : null, lng: Number.isFinite(prof.lng) ? prof.lng : null, maxCapacity: Number.isFinite(prof.maxCapacity) ? prof.maxCapacity : null, discounts: venue.discounts || { nocturno: 0, premium: 0 }, avgRating: prof.avgRating || 0, reviewCount: Array.isArray(prof.reviews) ? prof.reviews.length : 0, followerCount, hasActiveSession, upcomingEvents: (prof.events || []).filter(e => Number(e.date || 0) > now()).slice(0, 3) })
       }
       result.sort((a, b) => (b.hasActiveSession ? 1 : 0) - (a.hasActiveSession ? 1 : 0) || b.followerCount - a.followerCount)
       json(res, 200, { venues: result })
@@ -3819,7 +4504,7 @@ const server = http.createServer(async (req, res) => {
       let followerCount = 0
       for (const sub of state.subscribers.values()) { if (Array.isArray(sub.following) && sub.following.includes(venueId)) followerCount++ }
       const upcomingEvents = (prof.events || []).filter(e => Number(e.date || 0) > now()).sort((a, b) => a.date - b.date)
-      json(res, 200, { venue: { venueId, name: venue.name || venueId, description: prof.description || '', musicGenre: prof.musicGenre || '', location: prof.location || '', photos: prof.photos || [], discounts: venue.discounts || { nocturno: 0, premium: 0 }, avgRating: prof.avgRating || 0, reviews: (prof.reviews || []).slice(0, 20), reviewCount: (prof.reviews || []).length, followerCount, hasActiveSession, activeSession, upcomingEvents } })
+      json(res, 200, { venue: { venueId, name: venue.name || venueId, description: prof.description || '', musicGenre: prof.musicGenre || '', location: prof.location || '', city: prof.city || '', lat: Number.isFinite(prof.lat) ? prof.lat : null, lng: Number.isFinite(prof.lng) ? prof.lng : null, photos: prof.photos || [], discounts: venue.discounts || { nocturno: 0, premium: 0 }, avgRating: prof.avgRating || 0, reviews: (prof.reviews || []).slice(0, 20), reviewCount: (prof.reviews || []).length, followerCount, hasActiveSession, activeSession, upcomingEvents } })
       return
     }
 
@@ -3828,11 +4513,15 @@ const server = http.createServer(async (req, res) => {
       const body = await parseBody(req)
       const venueId = String(body.venueId || '')
       if (!venueId) { json(res, 400, { error: 'missing_venue_id' }); return }
-      if (!_venueProfiles[venueId]) _venueProfiles[venueId] = { description: '', musicGenre: '', location: '', photos: [], events: [], reviews: [] }
+      if (!_venueProfiles[venueId]) _venueProfiles[venueId] = { description: '', musicGenre: '', location: '', city: '', lat: null, lng: null, maxCapacity: null, photos: [], events: [], reviews: [] }
       const prof = _venueProfiles[venueId]
       if (body.description !== undefined) prof.description = String(body.description || '').slice(0, 500)
       if (body.musicGenre !== undefined) prof.musicGenre = String(body.musicGenre || '').slice(0, 100)
       if (body.location !== undefined) prof.location = String(body.location || '').slice(0, 200)
+      if (body.city !== undefined) prof.city = String(body.city || '').slice(0, 100)
+      if (body.lat !== undefined) prof.lat = body.lat === '' || body.lat === null ? null : Number(body.lat)
+      if (body.lng !== undefined) prof.lng = body.lng === '' || body.lng === null ? null : Number(body.lng)
+      if (body.maxCapacity !== undefined) prof.maxCapacity = body.maxCapacity === '' || body.maxCapacity === null ? null : Math.max(0, reqInt(body.maxCapacity, 0, 1000000))
       writeVenueProfiles(_venueProfiles)
       json(res, 200, { ok: true })
       return
@@ -3843,7 +4532,7 @@ const server = http.createServer(async (req, res) => {
       const body = await parseBody(req)
       const venueId = String(body.venueId || '')
       if (!venueId) { json(res, 400, { error: 'missing_venue_id' }); return }
-      if (!_venueProfiles[venueId]) _venueProfiles[venueId] = { description: '', musicGenre: '', location: '', photos: [], events: [], reviews: [] }
+      if (!_venueProfiles[venueId]) _venueProfiles[venueId] = { description: '', musicGenre: '', location: '', city: '', lat: null, lng: null, maxCapacity: null, photos: [], events: [], reviews: [] }
       const prof = _venueProfiles[venueId]
       if (!Array.isArray(prof.events)) prof.events = []
       const eventId = genId('evt')
@@ -3851,6 +4540,18 @@ const server = http.createServer(async (req, res) => {
       prof.events.push(event)
       prof.events.sort((a, b) => a.date - b.date)
       writeVenueProfiles(_venueProfiles)
+      try {
+        const venues = await readVenues()
+        const venueName = (venues[venueId] && venues[venueId].name) || venueId
+        const dateTxt = event.date ? new Date(event.date).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }) : ''
+        const bodyParts = [event.eventName || 'Nuevo evento']
+        if (event.djName) bodyParts.push('DJ: ' + event.djName)
+        if (dateTxt) bodyParts.push(dateTxt)
+        const payload = JSON.stringify({ title: `${venueName} anunció un evento 🎉`, body: bodyParts.join(' • '), url: `/?venueId=${encodeURIComponent(venueId)}`, type: 'venue_event' })
+        for (const [subId, sub] of state.subscribers) {
+          if (Array.isArray(sub.following) && sub.following.includes(venueId)) { try { await sendPushToSubscriber(subId, payload) } catch {} }
+        }
+      } catch {}
       json(res, 200, { ok: true, eventId, events: prof.events })
       return
     }
@@ -3953,6 +4654,7 @@ const server = http.createServer(async (req, res) => {
       const paymentId = String(body.paymentId || '')
       const payment = state.pendingPayments.get(paymentId)
       if (!payment) { json(res, 404, { error: 'not_found' }); return }
+      if (payment.status !== 'pending') { json(res, 409, { error: 'already_resolved', status: payment.status }); return }
       payment.status = 'approved'
       payment.approvedAt = now()
       const sub = state.subscribers.get(payment.subscriberId)
@@ -3965,6 +4667,7 @@ const server = http.createServer(async (req, res) => {
         writeSubscribersFile()
       }
       writePaymentsFile()
+      try { await auditLog(req, 'payment_approve', { paymentId, subscriberId: payment.subscriberId, plan: payment.plan, price: payment.price }) } catch {}
       try { await sendPushToSubscriber(payment.subscriberId, JSON.stringify({ title: '¡Suscripción activada! 🎉', body: `Tu plan ${payment.plan === 'premium' ? 'Premium' : 'Nocturno'} ya está activo. Disfrutá tus beneficios.`, url: '/', type: 'subscription_approved' })) } catch {}
       json(res, 200, { ok: true })
       return
@@ -3976,12 +4679,28 @@ const server = http.createServer(async (req, res) => {
       const paymentId = String(body.paymentId || '')
       const payment = state.pendingPayments.get(paymentId)
       if (!payment) { json(res, 404, { error: 'not_found' }); return }
+      if (payment.status !== 'pending') { json(res, 409, { error: 'already_resolved', status: payment.status }); return }
       payment.status = 'rejected'
       payment.rejectedAt = now()
       payment.rejectReason = String(body.reason || '').slice(0, 200)
       writePaymentsFile()
+      try { await auditLog(req, 'payment_reject', { paymentId, subscriberId: payment.subscriberId, plan: payment.plan, reason: payment.rejectReason }) } catch {}
       try { await sendPushToSubscriber(payment.subscriberId, JSON.stringify({ title: 'Pago no confirmado', body: payment.rejectReason || 'No pudimos verificar tu pago. Contactanos para ayudarte.', url: '/', type: 'subscription_rejected' })) } catch {}
       json(res, 200, { ok: true })
+      return
+    }
+
+    if (pathname === '/api/admin/payments/export' && req.method === 'GET') {
+      if (!isAdminAuthorized(req, query)) { json(res, 403, { error: 'forbidden' }); return }
+      const rows = [['id', 'subscriberId', 'plan', 'method', 'reference', 'payerName', 'price', 'status', 'createdAt', 'resolvedAt']]
+      const list = Array.from(state.pendingPayments.values()).sort((a, b) => b.createdAt - a.createdAt)
+      for (const p of list) {
+        const resolvedAt = p.approvedAt || p.rejectedAt || ''
+        rows.push([p.id, p.subscriberId, p.plan, p.method, p.reference, p.payerName || '', p.price, p.status, new Date(p.createdAt).toISOString(), resolvedAt ? new Date(resolvedAt).toISOString() : ''])
+      }
+      const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n')
+      res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="pagos.csv"' })
+      res.end(csv)
       return
     }
 

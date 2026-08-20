@@ -53,7 +53,7 @@ function renderVenues(list) {
     const info = document.createElement('div')
     const url = `${location.origin}/?venueId=${encodeURIComponent(v.venueId)}`
     const d = v.discounts || { nocturno: 0, premium: 0 }
-    info.textContent = `Créditos: ${v.credits} • PIN: ${v.pin ? v.pin : '-'} • Email: ${v.email ? v.email : '-'} • Desc. Nocturno: ${d.nocturno || 0}% • Desc. Premium: ${d.premium || 0}%`
+    info.textContent = `Créditos: ${v.credits} • PIN: ${v.pin ? v.pin : '-'} • Email: ${v.email ? v.email : '-'} • Desc. Nocturno: ${d.nocturno || 0}% • Desc. Premium: ${d.premium || 0}% • Plan: ${v.plan || 'free'}`
     const link = document.createElement('a')
     link.href = url; link.target = '_blank'; link.rel = 'noopener'; link.textContent = 'Abrir'
     const inputs = document.createElement('div')
@@ -134,6 +134,52 @@ function renderVenues(list) {
     }
     discRow.appendChild(discLabel); discRow.appendChild(noctInput); discRow.appendChild(premInput); discRow.appendChild(discBtn)
     inputs.appendChild(discRow)
+    const planRow = document.createElement('div')
+    planRow.className = 'row compact'
+    planRow.style.marginTop = '8px'
+    const planSelect = document.createElement('select')
+    for (const key of ['free', 'pro', 'enterprise']) {
+      const o = document.createElement('option'); o.value = key; o.textContent = key.charAt(0).toUpperCase() + key.slice(1)
+      planSelect.appendChild(o)
+    }
+    planSelect.value = v.plan || 'free'
+    const planBtn = document.createElement('button')
+    planBtn.className = 'info'; planBtn.textContent = 'Guardar plan'
+    planBtn.onclick = async () => {
+      try {
+        const secret = document.getElementById('admin-secret').value.trim()
+        if (!secret) { showError('Ingresa clave admin'); return }
+        await api('/api/admin/venues/plan', { method: 'POST', headers: { 'X-Admin-Secret': secret }, body: JSON.stringify({ venueId: v.venueId, plan: planSelect.value }) })
+        await loadVenues()
+      } catch (e) { showError(String(e.message)) }
+    }
+    planRow.appendChild(planSelect); planRow.appendChild(planBtn)
+    inputs.appendChild(planRow)
+    // PINs por rol de staff (mesero/seguridad/dj) — el PIN principal arriba sigue siendo el de gerente
+    const rp = v.rolePins || { mesero: '', seguridad: '', dj: '' }
+    const roleRow = document.createElement('div')
+    roleRow.className = 'row compact'
+    roleRow.style.marginTop = '8px'
+    const roleLabel = document.createElement('div')
+    roleLabel.textContent = 'PINs por rol (vacío = deshabilitado):'
+    roleLabel.style.width = '100%'
+    roleRow.appendChild(roleLabel)
+    for (const role of ['mesero', 'seguridad', 'dj']) {
+      const roleInput = document.createElement('input')
+      roleInput.type = 'text'; roleInput.placeholder = role; roleInput.value = rp[role] || ''; roleInput.style.width = '90px'
+      const roleBtn = document.createElement('button')
+      roleBtn.className = 'info'; roleBtn.textContent = `Guardar ${role}`
+      roleBtn.onclick = async () => {
+        try {
+          const secret = document.getElementById('admin-secret').value.trim()
+          if (!secret) { showError('Ingresa clave admin'); return }
+          await api('/api/admin/venues/role-pins', { method: 'POST', headers: { 'X-Admin-Secret': secret }, body: JSON.stringify({ venueId: v.venueId, role, pin: roleInput.value.trim() }) })
+          await loadVenues()
+        } catch (e) { showError(String(e.message)) }
+      }
+      roleRow.appendChild(roleInput); roleRow.appendChild(roleBtn)
+    }
+    inputs.appendChild(roleRow)
     const actions = document.createElement('div')
     actions.className = 'actions'
     const addBtn = document.createElement('button')
@@ -235,8 +281,55 @@ async function loadVenues() {
   const filtered = q ? VENUES_CACHE.filter(v => (String(v.name || '').toLowerCase().includes(q) || String(v.venueId || '').toLowerCase().includes(q))) : VENUES_CACHE
   renderVenues(filtered)
 }
-document.getElementById('btn-load').onclick = () => loadVenues().catch(e => showError(String(e.message)))
+document.getElementById('btn-load').onclick = () => { loadVenues().catch(e => showError(String(e.message))); loadDashboard().catch(() => {}) }
 document.getElementById('btn-refresh').onclick = () => loadVenues().catch(e => showError(String(e.message)))
+document.getElementById('btn-export-venues').onclick = async () => {
+  showError('')
+  const secret = document.getElementById('admin-secret').value.trim()
+  if (!secret) { showError('Ingresa clave admin'); return }
+  try {
+    const res = await fetch('/api/admin/venues/export', { headers: { 'X-Admin-Secret': secret } })
+    if (!res.ok) throw new Error('HTTP ' + res.status)
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = 'venues.csv'
+    document.body.appendChild(a); a.click(); a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 2000)
+  } catch (e) { showError(String(e.message)) }
+}
+document.getElementById('btn-load-dashboard').onclick = () => loadDashboard().catch(e => showError(String(e.message)))
+async function loadDashboard() {
+  const secret = document.getElementById('admin-secret').value.trim()
+  if (!secret) return
+  const r = await api('/api/admin/dashboard', { headers: { 'X-Admin-Secret': secret } })
+  const fmt = n => `$${Number(n || 0).toLocaleString('es-CO')}`
+  const kpis = [
+    ['Ingresos susc. (30d)', fmt(r.subsRevenue30d), `${r.subsApproved30d} pagos aprobados`],
+    ['Pagos pendientes', String(r.pendingPayments), 'por revisar'],
+    ['Ventas en barra (histórico)', fmt(r.salesTotal), `${r.shiftsClosed} turnos cerrados`],
+    ['Propinas (histórico)', fmt(r.tipsTotal), ''],
+    ['Venues activos', `${r.activeVenues}/${r.totalVenues}`, ''],
+    ['Créditos totales', String(r.totalCredits), 'noches disponibles'],
+  ]
+  const kpiContainer = document.getElementById('dash-kpis')
+  kpiContainer.innerHTML = kpis.map(([label, val, sub]) => `
+    <div class="kpi">
+      <div style="font-size:11px;color:#aaa">${label}</div>
+      <div class="num">${val}</div>
+      ${sub ? `<div style="font-size:10px;color:#666">${sub}</div>` : ''}
+    </div>
+  `).join('')
+  const topContainer = document.getElementById('dash-top-venues')
+  if (!r.topVenues || !r.topVenues.length) {
+    topContainer.innerHTML = '<div style="color:#666;font-size:13px">Todavía no hay turnos cerrados para rankear venues</div>'
+  } else {
+    topContainer.innerHTML = '<div style="font-size:13px;font-weight:600;margin-bottom:6px">Ranking de ventas por venue</div>' +
+      r.topVenues.map((v, i) => `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #222;font-size:13px">
+        <span>${i + 1}. ${escapeHtml(v.name)}</span><span>${fmt(v.sales)} · ${v.shifts} turno(s)</span>
+      </div>`).join('')
+  }
+}
 document.getElementById('btn-db-init').onclick = async () => {
   showError('')
   const secret = document.getElementById('admin-secret').value.trim()
@@ -275,6 +368,30 @@ async function confirmModal(text) {
     const onOverlay = (e) => { if (e.target && e.target.id === 'modal') { onCancel() } }
     m.addEventListener('click', onOverlay, { once: true })
   })
+}
+document.getElementById('btn-create-venue').onclick = async () => {
+  showError('')
+  const secret = document.getElementById('admin-secret').value.trim()
+  const venueId = document.getElementById('new-venue-id').value.trim()
+  const name = document.getElementById('new-venue-name').value.trim()
+  const email = document.getElementById('new-venue-email').value.trim()
+  const initialCredits = Math.max(0, Number(document.getElementById('new-venue-credits').value || 0))
+  if (!secret) { showError('Ingresa clave admin'); return }
+  if (!venueId) { showError('Ingresa un venueId'); return }
+  if (!name) { showError('Ingresa un nombre'); return }
+  try {
+    const r = await api('/api/admin/venues/create', {
+      method: 'POST',
+      headers: { 'X-Admin-Secret': secret },
+      body: JSON.stringify({ venueId, name, email, initialCredits })
+    })
+    document.getElementById('new-venue-id').value = ''
+    document.getElementById('new-venue-name').value = ''
+    document.getElementById('new-venue-email').value = ''
+    document.getElementById('new-venue-credits').value = '0'
+    await confirmModal(`Venue creado. PIN: ${r.pin}`)
+    await loadVenues()
+  } catch (e) { showError(String(e.message)) }
 }
 document.getElementById('btn-add-credit').onclick = async () => {
   showError('')
@@ -406,6 +523,12 @@ async function loadVenueProfiles() {
           <input id="vp-genre-${escapeHtml(v.venueId)}" placeholder="Género musical (ej. Techno, House)" value="${escapeHtml(v.musicGenre || '')}" style="flex:1">
           <input id="vp-loc-${escapeHtml(v.venueId)}" placeholder="Ubicación (ej. Palermo, CABA)" value="${escapeHtml(v.location || '')}" style="flex:1">
         </div>
+        <div class="row" style="gap:6px">
+          <input id="vp-city-${escapeHtml(v.venueId)}" placeholder="Ciudad (ej. Bogotá)" value="${escapeHtml(v.city || '')}" style="flex:1">
+          <input id="vp-lat-${escapeHtml(v.venueId)}" type="number" step="any" placeholder="Latitud" value="${v.lat !== null && v.lat !== undefined ? v.lat : ''}" style="width:120px">
+          <input id="vp-lng-${escapeHtml(v.venueId)}" type="number" step="any" placeholder="Longitud" value="${v.lng !== null && v.lng !== undefined ? v.lng : ''}" style="width:120px">
+          <input id="vp-cap-${escapeHtml(v.venueId)}" type="number" min="0" placeholder="Aforo máx. (vacío = sin límite)" value="${v.maxCapacity !== null && v.maxCapacity !== undefined ? v.maxCapacity : ''}" style="width:170px">
+        </div>
         <button id="btn-save-vp-${v.venueId}" class="success" style="align-self:flex-start">Guardar perfil</button>
       </div>
       <div style="margin-top:12px;border-top:1px solid #333;padding-top:10px">
@@ -421,7 +544,10 @@ async function loadVenueProfiles() {
       </div>`
     container.appendChild(card)
     document.getElementById(`btn-save-vp-${v.venueId}`).onclick = async () => {
-      await api('/api/admin/venue/profile', { method: 'POST', headers: { 'X-Admin-Secret': secret }, body: JSON.stringify({ venueId: v.venueId, description: document.getElementById(`vp-desc-${v.venueId}`).value, musicGenre: document.getElementById(`vp-genre-${v.venueId}`).value, location: document.getElementById(`vp-loc-${v.venueId}`).value }) })
+      const latVal = document.getElementById(`vp-lat-${v.venueId}`).value
+      const lngVal = document.getElementById(`vp-lng-${v.venueId}`).value
+      const capVal = document.getElementById(`vp-cap-${v.venueId}`).value
+      await api('/api/admin/venue/profile', { method: 'POST', headers: { 'X-Admin-Secret': secret }, body: JSON.stringify({ venueId: v.venueId, description: document.getElementById(`vp-desc-${v.venueId}`).value, musicGenre: document.getElementById(`vp-genre-${v.venueId}`).value, location: document.getElementById(`vp-loc-${v.venueId}`).value, city: document.getElementById(`vp-city-${v.venueId}`).value, lat: latVal === '' ? null : Number(latVal), lng: lngVal === '' ? null : Number(lngVal), maxCapacity: capVal === '' ? null : Number(capVal) }) })
       showSuccess('Perfil guardado')
     }
     const renderEvents = (events) => {
@@ -532,3 +658,105 @@ async function loadPayments() {
   } catch (e) { showError(String(e.message)) }
 }
 document.getElementById('btn-load-payments').onclick = () => loadPayments().catch(e => showError(String(e.message)))
+document.getElementById('btn-export-payments').onclick = async () => {
+  showError('')
+  const secret = document.getElementById('admin-secret').value.trim()
+  if (!secret) { showError('Ingresa clave admin'); return }
+  try {
+    const res = await fetch('/api/admin/payments/export', { headers: { 'X-Admin-Secret': secret } })
+    if (!res.ok) throw new Error('HTTP ' + res.status)
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = 'pagos.csv'
+    document.body.appendChild(a); a.click(); a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 2000)
+  } catch (e) { showError(String(e.message)) }
+}
+async function loadAudit() {
+  const secret = document.getElementById('admin-secret').value.trim()
+  if (!secret) { showError('Ingresa clave admin'); return }
+  const container = document.getElementById('audit-list')
+  container.innerHTML = '<div style="color:#aaa;font-size:13px">Cargando...</div>'
+  try {
+    const r = await api('/api/admin/audit?limit=100', { headers: { 'X-Admin-Secret': secret } })
+    const entries = r.entries || []
+    container.innerHTML = ''
+    if (!entries.length) { container.innerHTML = '<div style="color:#666;font-size:13px">Sin actividad registrada</div>'; return }
+    const ACTION_LABELS = {
+      venue_create: 'Venue creado', venue_credit: 'Crédito modificado', venue_pin_change: 'PIN cambiado',
+      venue_delete: 'Venue eliminado', venue_active_toggle: 'Estado activo/inactivo cambiado',
+      payment_approve: 'Pago aprobado', payment_reject: 'Pago rechazado'
+    }
+    for (const e of entries) {
+      const row = document.createElement('div')
+      row.style.cssText = 'border-bottom:1px solid #333;padding:8px 0;font-size:13px'
+      const d = new Date(e.ts)
+      const dateStr = `${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()} ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`
+      const detail = Object.entries(e.payload || {}).map(([k, v]) => `${k}=${v}`).join(' · ')
+      row.innerHTML = `<span style="color:#ccc;font-weight:600">${escapeHtml(ACTION_LABELS[e.action] || e.action)}</span> <span style="color:#555">${dateStr}</span><br><span style="color:#888;font-size:12px">${escapeHtml(detail)}</span>`
+      container.appendChild(row)
+    }
+  } catch (e) { showError(String(e.message)) }
+}
+document.getElementById('btn-load-audit').onclick = () => loadAudit().catch(e => showError(String(e.message)))
+async function loadIncidents() {
+  const secret = document.getElementById('admin-secret').value.trim()
+  if (!secret) { showError('Ingresa clave admin'); return }
+  const container = document.getElementById('incidents-list')
+  container.innerHTML = '<div style="color:#aaa;font-size:13px">Cargando...</div>'
+  try {
+    const r = await api('/api/admin/incidents', { headers: { 'X-Admin-Secret': secret } })
+    const list = r.incidents || []
+    container.innerHTML = ''
+    if (!list.length) { container.innerHTML = '<div style="color:#666;font-size:13px">Sin incidentes registrados</div>'; return }
+    const ACTION_LABELS = { kick: 'Expulsión', mute: 'Silenciado' }
+    for (const inc of list) {
+      const row = document.createElement('div')
+      row.style.cssText = 'border-bottom:1px solid #333;padding:8px 0;font-size:13px'
+      const d = new Date(inc.ts)
+      const dateStr = `${d.getDate()}/${d.getMonth()+1} ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`
+      row.innerHTML = `<span style="color:${inc.action==='kick'?'#f87171':'#fbbf24'};font-weight:600">${ACTION_LABELS[inc.action] || inc.action}</span>
+        <span style="color:#ccc"> — ${escapeHtml(inc.targetAlias)}</span> <span style="color:#555">${dateStr}</span> <span style="color:#888">· ${escapeHtml(inc.venueName || '')}</span>
+        ${inc.reason ? `<div style="color:#888;font-size:12px">Motivo: ${escapeHtml(inc.reason)}</div>` : ''}
+        ${inc.targetSubscriberId ? `<div style="color:#666;font-size:11px">subscriberId: ${escapeHtml(inc.targetSubscriberId)}</div>` : ''}`
+      container.appendChild(row)
+    }
+  } catch (e) { showError(String(e.message)) }
+}
+document.getElementById('btn-load-incidents').onclick = () => loadIncidents().catch(e => showError(String(e.message)))
+document.getElementById('btn-ban-subscriber').onclick = async () => {
+  showError('')
+  const secret = document.getElementById('admin-secret').value.trim()
+  const subscriberId = document.getElementById('ban-subscriber-id').value.trim()
+  const reason = document.getElementById('ban-reason').value.trim()
+  if (!secret) { showError('Ingresa clave admin'); return }
+  if (!subscriberId) { showError('Ingresa un subscriberId'); return }
+  try {
+    await api('/api/admin/subscribers/ban', { method: 'POST', headers: { 'X-Admin-Secret': secret }, body: JSON.stringify({ subscriberId, banned: true, reason }) })
+    await confirmModal('Suscriptor baneado — no podrá unirse a ningún venue')
+    document.getElementById('ban-subscriber-id').value = ''
+    document.getElementById('ban-reason').value = ''
+  } catch (e) { showError(String(e.message)) }
+}
+document.getElementById('btn-send-broadcast').onclick = async () => {
+  showError('')
+  const secret = document.getElementById('admin-secret').value.trim()
+  const target = document.getElementById('broadcast-target').value
+  const tier = document.getElementById('broadcast-tier').value
+  const title = document.getElementById('broadcast-title').value.trim()
+  const message = document.getElementById('broadcast-message').value.trim()
+  if (!secret) { showError('Ingresa clave admin'); return }
+  if (!title || !message) { showError('Completa título y mensaje'); return }
+  const label = target === 'venues' ? 'todos los venues con email' : `suscriptores (tier: ${tier})`
+  const ok = await confirmModal(`¿Enviar a ${label}?`)
+  if (!ok) return
+  try {
+    const r = await api('/api/admin/broadcast', {
+      method: 'POST',
+      headers: { 'X-Admin-Secret': secret },
+      body: JSON.stringify({ target, tier, title, message })
+    })
+    showSuccess(`Enviado a ${r.sent} destinatario(s)`)
+  } catch (e) { showError(String(e.message)) }
+}

@@ -3,7 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#2c6bff">
 <link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Discos">
 <link rel="stylesheet" href="/styles.css?v=5">
 <link rel="stylesheet" href="/styles-premium.css?v=5">
 <title>Discos</title>
@@ -23,6 +29,7 @@
   <div id="topbar" class="topbar">
     <button id="btn-back" class="secondary">Volver</button>
     <span id="session-ttl-chip" class="chip session-ttl" style="display:none"></span>
+    <button id="btn-install-app" class="secondary" style="display:none">Instalar app</button>
     <button id="btn-theme-toggle-top" class="secondary">Tema</button>
   </div>
   <div id="toast-container" aria-live="polite"></div>
@@ -36,6 +43,11 @@
       </div>
       <div id="tonight-feed" style="display:none;margin-bottom:12px">
         <div style="font-size:13px;color:#aaa;margin-bottom:6px">Esta noche</div>
+        <div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:8px">
+          <input id="tonight-filter-city" type="text" placeholder="Ciudad" style="flex:1;min-width:100px">
+          <input id="tonight-filter-genre" type="text" placeholder="Género musical" style="flex:1;min-width:100px">
+          <button id="btn-tonight-near-me" class="secondary">Cerca de mí</button>
+        </div>
         <div id="tonight-list"></div>
       </div>
       <div class="row" style="gap:8px">
@@ -124,6 +136,20 @@
     <div class="card" id="sub-benefits-card" style="display:none">
       <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:#4ade80">🏷️ Mis descuentos activos</div>
       <div id="sub-benefits-list"></div>
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-size:13px;font-weight:600;color:#fbbf24">⭐ Mis puntos</div>
+        <div id="sub-points" style="font-size:18px;font-weight:700">0</div>
+      </div>
+      <div id="sub-badges" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+    </div>
+    <div class="card">
+      <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:#aaa">Privacidad</div>
+      <label style="font-size:13px;display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input id="chk-hide-selfie" type="checkbox">
+        Ocultar mi selfie a otros usuarios (sigo siendo visible por alias)
+      </label>
     </div>
     <div class="card">
       <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:#aaa">Venues que sigo</div>
@@ -238,7 +264,10 @@
   <!-- ── VENUE PROFILE ─────────────────────────────────────────── -->
   <div id="screen-venue-profile" class="screen">
     <h2 id="vp-name" style="margin:0 0 10px"></h2>
-    <button id="btn-venue-follow" style="width:100%;margin-bottom:10px"></button>
+    <div class="row" style="gap:8px;margin-bottom:10px">
+      <button id="btn-venue-follow" style="flex:2"></button>
+      <button id="btn-venue-share" class="secondary" style="flex:1">Compartir</button>
+    </div>
     <div class="card" id="vp-live-card" style="display:none;border:1px solid #4ade80">
       <div style="color:#4ade80;font-weight:600;font-size:13px;margin-bottom:6px">🟢 Live ahora</div>
       <div id="vp-live-info" style="font-size:13px;color:#aaa"></div>
@@ -255,6 +284,16 @@
       <div id="vp-events-list"></div>
     </div>
     <div class="card">
+      <div style="font-size:13px;font-weight:600;margin-bottom:8px">Reservar mesa</div>
+      <div class="row" style="flex-wrap:wrap;gap:6px">
+        <input id="vp-res-name" type="text" placeholder="Tu nombre">
+        <input id="vp-res-party" type="number" min="1" value="2" placeholder="Personas" style="width:90px">
+      </div>
+      <input id="vp-res-note" type="text" placeholder="Nota (opcional)" style="width:100%;margin-top:6px">
+      <button id="btn-vp-reserve" class="success" style="width:100%;margin-top:8px">Solicitar reserva</button>
+      <div id="vp-res-status" style="font-size:12px;color:#4ade80;margin-top:6px;display:none"></div>
+    </div>
+    <div class="card">
       <div style="font-size:13px;font-weight:600;margin-bottom:8px">Reseñas <span id="vp-avg-rating" style="color:#fbbf24"></span></div>
       <div id="vp-reviews-list"></div>
       <div id="vp-review-form" style="margin-top:12px;display:none">
@@ -263,6 +302,7 @@
           <span class="star" data-v="1">★</span><span class="star" data-v="2">★</span><span class="star" data-v="3">★</span><span class="star" data-v="4">★</span><span class="star" data-v="5">★</span>
         </div>
         <input id="vp-review-comment" placeholder="Comentario (opcional)" style="width:100%;margin-bottom:8px">
+        <input id="vp-review-photo" type="file" accept="image/*" style="width:100%;margin-bottom:8px">
         <button id="btn-submit-review" class="success" style="width:100%">Enviar reseña</button>
       </div>
     </div>
@@ -387,6 +427,7 @@
         <button data-msg="bailamos" class="btn-invite-msg info">¿Bailamos?</button>
         <button data-msg="invitoCancion" class="btn-invite-msg info">¿Te invito una canción?</button>
       </div>
+      <input id="invite-custom-msg" type="text" placeholder="O escribí tu propio mensaje (opcional)" style="width:100%;margin-top:8px">
       <button id="btn-invite-send" class="success">Enviar</button>
     </div>
   </div>
@@ -554,6 +595,11 @@
         <button id="btn-edit-save" class="success">Guardar</button>
       </div>
     </div>
+    <div class="card">
+      <div style="font-size:13px;font-weight:600;margin-bottom:6px">Fotos extra (hasta 2, requieren aprobación del staff)</div>
+      <div id="edit-photos-list" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px"></div>
+      <input id="edit-photo-file" type="file" accept="image/*">
+    </div>
   </div>
 
   <div id="screen-call-waiter" class="screen">
@@ -659,6 +705,8 @@
       <button id="tab-staff-reportes" class="tab-item">Reportes <span id="badge-tab-reportes" class="badge"></span></button>
       <button id="tab-staff-promos" class="tab-item">Promos</button>
       <button id="tab-staff-catalog" class="tab-item">Carta</button>
+      <button id="tab-staff-cocina" class="tab-item">Cocina <span id="badge-tab-cocina" class="badge"></span></button>
+      <button id="tab-staff-reservas" class="tab-item">Reservas <span id="badge-tab-reservas" class="badge"></span></button>
       <button id="tab-staff-analytics" class="tab-item">Analytics</button>
       <button id="tab-staff-dj" class="tab-item">DJ <span id="badge-tab-dj" class="badge"></span></button>
     </div>
@@ -706,6 +754,32 @@
             <input id="staff-table-change-pin" placeholder="PIN actual" readonly>
           </div>
         </div>
+        <div class="card">
+          <h3>Turno de caja</h3>
+          <div id="shift-closed-view">
+            <div class="row">
+              <input id="shift-opening-cash" type="number" min="0" placeholder="Efectivo inicial en caja">
+              <button id="btn-shift-open" class="success">Abrir turno</button>
+            </div>
+          </div>
+          <div id="shift-open-view" style="display:none">
+            <div id="shift-open-info" style="font-size:13px;color:#a89fcf;margin-bottom:8px"></div>
+            <div class="row">
+              <input id="shift-closing-cash" type="number" min="0" placeholder="Efectivo contado al cierre">
+              <button id="btn-shift-close" class="danger">Cerrar turno</button>
+            </div>
+          </div>
+          <div id="shift-history" style="margin-top:10px"></div>
+        </div>
+        <div class="card">
+          <h3>Notas del staff</h3>
+          <p style="font-size:13px;color:#aaa">Mensajes cortos visibles para todo el staff de esta sesión (mesero, seguridad, DJ, gerente).</p>
+          <div class="row">
+            <input id="staff-note-input" type="text" placeholder="Ej: seguridad, revisar mesa 5">
+            <button id="btn-staff-note-send" class="success">Enviar</button>
+          </div>
+          <div id="staff-notes-list" style="margin-top:10px"></div>
+        </div>
       </div>
       <div id="staff-orders-content" class="section">
         <div class="card">
@@ -725,7 +799,32 @@
           <div id="staff-orders-list"></div>
         </div>
       </div>
+      <div id="staff-cocina-content" class="section">
+        <div class="card">
+          <h3>Cocina / Barra</h3>
+          <p style="font-size:13px;color:#aaa">Pedidos pendientes de preparar, en orden de llegada. Tocá "Listo" cuando salga de cocina.</p>
+          <div id="kds-board" class="kds-board"></div>
+        </div>
+      </div>
+      <div id="staff-reservas-content" class="section">
+        <div class="card">
+          <h3>Guest list — agregar</h3>
+          <div class="row" style="flex-wrap:wrap;gap:6px">
+            <input id="guestlist-name" type="text" placeholder="Nombre">
+            <input id="guestlist-party" type="number" min="1" value="1" placeholder="Personas" style="width:90px">
+            <button id="btn-guestlist-add" class="success">Agregar a la lista</button>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Reservas</h3>
+          <div id="reservations-list"></div>
+        </div>
+      </div>
       <div id="staff-mesas-content" class="section">
+        <div class="card">
+          <h3>Mapa de mesas</h3>
+          <div id="mesas-map" class="mesas-map"></div>
+        </div>
         <div class="card">
           <h3>Historial por mesa</h3>
           <div class="row">
@@ -772,6 +871,9 @@
           <div class="row">
             <button id="btn-staff-catalog-use-global" class="secondary">Usar carta global</button>
             <button id="btn-staff-catalog-copy-global" class="info">Copiar desde global</button>
+            <button id="btn-staff-catalog-export" class="secondary">Exportar CSV</button>
+            <input id="staff-catalog-import-file" type="file" accept=".csv" style="display:none">
+            <button id="btn-staff-catalog-import" class="info">Importar CSV</button>
           </div>
           <div id="staff-catalog-list"></div>
           <div class="row">

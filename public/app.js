@@ -1,6 +1,7 @@
 let S = { sessionId: '', venueId: '', user: null, staff: null, role: '', sse: null, staffSSE: null, currentInvite: null, meeting: null, consumptionReq: null, nav: { history: [], current: '' }, notifications: { invites: 0 }, timers: { userPoll: 0, staffPoll: 0, userReconnect: 0, staffReconnect: 0, catalogSave: 0, modalHide: 0 }, staffTab: '', cart: [], messageTTL: 4000, modalShownAt: 0, isMeetingReceiver: false, meetingPlan: '', sched: {}, loading: {}, catalogGroups: {}, catalogCat: '', catalogSubcat: '', waiterReason: '', invitesQueue: [], inInviteFlow: false, missed: [], skipConfirmInvite: false, audioCtx: null, modalKind: '', appMode: '' }
 
 function q(id) { return document.getElementById(id) }
+let _deferredInstallPrompt = null
 function escapeHtml(str) {
   return String(str == null ? '' : str).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 }
@@ -262,6 +263,8 @@ function toggleTheme() {
 
 function showStaffTab(tab) {
   if (S.djOnly && tab !== 'dj') tab = 'dj'
+  const roleAllowed = STAFF_ROLE_TABS[(S.user && S.user.staffRole) || 'gerente']
+  if (roleAllowed && !roleAllowed.includes(tab)) tab = roleAllowed[0]
   const contentMap = {
     panel: 'staff-panel-content',
     orders: 'staff-orders-content',
@@ -273,6 +276,8 @@ function showStaffTab(tab) {
     catalog: 'staff-catalog-content',
     analytics: 'staff-analytics-content',
     dj: 'staff-dj-content',
+    cocina: 'staff-cocina-content',
+    reservas: 'staff-reservas-content',
   }
   for (const el of document.querySelectorAll('#staff-content .section')) el.classList.remove('active')
   const id = contentMap[tab]
@@ -280,7 +285,8 @@ function showStaffTab(tab) {
   for (const el of document.querySelectorAll('#staff-tabs .tab-item')) el.classList.remove('active')
   const tabMap = {
     panel: 'tab-staff-panel', orders: 'tab-staff-orders', mesas: 'tab-staff-mesas', users: 'tab-staff-users',
-    waiter: 'tab-staff-waiter', reportes: 'tab-staff-reportes', promos: 'tab-staff-promos', catalog: 'tab-staff-catalog', dj: 'tab-staff-dj'
+    waiter: 'tab-staff-waiter', reportes: 'tab-staff-reportes', promos: 'tab-staff-promos', catalog: 'tab-staff-catalog', dj: 'tab-staff-dj',
+    cocina: 'tab-staff-cocina', reservas: 'tab-staff-reservas'
   }
   const tId = tabMap[tab]; if (tId) { const el = q(tId); if (el) el.classList.add('active') }
   applyDjOnlyUI()
@@ -291,27 +297,134 @@ function showStaffTab(tab) {
   }
   const mId = menuMap[tab]; if (mId) { const el = q(mId); if (el) el.classList.add('active') }
   if (tab === 'orders') loadOrders(q('staff-orders-filter')?.value || '')
+  else if (tab === 'mesas') loadMesasMap()
   else if (tab === 'users') loadUsers()
   else if (tab === 'waiter') loadWaiterCalls()
   else if (tab === 'reportes') loadReports()
   else if (tab === 'promos') loadStaffPromos()
   else if (tab === 'catalog') loadStaffCatalogEditor()
-  else if (tab === 'panel') loadSessionInfo()
+  else if (tab === 'panel') { loadSessionInfo(); loadShiftStatus(); loadStaffNotes() }
   else if (tab === 'analytics') loadAnalytics()
   else if (tab === 'dj') loadDJRequests()
+  else if (tab === 'cocina') loadKDS()
+  else if (tab === 'reservas') loadReservations()
   S.staffTab = tab
   try { localStorage.setItem('discos_last_staff_tab', tab) } catch {}
+}
+const STAFF_ROLE_TABS = {
+  gerente: null,
+  mesero: ['panel', 'orders', 'mesas', 'waiter', 'cocina', 'reservas'],
+  seguridad: ['panel', 'users', 'waiter', 'reservas'],
+  dj: ['dj'],
 }
 function applyDjOnlyUI() {
   const djOnly = !!S.djOnly
   const menu = q('staff-menu'); if (menu) menu.style.display = djOnly ? 'none' : ''
   const btnAnalytics = q('btn-staff-analytics'); if (btnAnalytics) btnAnalytics.style.display = djOnly ? 'none' : ''
+  const staffRole = (S.user && S.user.staffRole) || 'gerente'
+  const allowed = djOnly ? ['dj'] : STAFF_ROLE_TABS[staffRole]
   for (const el of document.querySelectorAll('#staff-tabs .tab-item')) {
-    if (!djOnly) el.style.display = ''
-    else el.style.display = (el.id === 'tab-staff-dj') ? '' : 'none'
+    if (!allowed) { el.style.display = ''; continue }
+    const tab = el.id.replace('tab-staff-', '')
+    el.style.display = allowed.includes(tab) ? '' : 'none'
+  }
+  for (const el of document.querySelectorAll('#staff-menu .menu-item')) {
+    if (el.id === 'menu-staff-more') continue
+    if (!allowed) { el.style.display = ''; continue }
+    const tab = el.id.replace('menu-staff-', '')
+    el.style.display = allowed.includes(tab) ? '' : 'none'
   }
 }
 
+function fmtMoney(n) { return `$${Number(n || 0).toLocaleString('es-CO')}` }
+async function loadShiftStatus() {
+  try {
+    const r = await api(`/api/staff/shift/active?sessionId=${encodeURIComponent(S.sessionId)}`)
+    const closedView = q('shift-closed-view'), openView = q('shift-open-view')
+    if (r.shift) {
+      S.currentShiftId = r.shift.id
+      if (closedView) closedView.style.display = 'none'
+      if (openView) openView.style.display = ''
+      const info = q('shift-open-info')
+      if (info) info.textContent = `Turno abierto desde ${formatTimeShort(r.shift.openedAt)} · Efectivo inicial: ${fmtMoney(r.shift.openingCash)}`
+    } else {
+      S.currentShiftId = ''
+      if (closedView) closedView.style.display = ''
+      if (openView) openView.style.display = 'none'
+    }
+    await loadShiftHistory()
+  } catch (e) { showError(String(e.message)) }
+}
+async function loadShiftHistory() {
+  try {
+    const r = await api(`/api/staff/shift/history?sessionId=${encodeURIComponent(S.sessionId)}`)
+    const container = q('shift-history')
+    if (!container) return
+    container.innerHTML = ''
+    if (!r.shifts || !r.shifts.length) return
+    const title = document.createElement('h4'); title.textContent = 'Turnos anteriores'; title.style.margin = '10px 0 6px'
+    container.append(title)
+    for (const sh of r.shifts) {
+      const div = document.createElement('div')
+      div.className = 'card'
+      const diffColor = sh.difference === 0 ? '#4ade80' : (sh.difference > 0 ? '#60a5fa' : '#f87171')
+      div.innerHTML = `
+        <div style="font-size:13px">${formatTimeShort(sh.openedAt)} → ${formatTimeShort(sh.closedAt)}</div>
+        <div style="font-size:13px;color:#a89fcf">${sh.ordersCount} pedidos · Ventas ${fmtMoney(sh.ordersTotal)} · Propinas ${fmtMoney(sh.tipsTotal)}</div>
+        <div style="font-size:13px">Esperado ${fmtMoney(sh.expectedCash)} · Contado ${fmtMoney(sh.closingCash)} · <span style="color:${diffColor};font-weight:600">Diferencia ${sh.difference >= 0 ? '+' : ''}${fmtMoney(sh.difference)}</span></div>
+      `
+      container.append(div)
+    }
+  } catch {}
+}
+async function openShift() {
+  try {
+    const openingCash = Math.max(0, Number(q('shift-opening-cash')?.value || 0))
+    await api('/api/staff/shift/open', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, staffId: S.user.id, openingCash }) })
+    await loadShiftStatus()
+  } catch (e) { showError(String(e.message)) }
+}
+async function closeShift() {
+  try {
+    if (!S.currentShiftId) return
+    const closingCash = Math.max(0, Number(q('shift-closing-cash')?.value || 0))
+    const ok = await confirmAction('¿Cerrar el turno y hacer el arqueo de caja?')
+    if (!ok) return
+    const r = await api('/api/staff/shift/close', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, staffId: S.user.id, shiftId: S.currentShiftId, closingCash }) })
+    const sh = r.shift
+    const diffTxt = sh.difference === 0 ? 'cuadra exacto' : (sh.difference > 0 ? `sobran ${fmtMoney(sh.difference)}` : `faltan ${fmtMoney(Math.abs(sh.difference))}`)
+    showError(`Turno cerrado: esperado ${fmtMoney(sh.expectedCash)}, contado ${fmtMoney(sh.closingCash)} — ${diffTxt}`)
+    setTimeout(() => showError(''), 6000)
+    await loadShiftStatus()
+  } catch (e) { showError(String(e.message)) }
+}
+const STAFF_ROLE_LABELS = { gerente: 'Gerente', mesero: 'Mesero', seguridad: 'Seguridad', dj: 'DJ' }
+function renderStaffNote(n) {
+  const div = document.createElement('div')
+  div.style.cssText = 'font-size:13px;padding:6px 0;border-bottom:1px solid #222'
+  const roleLabel = STAFF_ROLE_LABELS[n.staffRole] || 'Staff'
+  div.innerHTML = `<span style="font-weight:600;color:#a6b0ff">${roleLabel}</span> <span style="color:#555;font-size:11px">${formatTimeShort(n.ts)}</span><div>${escapeHtml(n.message)}</div>`
+  return div
+}
+async function loadStaffNotes() {
+  try {
+    const r = await api(`/api/staff/notes?sessionId=${encodeURIComponent(S.sessionId)}`)
+    const list = q('staff-notes-list')
+    if (!list) return
+    list.innerHTML = ''
+    for (const n of (r.notes || [])) list.append(renderStaffNote(n))
+    if (!r.notes || !r.notes.length) list.innerHTML = '<div style="color:#666;font-size:13px">Sin notas todavía</div>'
+  } catch {}
+}
+async function sendStaffNote() {
+  const inp = q('staff-note-input')
+  const message = inp ? inp.value.trim() : ''
+  if (!message) return
+  try {
+    await api('/api/staff/notes', { method: 'POST', body: JSON.stringify({ staffId: S.user.id, message }) })
+    if (inp) inp.value = ''
+  } catch (e) { showError(String(e.message)) }
+}
 async function loadSessionInfo() {
   try {
     let pin = ''
@@ -711,6 +824,8 @@ function openMenuMoreModal() {
     mk('reportes', 'Reportes'),
     mk('promos', 'Promos'),
     mk('catalog', 'Carta'),
+    mk('cocina', 'Cocina'),
+    mk('reservas', 'Reservas'),
   )
   t.append(list)
 }
@@ -821,6 +936,7 @@ function scheduleStaffOrdersUpdate() {
     const cur = q('staff-orders-filter')?.value || ''
     await loadOrders(cur)
     await loadAnalytics()
+    if (S.staffTab === 'cocina') await loadKDS()
   }, 500)
 }
 function scheduleStaffUsersUpdate() { scheduleLater('staff_users', async () => { await loadUsers() }, 500) }
@@ -930,6 +1046,7 @@ async function join(role, codeOverride = '', pinOverride = '') {
       await requestNotificationPermission()
       
       alias = (q('alias') ? q('alias').value.trim() : '')
+      if (!alias && _subscriber && _subscriber.defaultAlias) alias = _subscriber.defaultAlias
       if (!alias) {
         alias = await promptInput('Ingresa tu alias', 'Tu alias')
       }
@@ -1269,6 +1386,7 @@ function openInvite(u) {
   S.currentInvite = u
   q('invite-person').textContent = `A ${u.alias || u.id}`
   inviteMsgType = 'bailamos'
+  const customInp = q('invite-custom-msg'); if (customInp) customInp.value = ''
   show('screen-user-invite')
 }
 
@@ -1281,7 +1399,8 @@ async function sendInvite() {
   const ok = await confirmAction(`¿Te gustaría invitar a ${S.currentInvite.alias || S.currentInvite.id}?`)
   if (!ok) return
   try {
-    const r = await api('/api/invite/dance', { method: 'POST', body: JSON.stringify({ fromId: S.user.id, toId: S.currentInvite.id, messageType: inviteMsgType }) })
+    const customMsg = (q('invite-custom-msg') ? q('invite-custom-msg').value.trim() : '').slice(0, 100)
+    const r = await api('/api/invite/dance', { method: 'POST', body: JSON.stringify({ fromId: S.user.id, toId: S.currentInvite.id, messageType: inviteMsgType, customMsg }) })
     const exp = Number(r.expiresAt || (Date.now() + 60 * 1000))
     openInviteWaitModal(exp, S.currentInvite)
   } catch (e) {
@@ -1637,6 +1756,15 @@ function updateTipSticker() {
       setTimeout(() => showError(''), 1500)
       openSelectTable()
     }
+  })
+  S.sse.addEventListener('kicked', e => {
+    let data = {}
+    try { data = JSON.parse(e.data) } catch {}
+    try { if (S.sse) { S.sse.close(); S.sse = null } } catch {}
+    S.user = null
+    showError(data.reason ? `Fuiste retirado del venue: ${data.reason}` : 'Fuiste retirado del venue')
+    setTimeout(() => showError(''), 3000)
+    show('screen-welcome')
   })
   S.sse.addEventListener('meeting_expired', e => {
     S.meeting = null
@@ -2020,6 +2148,18 @@ function startStaffEvents() {
   S.staffSSE.addEventListener('report', e => {
     scheduleStaffReportsUpdate()
   })
+  S.staffSSE.addEventListener('staff_note', e => {
+    if (S.staffTab !== 'panel') return
+    try {
+      const data = JSON.parse(e.data)
+      const list = q('staff-notes-list')
+      if (list) {
+        const empty = list.querySelector('div')
+        if (empty && list.children.length === 1 && empty.textContent.includes('Sin notas')) list.innerHTML = ''
+        list.prepend(renderStaffNote(data.note))
+      }
+    } catch {}
+  })
   S.staffSSE.addEventListener('waiter_call', e => {
     const data = JSON.parse(e.data)
     scheduleStaffWaiterUpdate()
@@ -2210,9 +2350,10 @@ async function loadOrders(state = '') {
       const emAlias = (S.usersIndex && S.usersIndex[o.emitterId] ? S.usersIndex[o.emitterId].alias : o.emitterId)
       const reAlias = (S.usersIndex && S.usersIndex[o.receiverId] ? S.usersIndex[o.receiverId].alias : o.receiverId)
       const amountTxt = ` • $${o.total || 0}`
+      const tipTxt = o.tip ? ` • propina $${o.tip}` : ''
       const label = o.productLabel || formatOrderProductFull(o.product)
       const timeTxt = o.createdAt ? ` • ${formatTimeShort(o.createdAt)}` : ''
-      info.textContent = `${label} x${o.quantity || 1}${amountTxt} • Emisor ${emAlias} → Receptor ${reAlias}${mesaInfo}${timeTxt}`
+      info.textContent = `${label} x${o.quantity || 1}${amountTxt}${tipTxt} • Emisor ${emAlias} → Receptor ${reAlias}${mesaInfo}${timeTxt}`
       info.append(chip)
       if (o.isInvitation) {
         const invChip = document.createElement('span')
@@ -2222,12 +2363,48 @@ async function loadOrders(state = '') {
       }
       const row = document.createElement('div')
       row.className = 'row'
-      const b1 = document.createElement('button'); b1.className = 'success'; b1.textContent = 'Cobrado'; b1.onclick = () => updateOrder(o.id, 'cobrado')
+      const tipRow = document.createElement('div')
+      tipRow.className = 'row'
+      tipRow.style.display = 'none'
+      const b1 = document.createElement('button'); b1.className = 'success'; b1.textContent = 'Cobrado'; b1.onclick = () => { row.style.display = 'none'; tipRow.style.display = ''; }
       const b0 = document.createElement('button'); b0.className = 'warning'; b0.textContent = 'En preparación'; b0.onclick = () => updateOrder(o.id, 'en_preparacion')
       const b2 = document.createElement('button'); b2.className = 'info'; b2.textContent = 'Entregado'; b2.onclick = () => updateOrder(o.id, 'entregado')
       const b3 = document.createElement('button'); b3.className = 'danger'; b3.textContent = 'Cancelar'; b3.onclick = () => updateOrder(o.id, 'cancelado')
       row.append(b0, b1, b2, b3)
-      div.append(info, row)
+      const editRow = document.createElement('div')
+      editRow.className = 'row'
+      editRow.style.display = 'none'
+      if (o.status === 'pendiente_cobro') {
+        const editBtn = document.createElement('button'); editBtn.className = 'info'; editBtn.textContent = 'Editar'; editBtn.onclick = () => { row.style.display = 'none'; editRow.style.display = ''; }
+        row.append(editBtn)
+        const qtyInput = document.createElement('input')
+        qtyInput.type = 'number'; qtyInput.min = '1'; qtyInput.value = String(o.quantity || 1); qtyInput.style.width = '70px'
+        const qtyConfirm = document.createElement('button'); qtyConfirm.className = 'success'; qtyConfirm.textContent = 'Guardar cantidad'
+        qtyConfirm.onclick = () => editOrderQuantity(o.id, Math.max(1, Number(qtyInput.value || 1)))
+        const qtyBack = document.createElement('button'); qtyBack.className = 'secondary'; qtyBack.textContent = 'Volver'
+        qtyBack.onclick = () => { editRow.style.display = 'none'; row.style.display = ''; }
+        editRow.append(qtyInput, qtyConfirm, qtyBack)
+      }
+      const baseTotal = Number(o.total || 0)
+      const tipPcts = [0, 10, 15, 20]
+      for (const pct of tipPcts) {
+        const tb = document.createElement('button')
+        tb.className = pct === 0 ? 'secondary' : 'success'
+        tb.textContent = pct === 0 ? 'Sin propina' : `+${pct}% ($${Math.round(baseTotal * pct / 100)})`
+        tb.onclick = () => updateOrder(o.id, 'cobrado', Math.round(baseTotal * pct / 100))
+        tipRow.append(tb)
+      }
+      const tipInput = document.createElement('input')
+      tipInput.type = 'number'; tipInput.min = '0'; tipInput.placeholder = 'Otro monto'
+      tipInput.style.width = '90px'
+      const tipConfirm = document.createElement('button')
+      tipConfirm.className = 'success'; tipConfirm.textContent = 'Confirmar'
+      tipConfirm.onclick = () => updateOrder(o.id, 'cobrado', Math.max(0, Number(tipInput.value || 0)))
+      const tipBack = document.createElement('button')
+      tipBack.className = 'secondary'; tipBack.textContent = 'Volver'
+      tipBack.onclick = () => { tipRow.style.display = 'none'; row.style.display = ''; }
+      tipRow.append(tipInput, tipConfirm, tipBack)
+      div.append(info, row, tipRow, editRow)
       details.append(div)
     }
     card.append(head, details)
@@ -2246,8 +2423,108 @@ async function loadOrders(state = '') {
   }
 }
 
-async function updateOrder(id, status) {
-  await api(`/api/staff/orders/${id}`, { method: 'POST', body: JSON.stringify({ status }) })
+async function loadKDS() {
+  const board = q('kds-board')
+  if (!board) return
+  const r = await api(`/api/staff/orders?sessionId=${encodeURIComponent(S.sessionId)}`)
+  const pending = (r.orders || []).filter(o => o.status === 'pendiente_cobro' || o.status === 'en_preparacion')
+  pending.sort((a, b) => Number(a.createdAt || 0) - Number(b.createdAt || 0))
+  board.innerHTML = ''
+  if (!pending.length) {
+    const empty = document.createElement('div')
+    empty.style.cssText = 'font-size:18px;color:#888;padding:24px;text-align:center'
+    empty.textContent = 'No hay pedidos pendientes en cocina/barra'
+    board.append(empty)
+    return
+  }
+  for (const o of pending) {
+    const card = document.createElement('div')
+    card.className = 'kds-card' + (o.status === 'en_preparacion' ? ' in-progress' : '')
+    const label = o.productLabel || o.product
+    const table = o.mesaEntrega || o.receiverTable || o.emitterTable || '-'
+    const elapsedMin = Math.max(0, Math.floor((Date.now() - Number(o.createdAt || Date.now())) / 60000))
+    card.innerHTML = `
+      <div class="kds-card-head">
+        <span class="kds-table">Mesa ${escapeHtml(String(table))}</span>
+        <span class="kds-time">${elapsedMin} min</span>
+      </div>
+      <div class="kds-product">${o.quantity || 1} × ${escapeHtml(String(label))}</div>
+    `
+    const btn = document.createElement('button')
+    btn.className = 'success kds-btn'
+    btn.textContent = o.status === 'pendiente_cobro' ? 'Empezar' : 'Listo'
+    btn.onclick = async () => {
+      const nextStatus = o.status === 'pendiente_cobro' ? 'en_preparacion' : 'entregado'
+      await api(`/api/staff/orders/${o.id}`, { method: 'POST', body: JSON.stringify({ status: nextStatus }) })
+      await loadKDS()
+    }
+    card.append(btn)
+    board.append(card)
+  }
+}
+async function editOrderQuantity(id, quantity) {
+  try {
+    await api(`/api/staff/orders/${id}/edit`, { method: 'POST', body: JSON.stringify({ quantity }) })
+  } catch (e) { showError(String(e.message)) }
+  const cur = q('staff-orders-filter')?.value || ''
+  loadOrders(cur)
+}
+async function loadReservations() {
+  const container = q('reservations-list')
+  if (!container) return
+  const r = await api(`/api/staff/reservations?sessionId=${encodeURIComponent(S.sessionId)}`)
+  const list = (r.reservations || []).slice().sort((a, b) => {
+    const order = { pending: 0, confirmed: 1, arrived: 2, denied: 3 }
+    return (order[a.status] ?? 9) - (order[b.status] ?? 9) || b.createdAt - a.createdAt
+  })
+  container.innerHTML = ''
+  if (!list.length) { container.innerHTML = '<div style="color:#666;font-size:13px">Sin reservas todavía</div>'; return }
+  const STATUS_LABELS = { pending: 'Pendiente', confirmed: 'Confirmada', denied: 'Rechazada', arrived: 'Llegó', cancelled: 'Cancelada' }
+  for (const res of list) {
+    const div = document.createElement('div')
+    div.className = 'card'
+    const info = document.createElement('div')
+    const tag = res.guestList ? 'Guest list' : 'Reserva'
+    info.textContent = `${res.name} • ${res.partySize} persona(s) • ${tag} • ${STATUS_LABELS[res.status] || res.status}${res.note ? ' • ' + res.note : ''}`
+    div.append(info)
+    if (res.status === 'pending' || res.status === 'confirmed') {
+      const row = document.createElement('div')
+      row.className = 'row'
+      if (res.status === 'pending') {
+        const confirmBtn = document.createElement('button'); confirmBtn.className = 'success'; confirmBtn.textContent = 'Confirmar'
+        confirmBtn.onclick = () => setReservationStatus(res.id, 'confirmed')
+        const denyBtn = document.createElement('button'); denyBtn.className = 'danger'; denyBtn.textContent = 'Rechazar'
+        denyBtn.onclick = () => setReservationStatus(res.id, 'denied')
+        row.append(confirmBtn, denyBtn)
+      } else {
+        const arrivedBtn = document.createElement('button'); arrivedBtn.className = 'info'; arrivedBtn.textContent = 'Marcar llegada'
+        arrivedBtn.onclick = () => setReservationStatus(res.id, 'arrived')
+        row.append(arrivedBtn)
+      }
+      div.append(row)
+    }
+    container.append(div)
+  }
+}
+async function setReservationStatus(id, status) {
+  await api(`/api/staff/reservations/${id}`, { method: 'POST', body: JSON.stringify({ staffId: S.user.id, status }) })
+  loadReservations()
+}
+async function addToGuestList() {
+  try {
+    const name = q('guestlist-name')?.value.trim() || ''
+    const partySize = Math.max(1, Number(q('guestlist-party')?.value || 1))
+    if (!name) { showError('Ingresa un nombre'); return }
+    await api('/api/staff/reservations/guestlist-add', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, staffId: S.user.id, name, partySize }) })
+    const nameInp = q('guestlist-name'); if (nameInp) nameInp.value = ''
+    const partyInp = q('guestlist-party'); if (partyInp) partyInp.value = '1'
+    loadReservations()
+  } catch (e) { showError(String(e.message)) }
+}
+async function updateOrder(id, status, tip) {
+  const body = { status }
+  if (status === 'cobrado' && tip) body.tip = tip
+  await api(`/api/staff/orders/${id}`, { method: 'POST', body: JSON.stringify(body) })
   const cur = q('staff-orders-filter')?.value || ''
   loadOrders(cur)
 }
@@ -2255,7 +2532,7 @@ async function updateOrder(id, status) {
 async function loadUsers() {
   const r = await api(`/api/staff/users?sessionId=${encodeURIComponent(S.sessionId)}`)
   const container = q('staff-users') || q('users')
-  const sig = buildSig(r.users || [], u => [u.id, u.alias, u.muted].join('~'))
+  const sig = buildSig(r.users || [], u => [u.id, u.alias, u.muted, u.kicked, JSON.stringify(u.photos || [])].join('~'))
   S.ui = S.ui || {}
   if (S.ui.usersSig === sig) return
   S.ui.usersSig = sig
@@ -2267,12 +2544,48 @@ async function loadUsers() {
     const div = document.createElement('div')
     div.className = 'card'
     const info = document.createElement('div')
-    info.textContent = `${u.alias || u.id} • Selfie cargada • ${u.muted ? 'silenciado' : 'activo'}`
+    info.textContent = `${u.alias || u.id} • Selfie cargada • ${u.kicked ? 'expulsado' : (u.muted ? 'silenciado' : 'activo')}`
     const row = document.createElement('div')
     row.className = 'row'
-    const mute = document.createElement('button'); mute.className = u.muted ? 'success' : 'warning'; mute.textContent = u.muted ? 'Activar' : 'Silenciar'; mute.onclick = () => moderateUser(u.id, !u.muted)
+    const mute = document.createElement('button'); mute.className = u.muted ? 'success' : 'warning'; mute.textContent = u.muted ? 'Activar' : 'Silenciar'; mute.disabled = !!u.kicked; mute.onclick = () => moderateUser(u.id, !u.muted)
     row.append(mute)
-    div.append(info, row)
+    if (!u.kicked) {
+      const kickRow = document.createElement('div')
+      kickRow.className = 'row'
+      kickRow.style.display = 'none'
+      const kickBtn = document.createElement('button'); kickBtn.className = 'danger'; kickBtn.textContent = 'Expulsar'; kickBtn.onclick = () => { row.style.display = 'none'; kickRow.style.display = '' }
+      row.append(kickBtn)
+      const reasonInput = document.createElement('input')
+      reasonInput.type = 'text'; reasonInput.placeholder = 'Motivo de la expulsión'
+      const confirmBtn = document.createElement('button'); confirmBtn.className = 'danger'; confirmBtn.textContent = 'Confirmar'
+      confirmBtn.onclick = () => kickUser(u.id, reasonInput.value.trim())
+      const cancelBtn = document.createElement('button'); cancelBtn.className = 'secondary'; cancelBtn.textContent = 'Cancelar'
+      cancelBtn.onclick = () => { kickRow.style.display = 'none'; row.style.display = '' }
+      kickRow.append(reasonInput, confirmBtn, cancelBtn)
+      div.append(info, row, kickRow)
+    } else {
+      div.append(info, row)
+    }
+    const pendingPhotos = (u.photos || []).map((p, idx) => ({ ...p, idx })).filter(p => !p.approved)
+    if (pendingPhotos.length) {
+      const photosRow = document.createElement('div')
+      photosRow.style.cssText = 'display:flex;gap:8px;margin-top:8px;flex-wrap:wrap'
+      for (const p of pendingPhotos) {
+        const wrap = document.createElement('div')
+        wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:4px'
+        const img = document.createElement('img')
+        img.src = p.url; img.style.cssText = 'width:60px;height:60px;object-fit:cover;border-radius:6px'
+        const btnRow = document.createElement('div'); btnRow.className = 'row'
+        const approveBtn = document.createElement('button'); approveBtn.className = 'success'; approveBtn.textContent = 'Aprobar foto'
+        approveBtn.onclick = async () => { await api('/api/staff/photos/moderate', { method: 'POST', body: JSON.stringify({ staffId: S.user.id, userId: u.id, index: p.idx, approved: true }) }); S.ui.usersSig = ''; loadUsers() }
+        const rejectBtn = document.createElement('button'); rejectBtn.className = 'danger'; rejectBtn.textContent = 'Rechazar'
+        rejectBtn.onclick = async () => { await api('/api/staff/photos/moderate', { method: 'POST', body: JSON.stringify({ staffId: S.user.id, userId: u.id, index: p.idx, approved: false }) }); S.ui.usersSig = ''; loadUsers() }
+        btnRow.append(approveBtn, rejectBtn)
+        wrap.append(img, btnRow)
+        photosRow.append(wrap)
+      }
+      div.append(photosRow)
+    }
     container.append(div)
   }
 }
@@ -2312,6 +2625,11 @@ async function approveSelfie(userId) {
 
 async function moderateUser(userId, muted) {
   await api('/api/staff/moderate', { method: 'POST', body: JSON.stringify({ staffId: S.user.id, userId, muted }) })
+  loadUsers()
+}
+async function kickUser(userId, reason) {
+  await api('/api/staff/moderate', { method: 'POST', body: JSON.stringify({ staffId: S.user.id, userId, action: 'kick', reason }) })
+  S.ui = S.ui || {}; S.ui.usersSig = ''
   loadUsers()
 }
 
@@ -2403,6 +2721,13 @@ function bind() {
   q('btn-report').onclick = reportUser
   const btnTheme = q('btn-theme-toggle'); if (btnTheme) btnTheme.onclick = toggleTheme
   const btnThemeTop = q('btn-theme-toggle-top'); if (btnThemeTop) btnThemeTop.onclick = toggleTheme
+  const btnInstall = q('btn-install-app'); if (btnInstall) btnInstall.onclick = async () => {
+    if (!_deferredInstallPrompt) return
+    _deferredInstallPrompt.prompt()
+    await _deferredInstallPrompt.userChoice
+    _deferredInstallPrompt = null
+    btnInstall.style.display = 'none'
+  }
   const btnThemeWelcome = q('btn-theme-toggle-welcome'); if (btnThemeWelcome) btnThemeWelcome.onclick = toggleTheme
   const modalClose = q('modal-close'); if (modalClose) modalClose.onclick = () => { const m = q('modal'); if (m) m.classList.remove('show') }
   const modalEl = q('modal'); if (modalEl) modalEl.onclick = (e) => { if (e.target && e.target.id === 'modal') modalEl.classList.remove('show') }
@@ -2455,9 +2780,20 @@ function bind() {
   const subCodeInp = q('subscription-code'); if (subCodeInp) subCodeInp.oninput = validateSubCodeInput
   const btnOpenSub = q('btn-open-subscription'); if (btnOpenSub) btnOpenSub.onclick = showSubscriberHome
   const btnGoDirec = q('btn-go-directory'); if (btnGoDirec) btnGoDirec.onclick = openVenueDirectory
+  const tCity = q('tonight-filter-city'); if (tCity) tCity.oninput = () => scheduleLater('tonight_filter', () => loadTonightFeed(), 400)
+  const tGenre = q('tonight-filter-genre'); if (tGenre) tGenre.oninput = () => scheduleLater('tonight_filter', () => loadTonightFeed(), 400)
+  const btnNearMe = q('btn-tonight-near-me'); if (btnNearMe) btnNearMe.onclick = () => {
+    if (!navigator.geolocation) { showError('Tu navegador no soporta geolocalización'); return }
+    navigator.geolocation.getCurrentPosition(
+      pos => loadTonightFeed({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => showError('No pudimos acceder a tu ubicación')
+    )
+  }
   const btnViewSubHome = q('btn-view-sub-home'); if (btnViewSubHome) btnViewSubHome.onclick = showSubscriberHome
   const navVenues = q('nav-venues'); if (navVenues) navVenues.onclick = openVenueDirectory
   const btnSubReview = q('btn-submit-review'); if (btnSubReview) btnSubReview.onclick = submitVenueReview
+  const btnVpReserve = q('btn-vp-reserve'); if (btnVpReserve) btnVpReserve.onclick = submitVenueReservation
+  const btnVpShare = q('btn-venue-share'); if (btnVpShare) btnVpShare.onclick = shareVenue
   const btnSubscribeCta = q('btn-subscribe-cta'); if (btnSubscribeCta) btnSubscribeCta.onclick = openPaymentFlow
   const btnSelectNocturno = q('btn-select-plan-nocturno'); if (btnSelectNocturno) btnSelectNocturno.onclick = () => selectPlan('nocturno')
   const btnSelectPremium = q('btn-select-plan-premium'); if (btnSelectPremium) btnSelectPremium.onclick = () => selectPlan('premium')
@@ -2475,6 +2811,7 @@ function bind() {
   const btnExploreMesas = q('btn-explore-mesas'); if (btnExploreMesas) btnExploreMesas.onclick = exploreMesas
   q('btn-edit-profile').onclick = openEditProfile
   q('btn-edit-save').onclick = saveEditProfile
+  const editPhotoFile = q('edit-photo-file'); if (editPhotoFile) editPhotoFile.onchange = uploadExtraPhoto
   // Pausa social eliminada
   const btnViewPromos = q('btn-view-promos'); if (btnViewPromos) btnViewPromos.onclick = viewPromos
   const btnCallWaiter = q('btn-call-waiter'); if (btnCallWaiter) btnCallWaiter.onclick = openCallWaiter
@@ -2495,6 +2832,9 @@ function bind() {
   const btnStaffCatalogSave = q('btn-staff-catalog-save'); if (btnStaffCatalogSave) btnStaffCatalogSave.onclick = saveStaffCatalog
   const btnStaffCatalogUseGlobal = q('btn-staff-catalog-use-global'); if (btnStaffCatalogUseGlobal) btnStaffCatalogUseGlobal.onclick = useGlobalCatalog
   const btnStaffCatalogCopyGlobal = q('btn-staff-catalog-copy-global'); if (btnStaffCatalogCopyGlobal) btnStaffCatalogCopyGlobal.onclick = () => copyGlobalToSession(false)
+  const btnCatalogExport = q('btn-staff-catalog-export'); if (btnCatalogExport) btnCatalogExport.onclick = exportStaffCatalog
+  const btnCatalogImport = q('btn-staff-catalog-import'); if (btnCatalogImport) btnCatalogImport.onclick = () => { const inp = q('staff-catalog-import-file'); if (inp) inp.click() }
+  const catalogImportFile = q('staff-catalog-import-file'); if (catalogImportFile) catalogImportFile.onchange = importStaffCatalog
   const btnStaffCatalogAdd = q('btn-staff-catalog-add'); if (btnStaffCatalogAdd) btnStaffCatalogAdd.onclick = () => {
     const name = q('staff-catalog-add-name')?.value.trim()
     const price = Number(q('staff-catalog-add-price')?.value || 0)
@@ -2584,6 +2924,11 @@ function bind() {
     } catch (e) { toast('No se pudo copiar', 'error') }
   }
   const genTablePinBtn = q('btn-generate-table-pin'); if (genTablePinBtn) genTablePinBtn.onclick = generateTableChangePin
+  const btnShiftOpen = q('btn-shift-open'); if (btnShiftOpen) btnShiftOpen.onclick = openShift
+  const btnShiftClose = q('btn-shift-close'); if (btnShiftClose) btnShiftClose.onclick = closeShift
+  const btnGuestlistAdd = q('btn-guestlist-add'); if (btnGuestlistAdd) btnGuestlistAdd.onclick = addToGuestList
+  const btnStaffNoteSend = q('btn-staff-note-send'); if (btnStaffNoteSend) btnStaffNoteSend.onclick = sendStaffNote
+  const staffNoteInput = q('staff-note-input'); if (staffNoteInput) staffNoteInput.onkeydown = (e) => { if (e.key === 'Enter') sendStaffNote() }
   const catalogSearch = q('catalog-search'); if (catalogSearch) catalogSearch.oninput = () => scheduleLater('catalog_search', applyCatalogSearch, 320)
   const btnWelcomeVenuePinSend = q('btn-welcome-venue-pin-send'); if (btnWelcomeVenuePinSend) btnWelcomeVenuePinSend.onclick = sendVenuePinAdminWelcome
   const savePB = q('btn-save-public-base')
@@ -2670,31 +3015,42 @@ async function loadDJRequests() {
   renderDJStatus(!!st.enabled, Number(st.until || 0))
   const container = q('staff-dj-list')
   if (!container) return
-  const listAsc = (r.requests || []).slice().sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0))
-  const sig = JSON.stringify(listAsc.map(it => `${it.id}:${it.status}`))
+  const queue = (r.requests || []).filter(it => it.status !== 'terminado')
+  const history = r.history || []
+  const sig = JSON.stringify(queue.map(it => `${it.id}:${it.status}:${it.priority}`)) + '|' + JSON.stringify(history.map(it => it.id))
   if (S.djListSig && S.djListSig === sig) {
-    { const b = q('badge-tab-dj'); if (b) { const pending = listAsc.filter(it => it.status === 'pendiente').length; b.classList.toggle('show', pending > 0); b.textContent = pending > 9 ? '9+' : String(pending) } }
+    { const b = q('badge-tab-dj'); if (b) { const pending = queue.filter(it => it.status === 'pendiente').length; b.classList.toggle('show', pending > 0); b.textContent = pending > 9 ? '9+' : String(pending) } }
     return
   }
   container.innerHTML = ''
-  { const b = q('badge-tab-dj'); if (b) { const pending = listAsc.filter(it => it.status === 'pendiente').length; b.classList.toggle('show', pending > 0); b.textContent = pending > 9 ? '9+' : String(pending) } }
-  for (const it of listAsc) {
-    if (it.status === 'terminado') continue
+  { const b = q('badge-tab-dj'); if (b) { const pending = queue.filter(it => it.status === 'pendiente').length; b.classList.toggle('show', pending > 0); b.textContent = pending > 9 ? '9+' : String(pending) } }
+  for (const it of queue) {
     const div = document.createElement('div')
     div.className = 'card'
     const info = document.createElement('div')
-    info.textContent = `Mesa ${it.tableId || '-'} • ${it.userAlias || ''} • ${it.song}`
+    info.textContent = `Mesa ${it.tableId || '-'} • ${it.userAlias || ''} • ${it.song}${it.priority ? ' ⭐' : ''}`
     const chip = document.createElement('span')
     chip.className = 'chip ' + it.status
     chip.textContent = it.status
     info.append(chip)
     const row = document.createElement('div')
     row.className = 'row'
+    const bP = document.createElement('button'); bP.className = 'warning'; bP.textContent = 'Priorizar'; bP.onclick = async () => { await api(`/api/staff/dj/${it.id}`, { method: 'POST', body: JSON.stringify({ priority: (it.priority || 0) + 1 }) }); scheduleStaffDJUpdate() }
     const b1 = document.createElement('button'); b1.className = 'info'; b1.textContent = 'Programar'; b1.onclick = async () => { await api(`/api/staff/dj/${it.id}`, { method: 'POST', body: JSON.stringify({ status: 'programado' }) }); scheduleStaffDJUpdate() }
     const b4 = document.createElement('button'); b4.className = 'success'; b4.textContent = 'Finalizar'; b4.onclick = async () => { await api(`/api/staff/dj/${it.id}`, { method: 'POST', body: JSON.stringify({ status: 'terminado' }) }); scheduleStaffDJUpdate() }
-    row.append(b1, b4)
+    row.append(bP, b1, b4)
     div.append(info, row)
     container.append(div)
+  }
+  if (history.length) {
+    const hTitle = document.createElement('h4'); hTitle.textContent = 'Ya sonó esta noche'; hTitle.style.margin = '14px 0 6px'
+    container.append(hTitle)
+    for (const it of history) {
+      const div = document.createElement('div')
+      div.style.cssText = 'font-size:13px;color:#a89fcf;padding:4px 0;border-bottom:1px solid #222'
+      div.textContent = `Mesa ${it.tableId || '-'} • ${it.userAlias || ''} • ${it.song}`
+      container.append(div)
+    }
   }
   S.djListSig = sig
 }
@@ -2894,6 +3250,47 @@ function openEditProfile() {
   q('edit-tags').value = (Array.isArray(S.user.prefs?.tags) ? S.user.prefs.tags.join(',') : '')
   q('edit-table').value = S.user.tableId || ''
   show('screen-edit-profile')
+  loadEditPhotos()
+}
+async function loadEditPhotos() {
+  const list = q('edit-photos-list')
+  const fileInp = q('edit-photo-file')
+  if (!list) return
+  try {
+    const r = await api(`/api/user/get?userId=${encodeURIComponent(S.user.id)}`)
+    const photos = (r.user && r.user.photos) || []
+    list.innerHTML = ''
+    for (const p of photos) {
+      const wrap = document.createElement('div')
+      wrap.style.cssText = 'position:relative'
+      const img = document.createElement('img')
+      img.src = p.url
+      img.style.cssText = 'width:70px;height:70px;object-fit:cover;border-radius:8px;opacity:' + (p.approved ? '1' : '0.5')
+      const badge = document.createElement('div')
+      badge.textContent = p.approved ? 'Aprobada' : 'Pendiente'
+      badge.style.cssText = 'font-size:10px;text-align:center;color:' + (p.approved ? '#4ade80' : '#fbbf24')
+      wrap.append(img, badge)
+      list.append(wrap)
+    }
+    if (fileInp) fileInp.style.display = photos.length >= 2 ? 'none' : ''
+  } catch {}
+}
+async function uploadExtraPhoto(e) {
+  const file = e.target.files[0]
+  if (!file) return
+  try {
+    const dataUri = await new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = ev => resolve(ev.target.result)
+      reader.onerror = reject
+      reader.readAsDataURL(file)
+    })
+    await api('/api/user/photos/add', { method: 'POST', body: JSON.stringify({ userId: S.user.id, token: S.user.token, photo: dataUri }) })
+    showError('Foto enviada, queda pendiente de aprobación del staff')
+    setTimeout(() => showError(''), 2000)
+    await loadEditPhotos()
+  } catch (err) { showError(String(err.message || 'Error al subir la foto')) }
+  e.target.value = ''
 }
 async function renderUserHeader() {
   const ua = q('user-alias'), us = q('user-selfie'), ut = q('user-table')
@@ -3181,7 +3578,8 @@ function showNextInvite() {
     const zoneTxt = S.currentInvite.from.zone ? ` • Zona ${S.currentInvite.from.zone}` : ''
     const g = genderLabel(S.currentInvite.from.gender)
     const gTxt = g ? ` • ${g}` : ''
-    const info = q('invite-received-info'); if (info) info.textContent = `${S.currentInvite.from.alias}${gTxt} te invita${mesaTxt}${zoneTxt}`
+    const customTxt = next.invite.customMsg ? `: "${next.invite.customMsg}"` : ''
+    const info = q('invite-received-info'); if (info) info.textContent = `${S.currentInvite.from.alias}${gTxt} te invita${mesaTxt}${zoneTxt}${customTxt}`
     const img = q('invite-from-selfie'); if (img) img.src = S.currentInvite.from.selfie || ''
     show('screen-invite-received')
     openInviteModal(S.currentInvite.expiresAt)
@@ -3492,6 +3890,20 @@ function init() {
   } catch {}
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js')
   try {
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true
+    if (!isStandalone) {
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault()
+        _deferredInstallPrompt = e
+        const btn = q('btn-install-app'); if (btn) btn.style.display = ''
+      })
+      window.addEventListener('appinstalled', () => {
+        _deferredInstallPrompt = null
+        const btn = q('btn-install-app'); if (btn) btn.style.display = 'none'
+      })
+    }
+  } catch {}
+  try {
     setTheme('dark')
     try { localStorage.setItem('discos_theme', 'dark') } catch {}
   } catch { setTheme('dark') }
@@ -3625,7 +4037,9 @@ async function restoreLocalUser() {
     if (sidParam && ajParam === '1' && sidParam !== d.sessionId) { return false }
     S.venueId = d.venueId || (S.venueId || 'default')
     if (d.role === 'staff') {
-      S.user = { id: d.userId, role: 'staff', sessionId: d.sessionId, token: d.token || '' }
+      let staffRole = ''
+      try { const r = await api(`/api/user/get?userId=${encodeURIComponent(d.userId)}`); if (r && r.user) staffRole = r.user.staffRole || '' } catch {}
+      S.user = { id: d.userId, role: 'staff', staffRole, sessionId: d.sessionId, token: d.token || '' }
       S.sessionId = d.sessionId
       S.role = 'staff'
       await syncSessionMode(S.sessionId)
@@ -3725,6 +4139,12 @@ async function loadAnalytics() {
     let v = 0
     for (const k of Object.keys(r.orders || {})) { if (k !== 'cobrado' && k !== 'cancelado') v += Number(r.orders[k] || 0) }
     bMenuOrders.classList.toggle('show', v > 0); bMenuOrders.textContent = v > 9 ? '9+' : String(v)
+  }
+  const bCocina = q('badge-tab-cocina')
+  if (bCocina) {
+    let v = 0
+    for (const k of ['pendiente_cobro', 'en_preparacion']) v += Number((r.orders || {})[k] || 0)
+    bCocina.classList.toggle('show', v > 0); bCocina.textContent = v > 9 ? '9+' : String(v)
   }
   const bMesas = q('badge-tab-mesas')
   if (bMesas) { const v = r.mesasActivas || 0; bMesas.classList.toggle('show', v > 0); bMesas.textContent = v > 9 ? '9+' : String(v) }
@@ -4027,11 +4447,21 @@ function renderCatalogItems(cat, labels, items) {
   for (const it of items) {
     const div = document.createElement('div')
     div.className = 'card'
+    const soldOut = it.stock !== null && it.stock !== undefined && Number(it.stock) <= 0
     const name = document.createElement('div')
     name.textContent = it.name
     const price = document.createElement('span')
     price.className = 'chip'
     price.textContent = formatPriceShort(it.price)
+    if (soldOut) {
+      div.style.opacity = '0.5'
+      const soldChip = document.createElement('span')
+      soldChip.className = 'chip'
+      soldChip.textContent = 'Agotado'
+      div.append(name, price, soldChip)
+      itemsEl.append(div)
+      continue
+    }
     if (isRestaurantMode()) {
       div.onclick = () => openRestaurantItemModal(it)
     } else {
@@ -4228,6 +4658,13 @@ async function loadStaffCatalogEditor() {
       discount.placeholder = '% desc'
       discount.value = Number(it.discount || 0)
       discount.className = 'catalog-discount'
+      const stock = document.createElement('input')
+      stock.type = 'number'
+      stock.min = '0'
+      stock.placeholder = 'Stock (vacío = ilimitado)'
+      stock.value = (it.stock === null || it.stock === undefined) ? '' : Number(it.stock)
+      stock.className = 'catalog-stock'
+      stock.title = 'Dejar vacío = stock ilimitado. 0 = agotado.'
       name.oninput = scheduleCatalogSave
       price.oninput = scheduleCatalogSave
       category.oninput = scheduleCatalogSave
@@ -4236,13 +4673,76 @@ async function loadStaffCatalogEditor() {
       combo.onchange = scheduleCatalogSave
       includes.oninput = scheduleCatalogSave
       discount.oninput = scheduleCatalogSave
+      stock.oninput = scheduleCatalogSave
       const del = document.createElement('button'); del.className = 'danger'; del.textContent = 'Eliminar'; del.onclick = () => { try { row.remove(); scheduleCatalogSave() } catch {} }
       const lblCombo = document.createElement('label'); lblCombo.textContent = 'Combo'; lblCombo.style.marginLeft = '8px'
       lblCombo.appendChild(combo)
-      row.append(name, price, category, subInput, descInput, lblCombo, includes, discount, del)
+      row.append(name, price, category, subInput, descInput, lblCombo, includes, discount, stock, del)
       container.append(row)
     }
   } catch {}
+}
+function exportStaffCatalog() {
+  const qs = S.sessionId ? `?sessionId=${encodeURIComponent(S.sessionId)}` : ''
+  const a = document.createElement('a')
+  a.href = `/api/staff/catalog/export${qs}`
+  a.download = 'catalogo.csv'
+  document.body.appendChild(a); a.click(); a.remove()
+}
+function parseCsv(text) {
+  const rows = []
+  let row = [], field = '', inQuotes = false
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (inQuotes) {
+      if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++ } else inQuotes = false }
+      else field += c
+    } else if (c === '"') inQuotes = true
+    else if (c === ',') { row.push(field); field = '' }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++
+      row.push(field); field = ''
+      if (row.length > 1 || row[0] !== '') rows.push(row)
+      row = []
+    } else field += c
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row) }
+  return rows
+}
+async function importStaffCatalog(e) {
+  const file = e.target.files[0]
+  if (!file) return
+  try {
+    const text = await file.text()
+    const rows = parseCsv(text)
+    if (!rows.length) { showError('CSV vacío'); return }
+    const header = rows[0].map(h => h.trim().toLowerCase())
+    const idx = (name) => header.indexOf(name)
+    const items = []
+    for (const r of rows.slice(1)) {
+      const name = (r[idx('name')] || '').trim()
+      if (!name) continue
+      const stockRaw = idx('stock') >= 0 ? (r[idx('stock')] || '').trim() : ''
+      items.push({
+        name,
+        price: Number(r[idx('price')] || 0),
+        category: (r[idx('category')] || 'otros').trim().toLowerCase() || 'otros',
+        subcategory: (r[idx('subcategory')] || '').trim(),
+        description: (r[idx('description')] || '').trim(),
+        stock: stockRaw === '' ? null : Math.max(0, Number(stockRaw)),
+        discount: Math.max(0, Math.min(100, Number(r[idx('discount')] || 0))),
+        combo: (r[idx('combo')] || '') === '1',
+        includes: idx('includes') >= 0 ? (r[idx('includes')] || '').split('|').map(s => s.trim()).filter(Boolean) : [],
+      })
+    }
+    if (!items.length) { showError('No se encontraron productos válidos en el CSV'); return }
+    const ok = await confirmAction(`¿Reemplazar la carta actual con ${items.length} productos del CSV?`)
+    if (!ok) { e.target.value = ''; return }
+    await api('/api/staff/catalog', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, staffId: S.user && S.user.id, items }) })
+    showError('Carta importada'); setTimeout(() => showError(''), 1500)
+    await loadStaffCatalogEditor()
+  } catch (err) { showError(String(err.message || 'Error al importar CSV')) }
+  e.target.value = ''
 }
 async function saveStaffCatalog() {
   try {
@@ -4258,6 +4758,7 @@ async function saveStaffCatalog() {
       const comboInput = row.querySelector('input[type="checkbox"]')
       const includesInput = row.querySelector('.catalog-includes')
       const discInput = row.querySelector('.catalog-discount')
+      const stockInput = row.querySelector('.catalog-stock')
       if (!nameInput || !priceInput || !catSelect) continue
       const name = nameInput.value.trim()
       const price = Number(priceInput.value || 0)
@@ -4267,9 +4768,10 @@ async function saveStaffCatalog() {
       const combo = !!(comboInput && comboInput.checked)
       const includes = includesInput ? String(includesInput.value || '').split(',').map(s => s.trim()).filter(Boolean) : []
       const discount = discInput ? Math.max(0, Math.min(100, Number(discInput.value || 0))) : 0
+      const stock = (stockInput && stockInput.value !== '') ? Math.max(0, Number(stockInput.value)) : null
       if (!name) continue
       if (isRestaurantMode() && !description) { showError('Agrega una descripción'); return }
-      items.push({ name, price, category, subcategory, description, combo, includes, discount })
+      items.push({ name, price, category, subcategory, description, combo, includes, discount, stock })
     }
     const s = await api('/api/staff/catalog', { method: 'POST', body: JSON.stringify({ sessionId: S.sessionId, staffId: S.user && S.user.id, items }) })
     if (s && s.ok) { showError('Carta guardada'); setTimeout(() => showError(''), 1000) }
@@ -4307,6 +4809,28 @@ async function loadStaffPromos() {
       div.className = 'card'
       div.textContent = p.title || ''
       container.append(div)
+    }
+  } catch {}
+}
+async function loadMesasMap() {
+  const map = q('mesas-map')
+  if (!map) return
+  try {
+    const r = await api(`/api/mesas/active?sessionId=${encodeURIComponent(S.sessionId)}`)
+    const mesas = (r.mesas || []).slice().sort((a, b) => Number(a.tableId) - Number(b.tableId) || String(a.tableId).localeCompare(String(b.tableId)))
+    map.innerHTML = ''
+    if (!mesas.length) { map.innerHTML = '<div style="color:#666;font-size:13px">Sin mesas activas todavía</div>'; return }
+    for (const m of mesas) {
+      const tile = document.createElement('div')
+      const people = Number(m.people || 0)
+      const level = people === 0 ? 'empty' : (people <= 2 ? 'low' : (people <= 5 ? 'mid' : 'high'))
+      tile.className = `mesa-tile ${level}`
+      tile.innerHTML = `<div class="mesa-num">${escapeHtml(String(m.tableId))}</div><div class="mesa-count">${people} pers.</div>`
+      tile.onclick = () => {
+        const inp = q('staff-table-id'); if (inp) inp.value = m.tableId
+        viewStaffTableHistory()
+      }
+      map.append(tile)
     }
   } catch {}
 }
@@ -4398,9 +4922,16 @@ function formatPrice(n) {
   return '$' + Number(n || 0).toLocaleString('es-CO')
 }
 
-async function loadTonightFeed() {
+async function loadTonightFeed(opts) {
   try {
-    const r = await api('/api/venues/tonight')
+    const params = new URLSearchParams()
+    const city = (q('tonight-filter-city') && q('tonight-filter-city').value.trim()) || ''
+    const genre = (q('tonight-filter-genre') && q('tonight-filter-genre').value.trim()) || ''
+    if (city) params.set('city', city)
+    if (genre) params.set('genre', genre)
+    if (opts && opts.lat !== undefined && opts.lng !== undefined) { params.set('lat', opts.lat); params.set('lng', opts.lng) }
+    const qs = params.toString()
+    const r = await api('/api/venues/tonight' + (qs ? '?' + qs : ''))
     const feed = q('tonight-feed')
     const list = q('tonight-list')
     if (!feed || !list) return
@@ -4427,6 +4958,9 @@ async function loadTonightFeed() {
       if (v.coverEnabled && v.coverPrice > 0) parts.push('Cover: ' + formatPrice(v.coverPrice))
       else if (!v.coverEnabled || !v.coverPrice) parts.push('Sin cover')
       parts.push(v.userCount + ' personas')
+      if (v.musicGenre) parts.push(v.musicGenre)
+      if (v.city) parts.push(v.city)
+      if (v.distanceKm !== null && v.distanceKm !== undefined) parts.push(`${v.distanceKm} km`)
       sub.textContent = parts.join(' • ')
       const discRow = document.createElement('div')
       discRow.style.cssText = 'font-size:11px;margin-top:4px;display:flex;gap:6px'
@@ -4624,6 +5158,36 @@ async function showSubscriberHome() {
   loadSubscriberBenefits()
   loadSubscriberFollowing()
   loadSubscriberHistory()
+  loadSubscriberLoyalty()
+}
+
+async function loadSubscriberLoyalty() {
+  if (!_subscriber) return
+  try {
+    const r = await api(`/api/subscriber/profile?subscriberId=${encodeURIComponent(_subscriber.id)}`)
+    const sub = r.subscriber
+    if (!sub) return
+    const pointsEl = q('sub-points'); if (pointsEl) pointsEl.textContent = String(sub.points || 0)
+    const badgesEl = q('sub-badges')
+    if (badgesEl) {
+      badgesEl.innerHTML = ''
+      for (const b of (sub.badges || [])) {
+        const chip = document.createElement('span')
+        chip.className = 'chip'
+        chip.style.cssText = 'background:#2a2050;color:#d8b4fe'
+        chip.textContent = b.label
+        badgesEl.appendChild(chip)
+      }
+      if (!sub.badges || !sub.badges.length) badgesEl.innerHTML = '<span style="font-size:12px;color:#666">Todavía sin insignias — vení una noche para empezar a sumar</span>'
+    }
+    const chk = q('chk-hide-selfie')
+    if (chk) {
+      chk.checked = !!sub.hideSelfie
+      chk.onchange = async () => {
+        try { await api('/api/subscriber/privacy', { method: 'POST', body: JSON.stringify({ subscriberId: _subscriber.id, hideSelfie: chk.checked }) }) } catch {}
+      }
+    }
+  } catch {}
 }
 
 async function loadSubscriberActiveSessions() {
@@ -4868,7 +5432,8 @@ function renderVenueProfile(v) {
       el.style.cssText = 'padding:8px 0;border-bottom:1px solid #222'
       const stars = '★'.repeat(rev.rating) + '☆'.repeat(5 - rev.rating)
       const d = new Date(rev.date)
-      el.innerHTML = `<div style="color:#fbbf24;font-size:13px">${stars}</div>${rev.comment ? `<div style="font-size:13px;margin-top:2px">${escapeHtml(rev.comment)}</div>` : ''}<div style="font-size:11px;color:#555;margin-top:2px">${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()}</div>`
+      const photoHtml = (rev.photoUrl && /^https:\/\//i.test(rev.photoUrl)) ? `<img src="${escapeHtml(rev.photoUrl)}" style="max-width:140px;max-height:100px;border-radius:6px;margin-top:6px;display:block">` : ''
+      el.innerHTML = `<div style="color:#fbbf24;font-size:13px">${stars}</div>${rev.comment ? `<div style="font-size:13px;margin-top:2px">${escapeHtml(rev.comment)}</div>` : ''}${photoHtml}<div style="font-size:11px;color:#555;margin-top:2px">${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()}</div>`
       reviewsList.appendChild(el)
     }
   }
@@ -4903,11 +5468,50 @@ function renderStars(selected) {
 async function submitVenueReview() {
   if (!_subscriber || !_currentVenueProfile || !_selectedRating) { toast('Seleccioná una calificación', 'info'); return }
   const comment = q('vp-review-comment') ? q('vp-review-comment').value.trim() : ''
+  const photoFile = q('vp-review-photo') ? q('vp-review-photo').files[0] : null
   try {
-    await api('/api/subscriber/review', { method: 'POST', body: JSON.stringify({ subscriberId: _subscriber.id, venueId: _currentVenueProfile.venueId, rating: _selectedRating, comment }) })
+    let photo = ''
+    if (photoFile) {
+      photo = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = e => resolve(e.target.result)
+        reader.onerror = reject
+        reader.readAsDataURL(photoFile)
+      })
+    }
+    await api('/api/subscriber/review', { method: 'POST', body: JSON.stringify({ subscriberId: _subscriber.id, venueId: _currentVenueProfile.venueId, rating: _selectedRating, comment, photo }) })
     toast('Reseña enviada', 'success')
     await openVenueProfile(_currentVenueProfile.venueId)
   } catch { toast('Error al enviar reseña', 'info') }
+}
+
+async function shareVenue() {
+  if (!_currentVenueProfile) return
+  const v = _currentVenueProfile
+  const url = `${location.origin}/?venueId=${encodeURIComponent(v.venueId)}`
+  const text = `Mirá ${v.name} en Discos`
+  if (navigator.share) {
+    try { await navigator.share({ title: v.name, text, url }); return } catch { return }
+  }
+  try {
+    await navigator.clipboard.writeText(url)
+    toast('Link copiado al portapapeles', 'success')
+  } catch {
+    toast(url, 'info')
+  }
+}
+async function submitVenueReservation() {
+  if (!_currentVenueProfile) return
+  const name = q('vp-res-name') ? q('vp-res-name').value.trim() : ''
+  const partySize = Math.max(1, Number(q('vp-res-party') ? q('vp-res-party').value : 1))
+  const note = q('vp-res-note') ? q('vp-res-note').value.trim() : ''
+  if (!name) { toast('Ingresá tu nombre', 'info'); return }
+  try {
+    await api('/api/reservations/request', { method: 'POST', body: JSON.stringify({ venueId: _currentVenueProfile.venueId, subscriberId: _subscriber ? _subscriber.id : '', name, partySize, note, requestedFor: 'hoy' }) })
+    const st = q('vp-res-status')
+    if (st) { st.style.display = ''; st.textContent = 'Reserva solicitada — el venue la va a confirmar.' }
+    toast('Reserva solicitada', 'success')
+  } catch (e) { toast(String(e.message || 'Error al reservar'), 'info') }
 }
 
 // ─── PAYMENT FLOW ─────────────────────────────────────────────────────────────
