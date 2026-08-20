@@ -303,6 +303,8 @@ async function initDB() {
   await db.query('ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS cover_paid BOOLEAN')
   await db.query('CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, emitter_id TEXT NOT NULL, receiver_id TEXT NOT NULL, product TEXT NOT NULL, quantity INTEGER NOT NULL, price INTEGER NOT NULL, total INTEGER NOT NULL, status TEXT NOT NULL, created_at BIGINT NOT NULL, expires_at BIGINT NOT NULL, emitter_table TEXT, receiver_table TEXT, mesa_entrega TEXT, is_invitation BOOLEAN, tip INTEGER)')
   await db.query('ALTER TABLE IF EXISTS orders ADD COLUMN IF NOT EXISTS tip INTEGER')
+  await db.query('ALTER TABLE IF EXISTS orders ADD COLUMN IF NOT EXISTS served_by_staff_id TEXT')
+  await db.query('ALTER TABLE IF EXISTS orders ADD COLUMN IF NOT EXISTS served_by_staff_alias TEXT')
   await db.query('CREATE TABLE IF NOT EXISTS table_closures (session_id TEXT NOT NULL, table_id TEXT NOT NULL, closed BOOLEAN NOT NULL, PRIMARY KEY (session_id, table_id))')
   await db.query('CREATE TABLE IF NOT EXISTS waiter_calls (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, user_id TEXT NOT NULL, table_id TEXT, reason TEXT, status TEXT, ts BIGINT NOT NULL)')
   await db.query('CREATE TABLE IF NOT EXISTS catalog_items (session_id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, category TEXT, subcategory TEXT, description TEXT, stock INTEGER, PRIMARY KEY (session_id, name))')
@@ -589,10 +591,10 @@ async function dbGetOrdersBySession(sessionId, stateFilter) {
   requireDB()
   await initDB()
   if (stateFilter) {
-    const r = await db.query('SELECT id, product, quantity, price, total, status, created_at, expires_at, emitter_id, receiver_id, emitter_table, receiver_table, mesa_entrega, tip FROM orders WHERE session_id=$1 AND status=$2', [String(sessionId), String(stateFilter)])
+    const r = await db.query('SELECT id, product, quantity, price, total, status, created_at, expires_at, emitter_id, receiver_id, emitter_table, receiver_table, mesa_entrega, tip, served_by_staff_id, served_by_staff_alias FROM orders WHERE session_id=$1 AND status=$2', [String(sessionId), String(stateFilter)])
     return r.rows
   }
-  const r = await db.query('SELECT id, product, quantity, price, total, status, created_at, expires_at, emitter_id, receiver_id, emitter_table, receiver_table, mesa_entrega, tip FROM orders WHERE session_id=$1', [String(sessionId)])
+  const r = await db.query('SELECT id, product, quantity, price, total, status, created_at, expires_at, emitter_id, receiver_id, emitter_table, receiver_table, mesa_entrega, tip, served_by_staff_id, served_by_staff_alias FROM orders WHERE session_id=$1', [String(sessionId)])
   return r.rows
 }
 async function dbGetOrdersByTable(sessionId, tableId) {
@@ -2999,17 +3001,24 @@ const server = http.createServer(async (req, res) => {
       const body = await parseBody(req)
       const order = state.orders.get(orderId)
       if (!order) { json(res, 404, { error: 'no_order' }); return }
+      const staff = state.users.get(body.staffId)
+      if (!staff || staff.role !== 'staff') { json(res, 403, { error: 'no_staff' }); return }
+      if (staff.sessionId !== order.sessionId) { json(res, 403, { error: 'forbidden' }); return }
       const status = body.status
       if (!['cobrado', 'entregado', 'cancelado', 'en_preparacion', 'expirado'].includes(status)) { json(res, 400, { error: 'bad_status' }); return }
       const tip = status === 'cobrado' ? reqInt(body.tip || 0, 0, 10000000) : order.tip || 0
+      const servedByStaffId = staff.id
+      const servedByStaffAlias = staff.alias || staff.id
       await withDbTx(async (client) => {
         const r = await client.query('SELECT status FROM orders WHERE id=$1 FOR UPDATE', [String(order.id)])
         if (!r.rows.length) throw new Error('no_order')
-        await client.query('UPDATE orders SET status=$2, tip=$3 WHERE id=$1', [String(order.id), String(status), tip])
-        await dbInsertEvent({ sessionId: order.sessionId, entityType: 'order', entityId: order.id, eventType: 'status', payload: { status, tip }, ts: now() }, client)
+        await client.query('UPDATE orders SET status=$2, tip=$3, served_by_staff_id=$4, served_by_staff_alias=$5 WHERE id=$1', [String(order.id), String(status), tip, servedByStaffId, servedByStaffAlias])
+        await dbInsertEvent({ sessionId: order.sessionId, entityType: 'order', entityId: order.id, eventType: 'status', payload: { status, tip, staffId: servedByStaffId }, ts: now() }, client)
       })
       order.status = status
       order.tip = tip
+      order.servedByStaffId = servedByStaffId
+      order.servedByStaffAlias = servedByStaffAlias
       sendToUser(order.emitterId, 'order_update', { order })
       sendToUser(order.receiverId, 'order_update', { order })
       sendToStaff(order.sessionId, 'order_update', { order })
@@ -3057,7 +3066,9 @@ const server = http.createServer(async (req, res) => {
             receiverTable: r.receiver_table || '',
             mesaEntrega: r.mesa_entrega || '',
             isInvitation: !!r.is_invitation,
-            tip: Number(r.tip || 0)
+            tip: Number(r.tip || 0),
+            servedByStaffId: r.served_by_staff_id || '',
+            servedByStaffAlias: r.served_by_staff_alias || ''
           })
         }
         json(res, 200, { orders: out })
@@ -3082,7 +3093,9 @@ const server = http.createServer(async (req, res) => {
             receiverTable: o.receiverTable || '',
             mesaEntrega: o.mesaEntrega || '',
             isInvitation: !!o.isInvitation,
-            tip: Number(o.tip || 0)
+            tip: Number(o.tip || 0),
+            servedByStaffId: o.servedByStaffId || '',
+            servedByStaffAlias: o.servedByStaffAlias || ''
           })
         }
         json(res, 200, { orders: list })

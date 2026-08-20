@@ -2296,7 +2296,7 @@ async function loadOrders(state = '') {
     return ia.localeCompare(ib)
   })
   const filtered = state ? listAsc : listAsc.filter(o => o.status !== 'cobrado')
-  const sigOrders = buildSig(filtered, o => [o.id, o.status, o.quantity, o.total, o.product, o.emitterId, o.receiverId, o.receiverTable, o.emitterTable, o.mesaEntrega, o.createdAt, o.isInvitation].join('~'))
+  const sigOrders = buildSig(filtered, o => [o.id, o.status, o.quantity, o.total, o.product, o.emitterId, o.receiverId, o.receiverTable, o.emitterTable, o.mesaEntrega, o.createdAt, o.isInvitation, o.servedByStaffAlias].join('~'))
   const sig = sigOrders
   S.ui = S.ui || {}
   S.ui.staffOrdersSigMap = S.ui.staffOrdersSigMap || {}
@@ -2358,6 +2358,7 @@ async function loadOrders(state = '') {
       const tipTxt = o.tip ? ` • propina $${o.tip}` : ''
       const label = o.productLabel || formatOrderProductFull(o.product)
       const timeTxt = o.createdAt ? ` • ${formatTimeShort(o.createdAt)}` : ''
+      const staffTxt = o.servedByStaffAlias ? ` • Atendido por ${o.servedByStaffAlias}` : ''
       if (emSelfie) {
         const avatar = document.createElement('img')
         avatar.src = emSelfie
@@ -2366,7 +2367,7 @@ async function loadOrders(state = '') {
         avatar.style.cssText = 'width:32px;height:32px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:6px;border:1px solid #444'
         info.append(avatar)
       }
-      info.append(document.createTextNode(`${label} x${o.quantity || 1}${amountTxt}${tipTxt} • Emisor ${emAlias} → Receptor ${reAlias}${mesaInfo}${timeTxt}`))
+      info.append(document.createTextNode(`${label} x${o.quantity || 1}${amountTxt}${tipTxt} • Emisor ${emAlias} → Receptor ${reAlias}${mesaInfo}${timeTxt}${staffTxt}`))
       info.append(chip)
       if (o.isInvitation) {
         const invChip = document.createElement('span')
@@ -2535,7 +2536,7 @@ async function addToGuestList() {
   } catch (e) { showError(String(e.message)) }
 }
 async function updateOrder(id, status, tip) {
-  const body = { status }
+  const body = { status, staffId: S.user.id }
   if (status === 'cobrado' && tip) body.tip = tip
   await api(`/api/staff/orders/${id}`, { method: 'POST', body: JSON.stringify(body) })
   const cur = q('staff-orders-filter')?.value || ''
