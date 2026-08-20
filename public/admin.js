@@ -306,7 +306,7 @@ async function loadDashboard() {
   const fmt = n => `$${Number(n || 0).toLocaleString('es-CO')}`
   const kpis = [
     ['Ingresos susc. (30d)', fmt(r.subsRevenue30d), `${r.subsApproved30d} pagos aprobados`],
-    ['Pagos pendientes', String(r.pendingPayments), 'por revisar'],
+    ['Pagos pendientes', String(r.subsPending || 0), 'por revisar'],
     ['Ventas en barra (histórico)', fmt(r.salesTotal), `${r.shiftsClosed} turnos cerrados`],
     ['Propinas (histórico)', fmt(r.tipsTotal), ''],
     ['Venues activos', `${r.activeVenues}/${r.totalVenues}`, ''],
