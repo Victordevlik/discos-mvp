@@ -62,6 +62,8 @@ function applyRestaurantMode() {
   const lblSelfie = q('label-selfie'); if (lblSelfie) lblSelfie.style.display = 'none'
   const selfie = q('selfie'); if (selfie) { selfie.style.display = 'none'; selfie.required = false }
   const selfieNote = q('selfie-note'); if (selfieNote) selfieNote.style.display = 'none'
+  const lblTable = q('label-table'); if (lblTable) lblTable.textContent = 'Mesa (obligatorio)'
+  const tableInp = q('profile-table'); if (tableInp) tableInp.required = true
   const heroSelfie = q('user-selfie-hero'); if (heroSelfie) heroSelfie.style.display = 'none'
   const waiterDisco = q('waiter-reasons-disco'); if (waiterDisco) waiterDisco.style.display = 'none'
   const waiterRest = q('waiter-reasons-restaurant'); if (waiterRest) waiterRest.style.display = ''
@@ -95,6 +97,8 @@ function applyDiscoMode() {
   const lblSelfie = q('label-selfie'); if (lblSelfie) lblSelfie.style.display = ''
   const selfie = q('selfie'); if (selfie) { selfie.style.display = ''; selfie.required = true }
   const selfieNote = q('selfie-note'); if (selfieNote) selfieNote.style.display = ''
+  const lblTable = q('label-table'); if (lblTable) lblTable.textContent = 'Mesa (opcional)'
+  const tableInp = q('profile-table'); if (tableInp) tableInp.required = false
   const heroSelfie = q('user-selfie-hero'); if (heroSelfie) heroSelfie.style.display = ''
   const waiterDisco = q('waiter-reasons-disco'); if (waiterDisco) waiterDisco.style.display = ''
   const waiterRest = q('waiter-reasons-restaurant'); if (waiterRest) waiterRest.style.display = 'none'
@@ -1123,7 +1127,7 @@ async function saveProfile() {
   }
   if (!alias) { showError('Ingresa tu alias'); setTimeout(() => showError(''), 1200); return }
   if (!isRestaurant && !gender) { showError(t('gender_required')); setTimeout(() => showError(''), 1200); return }
-  if (!tableId) { showError('Ingresa tu mesa'); setTimeout(() => showError(''), 1200); return }
+  if (isRestaurant && !tableId) { showError('Ingresa tu mesa'); setTimeout(() => showError(''), 1200); return }
   if (!isRestaurant && !file) { showError('Debes subir tu selfie'); setTimeout(() => showError(''), 1400); return }
   showModal('Preparando tu perfil', 'Estamos cargando tus datos. En segundos disfrutarás una nueva experiencia.', 'info')
   try {
@@ -1131,7 +1135,7 @@ async function saveProfile() {
       await api('/api/user/update', { method: 'POST', body: JSON.stringify({ userId: S.user.id, token: S.user.token, alias, tableId }) })
     } else {
       const resp = await api('/api/user/profile', { method: 'POST', body: JSON.stringify({ userId: S.user.id, token: S.user.token, alias, selfie, gender }) })
-      await api('/api/user/change-table', { method: 'POST', body: JSON.stringify({ userId: S.user.id, token: S.user.token, newTable: tableId }) })
+      if (tableId) await api('/api/user/change-table', { method: 'POST', body: JSON.stringify({ userId: S.user.id, token: S.user.token, newTable: tableId }) })
       if (resp && resp.selfie) selfie = resp.selfie
     }
   } catch (e) {
@@ -2349,11 +2353,20 @@ async function loadOrders(state = '') {
       const mesaInfo = (o.mesaEntrega || o.receiverTable || o.emitterTable) ? ` • Mesa entrega ${o.mesaEntrega || o.receiverTable}` : ''
       const emAlias = (S.usersIndex && S.usersIndex[o.emitterId] ? S.usersIndex[o.emitterId].alias : o.emitterId)
       const reAlias = (S.usersIndex && S.usersIndex[o.receiverId] ? S.usersIndex[o.receiverId].alias : o.receiverId)
+      const emSelfie = (S.usersIndex && S.usersIndex[o.emitterId] && S.usersIndex[o.emitterId].selfie) || ''
       const amountTxt = ` • $${o.total || 0}`
       const tipTxt = o.tip ? ` • propina $${o.tip}` : ''
       const label = o.productLabel || formatOrderProductFull(o.product)
       const timeTxt = o.createdAt ? ` • ${formatTimeShort(o.createdAt)}` : ''
-      info.textContent = `${label} x${o.quantity || 1}${amountTxt}${tipTxt} • Emisor ${emAlias} → Receptor ${reAlias}${mesaInfo}${timeTxt}`
+      if (emSelfie) {
+        const avatar = document.createElement('img')
+        avatar.src = emSelfie
+        avatar.alt = emAlias
+        avatar.title = `Cliente: ${emAlias}`
+        avatar.style.cssText = 'width:32px;height:32px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:6px;border:1px solid #444'
+        info.append(avatar)
+      }
+      info.append(document.createTextNode(`${label} x${o.quantity || 1}${amountTxt}${tipTxt} • Emisor ${emAlias} → Receptor ${reAlias}${mesaInfo}${timeTxt}`))
       info.append(chip)
       if (o.isInvitation) {
         const invChip = document.createElement('span')
@@ -2540,7 +2553,7 @@ async function loadUsers() {
   S.usersIndex = {}
   container.innerHTML = ''
   for (const u of r.users) {
-    S.usersIndex[u.id] = { alias: u.alias || u.id }
+    S.usersIndex[u.id] = { alias: u.alias || u.id, selfie: u.selfie || '', tableId: u.tableId || '' }
     const div = document.createElement('div')
     div.className = 'card'
     const info = document.createElement('div')
@@ -2820,6 +2833,7 @@ function bind() {
   q('btn-select-table').onclick = openSelectTable
   const heroSelfie = q('user-selfie-hero'); if (heroSelfie) heroSelfie.onclick = () => { const url = S.user?.selfie || ''; if (url) showImageModal(url) }
   q('btn-select-table-save').onclick = saveSelectTable
+  const btnSelectTableBar = q('btn-select-table-bar'); if (btnSelectTableBar) btnSelectTableBar.onclick = selectBarLocation
   q('btn-meeting-confirm').onclick = confirmMeeting
   const endBtn = q('btn-end-dance'); if (endBtn) endBtn.onclick = finishDance
   const btnMeetCome = q('btn-meet-come'); if (btnMeetCome) btnMeetCome.onclick = () => setMeetingPlan('come')
@@ -3494,9 +3508,15 @@ function handleChangeTableError(msg) {
   setTimeout(() => showError(''), 1400)
 }
 
+const NO_TABLE_LOCATION = 'Barra'
+
+// Asignar mesa por primera vez (sin mesa previa) no pide PIN — solo cambiar de una mesa
+// a otra ya en curso lo requiere. Así alguien sin mesa (o en la barra) puede engancharse
+// a un lugar de entrega apenas quiere pedir algo, sin tener que ir a buscar al staff.
 async function changeTableWithPin(newTable) {
-  const pin = q('select-table-pin')?.value.trim()
-  if (!pin) { showError('Ingresa el PIN de cambio de mesa'); setTimeout(() => showError(''), 1400); return false }
+  const hasCurrent = !!(S.user && S.user.tableId)
+  const pin = hasCurrent ? (q('select-table-pin')?.value.trim() || '') : ''
+  if (hasCurrent && !pin) { showError('Ingresa el PIN de cambio de mesa'); setTimeout(() => showError(''), 1400); return false }
   try {
     await api('/api/user/change-table', { method: 'POST', body: JSON.stringify({ userId: S.user.id, token: S.user.token, newTable, pin }) })
   } catch (e) {
@@ -3506,6 +3526,11 @@ async function changeTableWithPin(newTable) {
   S.user.tableId = newTable
   const ut = q('user-table'); if (ut) ut.textContent = S.user.tableId || '-'
   return true
+}
+
+async function selectBarLocation() {
+  const ok = await changeTableWithPin(NO_TABLE_LOCATION)
+  if (ok) show('screen-user-home')
 }
 
 async function saveSelectTable() {

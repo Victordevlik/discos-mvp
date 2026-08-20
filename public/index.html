@@ -90,8 +90,8 @@
       <input id="alias" placeholder="Tu alias" required>
       <label id="label-gender">Género (obligatorio)</label>
       <select id="profile-gender" required></select>
-      <label>Mesa (obligatorio)</label>
-      <input id="profile-table" placeholder="Ej. Mesa 8" required>
+      <label id="label-table">Mesa (opcional)</label>
+      <input id="profile-table" placeholder="Ej. Mesa 8 — dejalo vacío si estás en la barra">
       <label id="label-selfie">Selfie (obligatorio)</label>
       <input id="selfie" type="file" accept="image/*" capture="user" required>
       <label id="label-sub-code" style="margin-top:8px">Código suscriptor (opcional)</label>
@@ -652,9 +652,11 @@
   <div id="screen-select-table" class="screen">
     <h2>Seleccionar mesa</h2>
     <div class="card">
+      <p style="font-size:13px;color:#aaa">Elegí tu mesa para que el mesero sepa dónde entregar tus pedidos. Si estás en la barra o la pista sin mesa fija, elegí "En la barra".</p>
+      <button id="btn-select-table-bar" class="info" style="width:100%;margin-bottom:10px">📍 En la barra (sin mesa)</button>
       <div id="select-table-list"></div>
       <div class="row">
-        <input id="select-table-pin" type="password" inputmode="numeric" placeholder="PIN cambio de mesa">
+        <input id="select-table-pin" type="password" inputmode="numeric" placeholder="PIN cambio de mesa (solo si ya tenías una asignada)">
         <input id="select-table-manual" placeholder="Número de mesa (ej. 8)">
         <button id="btn-select-table-save" class="success">Guardar</button>
       </div>

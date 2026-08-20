@@ -3847,7 +3847,7 @@ const server = http.createServer(async (req, res) => {
         json(res, 200, { users: list })
       } else {
         const list = []
-        for (const u of state.users.values()) if (u.sessionId === sessionId && u.role === 'user') list.push({ id: u.id, alias: u.alias, selfieApproved: u.selfieApproved, muted: u.muted, kicked: !!u.kicked, photos: Array.isArray(u.photos) ? u.photos : [] })
+        for (const u of state.users.values()) if (u.sessionId === sessionId && u.role === 'user') list.push({ id: u.id, alias: u.alias, selfie: u.selfie || '', selfieApproved: u.selfieApproved, muted: u.muted, kicked: !!u.kicked, tableId: u.tableId || '', photos: Array.isArray(u.photos) ? u.photos : [] })
         json(res, 200, { users: list })
       }
       return
