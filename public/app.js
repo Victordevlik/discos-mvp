@@ -4054,14 +4054,14 @@ async function restoreLocalUser() {
         if (v && v.sessionId === sidParam) { key = k; d = { sessionId: v.sessionId, userId: v.userId, role: v.role, venueId: kVenue, token: v.token || '' }; break }
       }
     }
-    if (!d && lastVenue) {
+    if (!d && !venueParam && lastVenue) {
       const k = makeLocalKey(lastVenue, modeKey)
       if (m[k]) {
         key = k
         d = { sessionId: m[k].sessionId, userId: m[k].userId, role: m[k].role, venueId: lastVenue, token: m[k].token || '' }
       }
     }
-    if (!d) {
+    if (!d && !venueParam) {
       const keys = Object.keys(m).filter(k => String(k).endsWith(`::${modeKey}`))
       if (keys.length === 1) {
         key = keys[0]
