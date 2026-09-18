@@ -3591,8 +3591,13 @@ async function loadPendingInvites() {
       S.invitesQueue.push({ type: 'dance', id: inv.id, invite: { id: inv.id, from: inv.from, expiresAt: Number(inv.expiresAt || 0) } })
       S.notifications.invites = (S.notifications.invites || 0) + 1
     }
+    const cList = Array.isArray(r.consumptionInvites) ? r.consumptionInvites : []
+    for (const ci of cList) {
+      S.invitesQueue.push({ type: 'consumption', data: ci })
+      S.notifications.invites = (S.notifications.invites || 0) + 1
+    }
     setBadgeNav('disponibles', S.notifications.invites)
-    if (list.length > 0 && !S.inInviteFlow) { showNextInvite() }
+    if ((list.length > 0 || cList.length > 0) && !S.inInviteFlow) { showNextInvite() }
   } catch {}
 }
 function showNextInvite() {

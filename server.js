@@ -2754,7 +2754,7 @@ const server = http.createServer(async (req, res) => {
       const product = reqString(body.product, 1, 140)
       if (!product) { json(res, 400, { error: 'no_product' }); return }
       const ttlMs = computeInviteTTL(to)
-      state.consumptionInvites.set(reqId, { id: reqId, sessionId: from.sessionId, fromId: from.id, toId: to.id, createdAt: now(), expiresAt: now() + ttlMs, seenAt: 0, notSeenNotified: false })
+      state.consumptionInvites.set(reqId, { id: reqId, sessionId: from.sessionId, fromId: from.id, toId: to.id, product, quantity: qty, note, status: 'pendiente', createdAt: now(), expiresAt: now() + ttlMs, seenAt: 0, notSeenNotified: false })
       sendToUser(to.id, 'consumption_invite', { requestId: reqId, from: { id: from.id, alias: from.alias, tableId: from.tableId || '', gender: (from.prefs && from.prefs.gender) ? from.prefs.gender : '' }, product, quantity: qty, note, expiresAt: now() + ttlMs })
       const pushPayload = JSON.stringify({ title: 'Invitación de consumo', body: `${from.alias || 'Alguien'} te invitó ${qty} x ${product}`, url: '/', type: 'consumption_invite', requestId: reqId })
       try { await sendPushToUser(to.id, pushPayload) } catch {}
@@ -2786,7 +2786,7 @@ const server = http.createServer(async (req, res) => {
       const reqId = genId('cinv')
       const note = reqString(body.note, 0, 140)
       const ttlMsBulk = computeInviteTTL(to)
-      state.consumptionInvites.set(reqId, { id: reqId, sessionId: from.sessionId, fromId: from.id, toId: to.id, createdAt: now(), expiresAt: now() + ttlMsBulk, seenAt: 0, notSeenNotified: false })
+      state.consumptionInvites.set(reqId, { id: reqId, sessionId: from.sessionId, fromId: from.id, toId: to.id, items: filtered, note, status: 'pendiente', createdAt: now(), expiresAt: now() + ttlMsBulk, seenAt: 0, notSeenNotified: false })
       sendToUser(to.id, 'consumption_invite_bulk', { requestId: reqId, from: { id: from.id, alias: from.alias, tableId: from.tableId || '', gender: (from.prefs && from.prefs.gender) ? from.prefs.gender : '' }, items: filtered, note, expiresAt: now() + ttlMsBulk })
       const listTxt = filtered.slice(0, 2).map(it => `${it.quantity} x ${it.product}`).join(', ')
       const moreTxt = filtered.length > 2 ? ` y ${filtered.length - 2} más` : ''
@@ -2814,6 +2814,8 @@ const server = http.createServer(async (req, res) => {
       const from = state.users.get(fromId)
       const to = state.users.get(toId)
       if (body.action !== 'accept') {
+        const ciPass = body.requestId ? state.consumptionInvites.get(reqString(body.requestId, 0, 80)) : null
+        if (ciPass) ciPass.status = 'pasado'
         if (from && to) {
           const itemName = reqString(body.product, 1, 140)
           try { sendToUser(from.id, 'consumption_passed', { to: { id: to.id, alias: to.alias }, product: itemName }) } catch {}
@@ -2845,7 +2847,7 @@ const server = http.createServer(async (req, res) => {
       })
       state.orders.set(orderId, order)
       await decrementCatalogStock(s, itemName, qty)
-      const ci = Array.from(state.consumptionInvites.values()).find(ci => ci.fromId === fromId && ci.toId === toId && ci.product === itemName)
+      const ci = body.requestId ? state.consumptionInvites.get(reqString(body.requestId, 0, 80)) : null
       if (ci) {
         ci.status = 'aceptado'
         try { sendToUser(toId, 'consumption_status_updated', { requestId: ci.id, status: 'aceptado' }) } catch {}
@@ -2865,6 +2867,8 @@ const server = http.createServer(async (req, res) => {
       const from = state.users.get(fromId)
       const to = state.users.get(toId)
       if (body.action !== 'accept') {
+        const ciPassBulk = body.requestId ? state.consumptionInvites.get(reqString(body.requestId, 0, 80)) : null
+        if (ciPassBulk) ciPassBulk.status = 'pasado'
         if (from && to) {
           const items = Array.isArray(body.items) ? body.items.map(it => ({ product: reqString(it.product, 1, 140), quantity: reqInt(it.quantity || 1, 1, 999) })) : []
           const filtered = items.filter(it => it.product)
@@ -2903,14 +2907,14 @@ const server = http.createServer(async (req, res) => {
           orders.push(order)
         }
       })
+      const ciBulk = body.requestId ? state.consumptionInvites.get(reqString(body.requestId, 0, 80)) : null
+      if (ciBulk) {
+        ciBulk.status = 'aceptado'
+        try { sendToUser(toId, 'consumption_status_updated', { requestId: ciBulk.id, status: 'aceptado' }) } catch {}
+      }
       for (const order of orders) {
         state.orders.set(order.id, order)
         await decrementCatalogStock(s, order.product, order.quantity)
-        const ci = Array.from(state.consumptionInvites.values()).find(ci => ci.fromId === fromId && ci.toId === toId && ci.product === order.product)
-        if (ci) {
-          ci.status = 'aceptado'
-          try { sendToUser(toId, 'consumption_status_updated', { requestId: ci.id, status: 'aceptado' }) } catch {}
-        }
         sendToStaff(order.sessionId, 'order_new', { order })
         sendToUser(order.emitterId, 'order_update', { order })
         sendToUser(order.receiverId, 'order_update', { order })
@@ -3406,10 +3410,10 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/api/user/invites' && req.method === 'GET') {
       const userId = query.userId
-      const TTL = 60 * 1000
+      const nowTs = now()
       const invites = []
       for (const inv of state.invites.values()) {
-        if (inv.toId === userId && inv.status === 'pendiente' && within(TTL, inv.createdAt)) {
+        if (inv.toId === userId && inv.status === 'pendiente' && (!inv.expiresAt || nowTs < inv.expiresAt)) {
           const from = state.users.get(inv.fromId)
           invites.push({
             id: inv.id,
@@ -3420,7 +3424,22 @@ const server = http.createServer(async (req, res) => {
           })
         }
       }
-      json(res, 200, { invites })
+      const consumptionInvites = []
+      for (const ci of state.consumptionInvites.values()) {
+        if (ci.toId === userId && (!ci.status || ci.status === 'pendiente') && ci.expiresAt && nowTs < ci.expiresAt) {
+          const from = state.users.get(ci.fromId)
+          consumptionInvites.push({
+            requestId: ci.id,
+            product: ci.product || '',
+            items: Array.isArray(ci.items) ? ci.items : undefined,
+            quantity: ci.quantity || 1,
+            note: ci.note || '',
+            expiresAt: ci.expiresAt,
+            from: { id: ci.fromId, alias: from ? (from.alias || '') : '', tableId: from ? (from.tableId || '') : '', gender: (from && from.prefs && from.prefs.gender) ? from.prefs.gender : '' }
+          })
+        }
+      }
+      json(res, 200, { invites, consumptionInvites })
       return
     }
     if (pathname === '/api/user/invites/history' && req.method === 'GET') {
